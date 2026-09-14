@@ -1,0 +1,17 @@
+{
+  "_note": "Habits tracked daily by tools/habits.py. Edit freely: add/remove items, reword labels, set your real commitments. area = sleep | eating | commitment.",
+  "habits": [
+    {"id": "sleep-bedtime", "label": "In bed by my target time", "area": "sleep"},
+    {"id": "sleep-noscreen", "label": "No screens 30 min before bed", "area": "sleep"},
+    {"id": "sleep-routine", "label": "Did my bedtime routine", "area": "sleep"},
+    {"id": "sleep-prep", "label": "Prepped tomorrow (clothes / bag / keys)", "area": "sleep"},
+
+    {"id": "eat-morning", "label": "Ate morning fuel", "area": "eating"},
+    {"id": "eat-midday", "label": "Ate mid-day fuel", "area": "eating"},
+    {"id": "eat-noscreen", "label": "No screens during a meal", "area": "eating"},
+    {"id": "eat-pause", "label": "Paused before an impulsive snack", "area": "eating"},
+
+    {"id": "commit-1", "label": "<your commitment 1 — edit me>", "area": "commitment"},
+    {"id": "commit-2", "label": "<your commitment 2 — edit me>", "area": "commitment"}
+  ]
+}
