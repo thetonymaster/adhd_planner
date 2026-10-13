@@ -1,0 +1,15 @@
+{
+  "search": "-path:Templates",
+  "showTags": false,
+  "showAttachments": false,
+  "hideUnresolved": false,
+  "showOrphans": true,
+  "colorGroups": [
+    { "query": "path:Projects", "color": { "a": 1, "rgb": 15238970 } },
+    { "query": "path:Areas",    "color": { "a": 1, "rgb": 9333961 } },
+    { "query": "path:Tasks",    "color": { "a": 1, "rgb": 3837672 } },
+    { "query": "path:Notes",    "color": { "a": 1, "rgb": 5025616 } },
+    { "query": "path:People",   "color": { "a": 1, "rgb": 2533018 } },
+    { "query": "path:Daily",    "color": { "a": 1, "rgb": 10395294 } }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "name": "task-track",
+  "version": "0.1.0",
+  "description": "Keeps the active Obsidian task note in view (band, status line, pane), tracks Pomodoro focus, and lets /note, /done, /openloop write to it without a model turn.",
+  "author": {
+    "name": "Antonio Cabrera"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "vaultPath": {
+      "type": "string",
+      "title": "Vault path",
+      "description": "Absolute path to the Obsidian vault. Empty: $VAULT, else ~/vault.",
+      "default": ""
+    },
+    "focusMinutes": {
+      "type": "number",
+      "title": "Focus block (minutes)",
+      "description": "Active minutes per Pomodoro block before a break nudge.",
+      "default": 25
+    },
+    "breakMinutes": {
+      "type": "number",
+      "title": "Short break (minutes)",
+      "description": "Suggested break length. Idle this long counts as a break taken and resets the block.",
+      "default": 5
+    },
+    "longBreakEvery": {
+      "type": "number",
+      "title": "Long break every N blocks",
+      "default": 4,
+      "description": "Every Nth completed block asks for the long break instead."
+    },
+    "longBreakMinutes": {
+      "type": "number",
+      "title": "Long break (minutes)",
+      "default": 30,
+      "description": "Suggested long-break length."
+    },
+    "staleEdits": {
+      "type": "number",
+      "title": "Stale-log nudge after N edits",
+      "description": "File edits by Claude since the task Log last changed before nudging. 0 turns it off.",
+      "default": 10
+    },
+    "notesToClaude": {
+      "type": "boolean",
+      "title": "Tell Claude about /note, /done, /openloop",
+      "description": "Adds a hidden one-line note to the conversation so Claude knows what you logged.",
+      "default": true
+    }
+  }
+}

@@ -1,0 +1,34 @@
+filters:
+  and:
+    - file.inFolder("Tasks")
+properties:
+  note.up:
+    displayName: Project
+views:
+  - type: table
+    name: Active
+    filters:
+      and:
+        - status == "active"
+    order:
+      - file.name
+      - up
+      - started
+  - type: table
+    name: Parked
+    filters:
+      and:
+        - status == "parked"
+    order:
+      - file.name
+      - up
+      - started
+  - type: table
+    name: Done
+    filters:
+      and:
+        - status == "done"
+    order:
+      - file.name
+      - up
+      - started
