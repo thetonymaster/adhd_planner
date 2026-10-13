@@ -1,17 +1,18 @@
 {
   "name": "planner",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "ADHD-friendly planning: capture and triage a brain dump, break big tasks into startable steps, time-block them around real meetings, print A5 planner pages, and track habits with streaks.",
   "author": {
     "name": "Antonio Cabrera"
   },
   "keywords": [
-    "planner",
+    "a5",
     "adhd",
-    "time-blocking",
     "calendar",
-    "planner",
     "habits",
-    "a5"
+    "planner",
+    "obsidian",
+    "planner",
+    "time-blocking"
   ]
 }

@@ -115,7 +115,15 @@ exists, leave it and say so.
    cd ~/mnt/<planner-folder> && python3 tools/setup_check.py
    ```
 
-8. **Hand off.** Tell the user what to try first, mapped to the skills:
+8. **Vault (optional).** Check for the user's Obsidian vault: a connected folder
+   named `vault` (`~/mnt/vault`), else `$VAULT`, else `~/vault`, with `Tasks/`
+   and `Daily/` inside. Report "vault found at …, planner skills will use it" or
+   "no vault, skills run on planner files only". With a vault, also compare the
+   timezone in `tools/calendars.json` with the device's (`date +%Z`): daily notes
+   use the device's date, so a mismatch (the seeded `UTC`, say) puts evening
+   plans in tomorrow's note. Fix it in step 3's timezone if they differ.
+
+9. **Hand off.** Tell the user what to try first, mapped to the skills:
    - jot lines in `inbox.md`, then "sort my inbox" → capture-triage
    - "break down <task> and plan my day" → break-down-task + plan-day
    - "print a priority-matrix insert" / "print today's daily page"

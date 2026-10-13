@@ -22,6 +22,18 @@ Practically: connect your planner folder to the session, and the skills run
 `python3 tools/…` there. If you don't have a folder yet, run **`/planner:setup`** — it
 seeds one from the copies bundled here and walks you through configuring it.
 
+## Obsidian vault (optional)
+
+If your Obsidian vault is connected (a folder named `vault`, or `$VAULT` / `~/vault`
+with `Tasks/` and `Daily/`), the planning skills use it too: morning-startup and
+plan-day write the Top 3 and the timed plan into today's daily note, capture-triage
+also empties the vault inbox, break-down-task writes subtasks into the task note,
+plan-week pulls open Next items from task notes, and eod-shutdown reads the day's log,
+parks the active task and seeds tomorrow's note. Without a vault nothing changes.
+Scheduled (unattended) runs never touch the vault. The skills also use
+`obsidian-vault`, `/task-start` and `/task-park` when they're installed; none of
+them ships with this plugin, and each step works without them.
+
 ## The skills
 
 | skill | what it does |
