@@ -474,7 +474,7 @@ export const register: Register = (on, options) => {
     // its own `[-]` control at the right end of the band, so the row leaves it 5 columns (its 3 and a gap each side).
     const columns = e.viewport?.columns === undefined ? undefined : Math.max(20, e.viewport.columns - 5)
     return (
-      <Box gap={1} width={columns}>
+      <Box gap={1} width={columns} marginTop={1}>
         <Box flexShrink={0}>
           <Text bold color="claude">▶ {view.slug}</Text>
         </Box>
