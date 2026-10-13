@@ -67,15 +67,18 @@ export function shouldTouch(f: PomoFile, now: number, slug: string): boolean {
 }
 
 /**
- * Records activity on `slug`. A new task starts its own block count. After a break
- * (no activity for breakMinutes, from any session) the next activity starts a fresh block.
+ * Records activity on `slug`. One timer for the person: a different task keeps the running
+ * block, with the time so far credited to the task it was on. After a break (no activity for
+ * breakMinutes, from any session) the next activity starts a fresh block.
  */
 export function touch(f: PomoFile, now: number, slug: string, cfg: PomoConfig): PomoFile {
-  if (f.slug !== slug) {
-    return { ...f, slug, blockStartedAt: now, lastActiveAt: now, creditedUntil: now, blocksDone: f.dayBlocks[slug] ?? 0, lastNotifiedBlock: f.dayBlocks[slug] ?? 0 }
+  const isIdle = f.blockStartedAt === 0 || now - f.lastActiveAt >= cfg.breakMinutes * MINUTE
+  if (isIdle) {
+    const settled = f.slug && f.blockStartedAt !== 0 ? credit(f, Math.min(now, f.lastActiveAt + cfg.breakMinutes * MINUTE)) : f
+    return { ...settled, slug, blockStartedAt: now, creditedUntil: now, lastActiveAt: now }
   }
-  const isFresh = f.blockStartedAt === 0 || now - f.lastActiveAt >= cfg.breakMinutes * MINUTE
-  return isFresh ? { ...f, blockStartedAt: now, creditedUntil: now, lastActiveAt: now } : { ...f, lastActiveAt: now }
+  if (f.slug === slug) return { ...f, lastActiveAt: now }
+  return { ...credit(f, now), slug, creditedUntil: now, lastActiveAt: now }
 }
 
 function credit(f: PomoFile, until: number): PomoFile {

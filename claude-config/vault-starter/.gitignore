@@ -3,3 +3,4 @@
 .trash/
 Tasks/.pomo.json.*.tmp
 Tasks/.pomo.json
+Tasks/.session/

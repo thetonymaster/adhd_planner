@@ -57,6 +57,8 @@ declare module 'claude-code' {
       isLoopsOpen: boolean
       /** The pane's Log section shows every kept line, wrapped, not three truncated. */
       isLogOpen: boolean
+      /** Why the session shows its task, as the pane says it: `this session`, `project: <folder>` or `global`. */
+      source: string
     }
   }
 }

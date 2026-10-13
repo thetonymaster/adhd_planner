@@ -107,7 +107,7 @@ Find your situation. Follow the row. `/name` means invoke that skill for depth.
 
 ## Task notes
 
-- Notes live in the Obsidian vault at `$VAULT/Tasks/` (default `~/vault/Tasks/`), one file per task; `.active` names the current one.
+- Notes live in the Obsidian vault at `$VAULT/Tasks/` (default `~/vault/Tasks/`), one file per task. A session's task: `Tasks/.session/<session-id>` (set by /task-start, /task-switch) → the note whose `repo:` holds the session's folder → `.active` (the task last chosen).
 - The active note's `## Goal`, `## Next` and `## Open loops` are injected at session start, with the full path. Read the full note only when needed.
 - Update `## Next` and add a `## Log` line when a step finishes. Log lines link the day: `- [[2026-10-12]] 18:10 — ...`.
 - Never delete lines in Log or Open loops; strike through with `~~text~~` and say why.

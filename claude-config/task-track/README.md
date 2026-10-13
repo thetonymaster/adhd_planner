@@ -1,6 +1,6 @@
 # task-track
 
-Keeps the active Obsidian task note (`~/vault/Tasks/<.active>.md`) in view inside Claude Code, tracks Pomodoro focus, and writes to the note without a model turn.
+Keeps the active Obsidian task note (the session's task: its /task-switch choice, else the note bound to its repo, else `Tasks/.active`) in view inside Claude Code, tracks Pomodoro focus, and writes to the note without a model turn.
 
 ## What it shows
 

@@ -5,6 +5,8 @@ import type { Engine } from 'claude-code/testing'
 import { codeSpans, insertInSection, logEntry, logOrder, parseNote, splitEstimate, toggleNext } from '../hooks/note'
 import { advance, emptyPomo, markLogged, parsePomo, pomoDots, rollDay, serializePomo, touch, unlogged } from '../hooks/pomo'
 import type { PomoFile } from '../types'
+import { frontmatter, normalize, pickTask } from '../hooks/resolve'
+import type { Candidate } from '../hooks/resolve'
 
 const NOTE = `---
 status: active
@@ -144,10 +146,36 @@ describe('shared pomodoro', () => {
     expect(parsePomo('{"version":1,"slug":"x"')).toBeNull()
     expect(parsePomo('{"version":2}')).toBeNull()
   })
+
+  test('switching task keeps the block; minutes go to the task you were on', () => {
+    let shared = touch(emptyPomo('2026-10-13'), T0, 'a', CFG)
+    for (let m = 1; m <= 10; m++) shared = sessionMinute(shared, T0 + m * MIN, true, 'a').file
+    let last = sessionMinute(shared, T0 + 11 * MIN, true, 'b')
+    shared = last.file
+    expect(shared.blockStartedAt).toBe(T0)
+    for (let m = 12; m <= 25; m++) {
+      last = sessionMinute(shared, T0 + m * MIN, true, 'b')
+      shared = last.file
+    }
+    expect(last.event).toEqual({ kind: 'break', slug: 'b', blocks: 1, isLong: false, minutes: 5 })
+    expect(Math.round((shared.dayMs.a ?? 0) / MIN)).toBe(11)
+    expect(Math.round((shared.dayMs.b ?? 0) / MIN)).toBe(14)
+    expect(shared.dayBlocks).toEqual({ b: 1 })
+  })
+
+  test('the 4th block of the day asks for the long break across tasks', () => {
+    let shared = { ...touch(emptyPomo('2026-10-13'), T0, 'a', CFG), blocksDone: 3, lastNotifiedBlock: 3 }
+    let last = advance(shared, T0, CFG)
+    for (let m = 1; m <= 25; m++) {
+      last = sessionMinute(shared, T0 + m * MIN, true, m <= 12 ? 'a' : 'b')
+      shared = last.file
+    }
+    expect(last.event).toEqual({ kind: 'break', slug: 'b', blocks: 4, isLong: true, minutes: 30 })
+  })
 })
 
 /** An in-memory vault beneath the plugin's $.fs calls. */
-function fakeVault(on: On, files: Record<string, string>) {
+function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}) {
   let mtime = 1000
   const mtimes: Record<string, number> = Object.fromEntries(Object.keys(files).map(k => [k, mtime]))
   const missing = (path: string) => ({ deny: `ENOENT: ${path}` })
@@ -168,6 +196,16 @@ function fakeVault(on: On, files: Record<string, string>) {
     if (text === undefined) return missing(e.path)
     return { value: { kind: 'file' as const, size: text.length, mtimeMs: mtimes[e.path] ?? 0, isLink: false } }
   })
+  on('fs.list', ($, e) => {
+    const prefix = `${e.path}/`
+    const names = Object.keys(files)
+      .filter(k => k.startsWith(prefix) && !k.slice(prefix.length).includes('/'))
+      .map(k => k.slice(prefix.length))
+    if (names.length === 0 && !(e.path in files)) return missing(e.path)
+    return { value: names.map(name => ({ name, kind: 'file' as const, size: (files[prefix + name] ?? '').length, mtimeMs: mtimes[prefix + name] ?? 0, isLink: false })) }
+  })
+  on('session.id', () => ({ value: session.id ?? 'sess-test' }))
+  on('session.root', () => ({ value: session.root ?? '/elsewhere' }))
   return files
 }
 
@@ -447,5 +485,117 @@ describe('task pane', () => {
     const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
     await pane.press({ key: 'next-1' })
     expect(files[PATH]).toContain('- [x] Copy hooks (~10 min)')
+  })
+})
+
+describe('which task a session shows', () => {
+  const HOME = '/home/q'
+  const c = (slug: string, repo: string, status = 'active', mtimeMs = 1): Candidate => ({ slug, repo, status, mtimeMs })
+  const pick = (over: Partial<Parameters<typeof pickTask>[0]>) =>
+    pickTask({ override: '', dir: '/elsewhere', home: HOME, candidates: [], global: '', ...over })
+
+  test('frontmatter reads repo and status, quoted or not', () => {
+    expect(frontmatter('---\nstatus: "active"\nrepo: "~/x"\n---\n# T\n')).toEqual({ repo: '~/x', status: 'active' })
+    expect(frontmatter('---\nstatus: parked\n---\nrepo: not frontmatter\n')).toEqual({ repo: '', status: 'parked' })
+    expect(frontmatter('# no frontmatter\n')).toEqual({ repo: '', status: '' })
+    expect(frontmatter('---\r\nstatus: active\r\nrepo: ~/x\r\n---\r\n# T\r\n')).toEqual({ repo: '~/x', status: 'active' })
+  })
+
+  test('normalize expands ~ and drops a trailing slash', () => {
+    expect(normalize('~/work/infra-app/', HOME)).toBe('/home/q/work/infra-app')
+    expect(normalize('/abs/path', HOME)).toBe('/abs/path')
+  })
+
+  test('a session override wins when its note exists', () => {
+    const candidates = [c('a', '~/repo'), c('b', '')]
+    expect(pick({ override: 'b', dir: '/home/q/repo', candidates, global: 'a' })).toEqual({ slug: 'b', source: 'session' })
+  })
+
+  test('an override naming a deleted note falls through to the repo binding', () => {
+    expect(pick({ override: 'gone', dir: '/home/q/repo', candidates: [c('a', '~/repo')] })).toEqual({ slug: 'a', source: 'repo' })
+  })
+
+  test('repo binding matches the folder or a parent, never a sibling prefix', () => {
+    const candidates = [c('iac', '~/work/infra-app/'), c('sre', '~/work/infra')]
+    expect(pick({ dir: '/home/q/work/infra-app/docker', candidates })).toEqual({ slug: 'iac', source: 'repo' })
+    expect(pick({ dir: '/home/q/work/infra-app', candidates })).toEqual({ slug: 'iac', source: 'repo' })
+    expect(pick({ dir: '/home/q/work/infra-appX', candidates })).toBeNull()
+  })
+
+  test('deepest repo wins, then active over parked, then newest; done never binds', () => {
+    expect(pick({ dir: '/home/q/r/sub', candidates: [c('outer', '~/r'), c('inner', '~/r/sub')] })?.slug).toBe('inner')
+    expect(pick({ dir: '/home/q/r', candidates: [c('p', '~/r', 'parked', 9), c('a', '~/r', 'active', 1)] })?.slug).toBe('a')
+    expect(pick({ dir: '/home/q/r', candidates: [c('old', '~/r', 'active', 1), c('new', '~/r', 'active', 2)] })?.slug).toBe('new')
+    expect(pick({ dir: '/home/q/r', candidates: [c('d', '~/r', 'done')], global: 'g' })).toEqual({ slug: 'g', source: 'global' })
+  })
+
+  test('nothing bound and no global: null', () => {
+    expect(pick({})).toBeNull()
+  })
+})
+
+describe('the session\'s own task', () => {
+  const BOUND = NOTE.replace('status: active\n', 'status: active\nrepo: ~/work/infra-app\n')
+  const OTHER = '---\nstatus: parked\n---\n# Other\n\n## Next\n- [ ] other step\n\n## Log\n'
+  const vault = {
+    '/v/Tasks/.active': 'other\n',
+    '/v/Tasks/other.md': OTHER,
+    [PATH]: BOUND,
+  }
+
+  test('a session in a bound repo shows that task and says so', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    fakeVault(on, { ...vault }, { root: '/home/q/work/infra-app/docker' })
+    await run($, 'openloop', 'load')
+    const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
+    expect(await pane.find({ type: 'Text', text: 'Set up vault' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /project: infra-app/ })).toBeDefined()
+  })
+
+  test('a session elsewhere shows the global task', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    fakeVault(on, { ...vault }, { root: '/home/q/personal' })
+    const out = await run($, 'note', 'x')
+    expect(out.text).toBe('Logged to other.')
+  })
+
+  test('a session override beats the repo binding; a dangling one falls through', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    const files = fakeVault(on, { ...vault, '/v/Tasks/.session/s1': 'other\n' }, { id: 's1', root: '/home/q/work/infra-app' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to other.')
+    delete files['/v/Tasks/other.md']
+    files['/v/Tasks/.active'] = ''
+    expect((await run($, 'note', 'y')).text).toBe('Logged to set-up-vault.')
+  })
+
+  test('a note that vanishes between listing and reading is skipped', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    const GONE = '/v/Tasks/gone.md'
+    on('fs.read', { path: GONE }, ($, e) => ({ deny: `ENOENT: ${e.path}` }))
+    on('fs.exists', { path: GONE }, () => ({ value: false }))
+    fakeVault(on, { ...vault, [GONE]: '---\nstatus: active\n---\n' }, { root: '/home/q/personal' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to other.')
+  })
+
+  test('the minute tick moves the one timer even when another task holds it', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: T0 + 24 * MIN + 30_000 })
+    const held = { ...touch(emptyPomo('2026-10-13'), T0, 'other', CFG), lastActiveAt: T0 + 24 * MIN }
+    const files = fakeVault(on, { ...vault, '/v/Tasks/.pomo.json': serializePomo(held) }, { root: '/home/q/work/infra-app' })
+    on('session.start', ($, e) => ({ cwd: e.cwd }))
+    on('command.register', ($, e) => ({ value: { command: e.name } }))
+    const notified: string[] = []
+    on('ui.notify', ($, e) => {
+      notified.push(e.text)
+      return { value: { isSent: true as const, channel: 'terminal_bell' as const } }
+    })
+    await $.session.start({ cwd: '/home/q/work/infra-app', surface: 'terminal', isInteractive: true })
+    await clock.advance(MIN)
+    expect(parsePomo(files['/v/Tasks/.pomo.json'] ?? '')?.blocksDone).toBe(1)
+    expect(notified).toEqual(['Pomodoro 1 done on other. Break: 5 min.'])
   })
 })

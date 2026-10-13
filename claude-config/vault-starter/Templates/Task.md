@@ -1,6 +1,7 @@
 ---
 status: active
 up: "[[]]"
+repo:
 started: {{date}}
 aliases: []
 tags: [task]

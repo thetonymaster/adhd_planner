@@ -16,6 +16,8 @@ import {
   unlogged,
 } from './pomo'
 import type { DayTotals, PomoConfig, PomoEvent } from './pomo'
+import { frontmatter, normalize, pickTask } from './resolve'
+import type { Candidate } from './resolve'
 
 const task = atom({ plugin: 'task-track', key: 'task' } as const, null)
 const problem = atom({ plugin: 'task-track', key: 'problem' } as const, '')
@@ -23,6 +25,7 @@ const pomo = atom({ plugin: 'task-track', key: 'pomo' } as const, emptyPomo(''))
 const isBandHidden = atom({ plugin: 'task-track', key: 'isBandHidden' } as const, false)
 const isLoopsOpen = atom({ plugin: 'task-track', key: 'isLoopsOpen' } as const, false)
 const isLogOpen = atom({ plugin: 'task-track', key: 'isLogOpen' } as const, false)
+const source = atom({ plugin: 'task-track', key: 'source' } as const, 'global')
 
 const PANE = 'task-track'
 const POLL_MS = 15_000
@@ -48,6 +51,8 @@ let vault = ''
 let editsSinceLog = 0
 let logSize = -1
 let isStaleNudged = false
+/** Frontmatter of each task note by slug, re-read only when the note's mtime moves. */
+const noteCache = new Map<string, Candidate>()
 
 function readSettings(options: PluginOptions): Settings {
   return {
@@ -69,10 +74,53 @@ async function resolveVault($: EngineInterface): Promise<string> {
   return vault
 }
 
-/** Re-reads .active and the note when either changed; returns the current view. */
+/** Every task note's slug, repo, status and mtime; [] when there is no Tasks/ folder. */
+async function candidates($: EngineInterface, root: string): Promise<Candidate[]> {
+  const dir = `${root}/Tasks`
+  if (!(await $.fs.exists(dir))) return []
+  const out: Candidate[] = []
+  for (const entry of await $.fs.list(dir)) {
+    if (entry.kind !== 'file' || !entry.name.endsWith('.md')) continue
+    const slug = entry.name.slice(0, -3)
+    let c = noteCache.get(slug)
+    if (!c || c.mtimeMs !== entry.mtimeMs) {
+      const path = `${dir}/${entry.name}`
+      // Deleted between the listing and the read: not a candidate. Any other read error propagates.
+      const text = await $.fs.read(path).catch(async (err: unknown) => {
+        if (await $.fs.exists(path)) throw err
+        return undefined
+      })
+      if (text === undefined) continue
+      const fm = frontmatter(text)
+      c = { slug, repo: fm.repo, status: fm.status, mtimeMs: entry.mtimeMs }
+      noteCache.set(slug, c)
+    }
+    out.push(c)
+  }
+  return out
+}
+
+/** A file's trimmed text, '' when it does not exist; other read errors propagate. */
+async function readIfExists($: EngineInterface, path: string): Promise<string> {
+  return (await $.fs.exists(path)) ? (await $.fs.read(path)).trim() : ''
+}
+
+/** Resolves the session's task and re-reads its note when it changed; returns the current view. */
 async function load($: EngineInterface): Promise<TaskView | null> {
   const root = await resolveVault($)
-  const slug = (await $.fs.read(`${root}/Tasks/.active`).catch(() => '')).trim()
+  const home = (await $.env.get('HOME')) ?? ''
+  const sessionId = await $.session.id()
+  const [found, override, dir, global] = await Promise.all([
+    candidates($, root),
+    readIfExists($, `${root}/Tasks/.session/${sessionId}`),
+    $.session.root(),
+    readIfExists($, `${root}/Tasks/.active`),
+  ])
+  const picked = pickTask({ override, dir, home, candidates: found, global })
+  const slug = picked?.slug ?? ''
+  const repo = found.find(c => c.slug === slug)?.repo ?? ''
+  const label = picked?.source === 'session' ? 'this session' : picked?.source === 'repo' ? `project: ${normalize(repo, home).split('/').pop()}` : 'global'
+  await update($, source, () => label)
   const prev = await read($, task)
   await refreshPomo($)
   if (!slug) {
@@ -111,13 +159,13 @@ async function showStatus($: EngineInterface): Promise<void> {
   }
   const { done, total } = progress(view.next)
   const p = await read($, pomo)
-  const timer = p.slug === view.slug ? pomoDots(p, await $.clock.now(), settings) : 'idle'
+  const timer = pomoDots(p, await $.clock.now(), settings)
   $.ui.status(`▶ ${view.slug} ${done}/${total} · ${timer}`)
 }
 
 /** Read fresh, change, write back: the note is the source of truth. */
 async function edit($: EngineInterface, change: (text: string) => string): Promise<TaskView | null> {
-  const view = (await read($, task)) ?? (await load($))
+  const view = await load($)
   if (!view) return null
   const before = await $.fs.read(view.path)
   const after = change(before)
@@ -276,8 +324,9 @@ async function tick($: EngineInterface): Promise<void> {
   if (!view) return
   const now = await $.clock.now()
   const out: { event: PomoEvent } = { event: { kind: 'none' } }
+  // One timer for the person: advance it whichever task holds it, or a block left by a closed
+  // session would climb past focusMinutes and never announce its break.
   const f = await changePomo($, file => {
-    if (file.slug !== view.slug) return file
     const r = advance(file, now, settings)
     out.event = r.event
     return r.event.kind === 'break' ? { ...r.file, notifiedBy: SESSION } : r.file
@@ -431,7 +480,7 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'done' }, async ($, e) => {
     await markActive($)
-    const view = (await read($, task)) ?? (await load($))
+    const view = await load($)
     if (!view) return { text: 'No active task. /task-start <name>' }
     const arg = e.args.trim()
     const index = arg ? Number(arg) - 1 : firstOpen(view.next)
@@ -464,7 +513,7 @@ export const register: Register = (on, options) => {
     if (!view || e.props.hasSurvey || (await read($, isBandHidden))) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
     const p = await read($, pomo)
-    const timer = p.slug === view.slug ? pomoDots(p, await $.clock.now(), settings) : 'idle'
+    const timer = pomoDots(p, await $.clock.now(), settings)
     const { done, total } = progress(view.next)
     const open = view.next[firstOpen(view.next)]
     const step = open ? splitEstimate(open.text) : undefined
@@ -516,7 +565,8 @@ export const register: Register = (on, options) => {
     }
     const p = await read($, pomo)
     const now = await $.clock.now()
-    const timer = p.slug === view.slug ? pomoDots(p, now, settings) : 'idle'
+    const timer = pomoDots(p, now, settings)
+    const why = await read($, source)
     const { done, total } = progress(view.next)
     const nowIndex = firstOpen(view.next)
     const open = view.next.flatMap((item, i) => (!item.isDone && i !== nowIndex ? [{ item, i }] : []))
@@ -571,6 +621,7 @@ export const register: Register = (on, options) => {
           <Text>
             {timer} <Text color="subtle">· today {elapsed(p.dayMs[view.slug] ?? 0)} · Next {done}/{total}</Text>
             {view.up ? <Text color="subtle"> · {view.up}</Text> : null}
+            <Text color="subtle"> · {why}</Text>
           </Text>
         </Box>
         {label('NOW')}

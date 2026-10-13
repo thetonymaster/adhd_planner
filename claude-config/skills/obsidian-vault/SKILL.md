@@ -16,7 +16,7 @@ Claude writes is an edge Q will see. Wrong links = wrong graph.
 |---|---|---|
 | `00 Inbox/` | Unsorted captures. Only place a note may sit without an `up` link. | — |
 | `Daily/` | `YYYY-MM-DD.md`, one per day | `Templates/Daily.md` |
-| `Tasks/` | One note per task, kebab-case slug filename. `.active` holds the current slug. | `Templates/Task.md` |
+| `Tasks/` | One note per task, kebab-case slug filename. `repo:` binds a task to a repo folder. `.active` holds the last chosen slug; `.session/<id>` a session's own. | `Templates/Task.md` |
 | `Projects/` | Hub per project with an end (Northwind, ADHD Planner) | `Templates/Project.md` |
 | `Areas/` | Hub per ongoing responsibility with no end (Acme SRE, Health) | `Templates/Project.md` |
 | `Notes/` | Evergreen knowledge: concepts, runbooks, decisions, references | `Templates/Note.md` |
