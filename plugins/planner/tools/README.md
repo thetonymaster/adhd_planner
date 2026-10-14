@@ -28,6 +28,7 @@ scripts — they are your data, not part of the plugin:
 ## Quick start
 
 ```
+python3 -m pip install reportlab              # needed by the PDF generators
 python3 tools/setup_check.py                  # what's ready, what's missing
 python3 tools/make_insert.py --list           # available blank pages
 python3 tools/make_insert.py priority-matrix  # one A5 insert
