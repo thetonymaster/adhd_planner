@@ -1,0 +1,24 @@
+{
+  "name": "adhd-planner",
+  "description": "ADHD-friendly planning and Obsidian task notes for Claude Code and Cowork.",
+  "owner": {
+    "name": "Antonio Cabrera"
+  },
+  "plugins": [
+    {
+      "name": "planner",
+      "source": "./plugins/planner",
+      "description": "Brain-dump triage, task breakdown, time-blocking around real meetings, A5 pages, habits. Code and Cowork."
+    },
+    {
+      "name": "tasks",
+      "source": "./plugins/tasks",
+      "description": "Obsidian task notes: session-start context and vault access hooks, plus start/park/switch and note skills. Code and Cowork."
+    },
+    {
+      "name": "task-track",
+      "source": "./plugins/task-track",
+      "description": "Claude Code only (a mod): task band, pane, shared Pomodoro, /note /done /openloop without a model turn."
+    }
+  ]
+}

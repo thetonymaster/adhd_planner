@@ -1,0 +1,15 @@
+{
+  "name": "tasks",
+  "version": "0.1.0",
+  "description": "Obsidian task notes: start, park and switch tasks, see the active task's Next at session start, and add notes or check items from Code or Cowork.",
+  "author": { "name": "Antonio Cabrera" },
+  "keywords": ["adhd", "obsidian", "tasks"],
+  "userConfig": {
+    "vaultPath": {
+      "type": "string",
+      "title": "Vault path",
+      "description": "Absolute path to the Obsidian vault. Empty: $VAULT, else ~/vault.",
+      "default": ""
+    }
+  }
+}

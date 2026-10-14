@@ -4,7 +4,7 @@
 # the previous planner.plugin and no temp files behind.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
-src="$repo/planner-plugin"
+src="$repo/plugins/planner"
 out="$repo/planner.plugin"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

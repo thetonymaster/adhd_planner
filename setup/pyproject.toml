@@ -1,0 +1,23 @@
+[project]
+name = "planner-setup"
+version = "0.1.0"
+description = "Set up the adhd-planner marketplace for Claude Code and Cowork."
+requires-python = ">=3.10"
+dependencies = ["questionary>=2.0"]
+
+[project.scripts]
+planner-setup = "planner_setup.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/planner_setup"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"../examples" = "planner_setup/examples"
+"../docs/setup.md" = "planner_setup/examples/setup.md"

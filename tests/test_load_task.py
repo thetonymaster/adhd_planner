@@ -1,4 +1,4 @@
-"""Tests for claude-config/hooks/load-task.sh. Run: python3 -m unittest discover -s tests"""
+"""Tests for plugins/tasks/hooks/load-task.sh. Run: python3 -m unittest discover -s tests"""
 import json
 import os
 import pathlib
@@ -8,7 +8,7 @@ import tempfile
 import time
 import unittest
 
-HOOK = pathlib.Path(__file__).resolve().parent.parent / "claude-config" / "hooks" / "load-task.sh"
+HOOK = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "tasks" / "hooks" / "load-task.sh"
 NOTE = "---\nstatus: {status}\n{repo}---\n# {slug}\n\n## Goal\ngoal {slug}\n\n## Next\n- [ ] step {slug}\n\n## Log\n"
 
 
@@ -27,8 +27,8 @@ class LoadTaskTest(unittest.TestCase):
         if mtime is not None:
             os.utime(path, (mtime, mtime))
 
-    def run_hook(self, payload=None, stdin=None):
-        env = {"HOME": str(self.home), "PATH": os.environ["PATH"]}
+    def run_hook(self, payload=None, stdin=None, env_extra=None):
+        env = {"HOME": str(self.home), "PATH": os.environ["PATH"], **(env_extra or {})}
         data = json.dumps(payload).encode() if payload is not None else None
         out = subprocess.run(["bash", str(HOOK)], input=data, stdin=stdin, env=env,
                              capture_output=True, timeout=10, check=True)
@@ -119,6 +119,52 @@ class LoadTaskTest(unittest.TestCase):
         self.run_hook({"session_id": "x", "cwd": str(self.home)})
         self.assertFalse((sessions / "old").exists())
         self.assertTrue((sessions / "new").exists())
+
+    def test_repo_reached_through_a_symlink_binds(self):
+        real = self.home / "real" / "app"
+        real.mkdir(parents=True)
+        os.symlink(self.home / "real", self.home / "link")
+        self.note("viasym", repo="~/link/app")
+        out = self.run_hook({"session_id": "x", "cwd": str(real)})
+        self.assertIn("Active task: viasym (project: app)", out)
+        self.note("viareal", repo="~/real/app", mtime=time.time() + 10)
+        os.remove(self.tasks / "viasym.md")
+        out = self.run_hook({"session_id": "x", "cwd": str(self.home / "link" / "app")})
+        self.assertIn("Active task: viareal (project: app)", out)
+
+    def test_plugin_option_beats_vault_env(self):
+        other = self.home / "elsewhere" / "Tasks"
+        other.mkdir(parents=True)
+        (other / "opt.md").write_text(NOTE.format(slug="opt", status="active", repo=""))
+        (other / ".active").write_text("opt\n")
+        (self.tasks / ".active").write_text("ignored\n")
+        out = self.run_hook({"session_id": "x", "cwd": "/"}, env_extra={
+            "CLAUDE_PLUGIN_OPTION_VAULTPATH": str(self.home / "elsewhere"),
+            "VAULT": str(self.home / "vault")})
+        self.assertIn("Active task: opt (global)", out)
+
+    def test_tilde_in_option_is_expanded(self):
+        alt = self.home / "alt" / "Tasks"
+        alt.mkdir(parents=True)
+        (alt / "a.md").write_text(NOTE.format(slug="a", status="active", repo=""))
+        (alt / ".active").write_text("a\n")
+        out = self.run_hook({"session_id": "x", "cwd": "/"}, env_extra={"CLAUDE_PLUGIN_OPTION_VAULTPATH": "~/alt"})
+        self.assertIn("Active task: a (global)", out)
+
+    def test_no_vault_prints_only_the_time(self):
+        shutil.rmtree(self.home / "vault")
+        out = self.run_hook({"session_id": "x", "cwd": "/"})
+        self.assertRegex(out, r"^Now: .+\n$")
+
+    def test_no_task_hint_uses_prefixed_skill(self):
+        out = self.run_hook({"session_id": "x", "cwd": "/"})
+        self.assertIn("/tasks:task-start", out)
+
+    def test_vault_line_names_the_resolved_vault_even_with_no_task(self):
+        (self.home / "alt" / "Tasks").mkdir(parents=True)
+        out = self.run_hook({"session_id": "x", "cwd": "/"}, env_extra={"CLAUDE_PLUGIN_OPTION_VAULTPATH": "~/alt"})
+        self.assertIn(f"Vault: {self.home / 'alt'}\n", out)
+        self.assertIn("No active task", out)
 
 
 if __name__ == "__main__":

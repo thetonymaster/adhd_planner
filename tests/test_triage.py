@@ -11,7 +11,7 @@ import sys
 import tempfile
 import unittest
 
-SRC = pathlib.Path(__file__).resolve().parent.parent / "planner-plugin" / "tools" / "triage.py"
+SRC = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "planner" / "tools" / "triage.py"
 
 
 class TriageTest(unittest.TestCase):

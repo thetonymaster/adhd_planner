@@ -1,0 +1,11 @@
+{
+  "//": "Copy the parts you want into ~/.claude/settings.json. planner-setup's Settings item writes the same keys.",
+  "permissions": {
+    "additionalDirectories": ["~/vault"],
+    "allow": ["Bash(obsidian:*)"]
+  },
+  "pluginConfigs": {
+    "tasks@adhd-planner": { "options": { "vaultPath": "~/vault" } },
+    "task-track@adhd-planner": { "options": { "vaultPath": "~/vault" } }
+  }
+}
