@@ -25,7 +25,21 @@ export type PomoFile = {
   slug: string
   /** Epoch ms the running block started; 0 = between blocks (on a break). */
   blockStartedAt: number
-  /** Epoch ms of the last prompt, tool call, press or command in any session. */
+  /** Epoch ms the break after a finished block ends; until then no block starts. 0 = none. */
+  breakUntil: number
+  /** The break at breakUntil is the long one (every longBreakEvery-th block). */
+  isLongBreak: boolean
+  /** Epoch ms the timer was paused; 0 = not paused. Pause freezes a block or a break. */
+  pausedAt: number
+  /** Q stopped the timer: activity starts no block until /pomo start or the next day. */
+  isStopped: boolean
+  /** Wall-clock start of the running block (pause does not shift it); 0 = no block. For the break summary. */
+  blockOpenedAt: number
+  /** Checked Next item titles per task when the block reached it, to tell what got checked during the block. */
+  blockSnapshot: Record<string, string[]>
+  /** What happened during the block, for the opt-in AI summary (breakSummaryAI). Last 60 entries. */
+  blockActivity: string[]
+  /** Epoch ms of Q's last prompt, press or command in any session (Claude's tool calls don't count). */
   lastActiveAt: number
   /** Epoch ms up to which active time has been added to dayMs (credited once, by any session). */
   creditedUntil: number
@@ -59,6 +73,10 @@ declare module 'claude-code' {
       isLogOpen: boolean
       /** Why the session shows its task, as the pane says it: `this session`, `project: <folder>` or `global`. */
       source: string
+      /** breakUntil of the break this session already reminded Q of on a prompt. */
+      toldBreakUntil: number
+      /** This session already said that mv onto .pomo.json failed. */
+      toldMvFailed: boolean
     }
   }
 }

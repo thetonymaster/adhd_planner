@@ -1,7 +1,7 @@
 {
   "name": "task-track",
   "version": "0.1.0",
-  "description": "Keeps the active Obsidian task note in view (band, status line, pane), tracks Pomodoro focus, and lets /note, /done, /openloop write to it without a model turn.",
+  "description": "Keeps the active Obsidian task note in view (band, pane), runs one shared Pomodoro you can /pomo start, pause, resume and stop, and lets /note, /done, /openloop write to the note without a model turn.",
   "author": {
     "name": "Antonio Cabrera"
   },
@@ -48,6 +48,12 @@
       "title": "Tell Claude about /note, /done, /openloop",
       "description": "Adds a hidden one-line note to the conversation so Claude knows what you logged.",
       "default": true
+    },
+    "breakSummaryAI": {
+      "type": "boolean",
+      "title": "AI line in the break notification",
+      "description": "Off by default. While on, each block records your prompts (first 80 characters), files Claude edits and commands it runs in vault/Tasks/.pomo.json, a file in your synced vault, and asks Claude Haiku for one line on what got done (about $0.0005 a break).",
+      "default": false
     }
   }
 }

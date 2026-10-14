@@ -5,18 +5,30 @@ import type { PomoFile, TaskView } from '../types'
 import { codeSpans, elapsed, firstOpen, insertInSection, logEntry, logOrder, parseNote, progress, splitEstimate, stamp, toggleNext, truncate } from './note'
 import {
   advance,
+  isRunning,
+  onBreak,
   emptyPomo,
   markLogged,
   parsePomo,
+  pause,
   pomoDots,
+  pomoState,
+  recordActivity,
+  resume,
   rollDay,
   serializePomo,
   shouldTouch,
+  snapshotTask,
+  start,
+  stop,
+  toggle as togglePomo,
   touch,
   unlogged,
 } from './pomo'
-import type { DayTotals, PomoConfig, PomoEvent } from './pomo'
+import type { DayTotals, PomoConfig, PomoEvent, Transition } from './pomo'
 import { frontmatter, normalize, pickTask } from './resolve'
+import { blockSummary, checkedTitles, SUMMARY_SYSTEM, summaryPrompt } from './summary'
+import type { NoteRead } from './summary'
 import type { Candidate } from './resolve'
 
 const task = atom({ plugin: 'task-track', key: 'task' } as const, null)
@@ -26,6 +38,8 @@ const isBandHidden = atom({ plugin: 'task-track', key: 'isBandHidden' } as const
 const isLoopsOpen = atom({ plugin: 'task-track', key: 'isLoopsOpen' } as const, false)
 const isLogOpen = atom({ plugin: 'task-track', key: 'isLogOpen' } as const, false)
 const source = atom({ plugin: 'task-track', key: 'source' } as const, 'global')
+const toldBreakUntil = atom({ plugin: 'task-track', key: 'toldBreakUntil' } as const, 0)
+const toldMvFailed = atom({ plugin: 'task-track', key: 'toldMvFailed' } as const, false)
 
 const PANE = 'task-track'
 const POLL_MS = 15_000
@@ -35,7 +49,7 @@ const MIN_LOGGED_MS = 5 * 60_000
 /** This session, for telling which one announced a break. New on every load. */
 const SESSION = Math.random().toString(36).slice(2, 10)
 
-type Settings = PomoConfig & { vaultPath: string; staleEdits: number; notesToClaude: boolean }
+type Settings = PomoConfig & { vaultPath: string; staleEdits: number; notesToClaude: boolean; breakSummaryAI: boolean }
 
 // Module-local: set by register, reset on reload (state that must survive lives in atoms).
 let settings: Settings = {
@@ -46,6 +60,7 @@ let settings: Settings = {
   longBreakMinutes: 30,
   staleEdits: 10,
   notesToClaude: true,
+  breakSummaryAI: false,
 }
 let vault = ''
 let editsSinceLog = 0
@@ -63,6 +78,7 @@ function readSettings(options: PluginOptions): Settings {
     longBreakMinutes: Number(options.longBreakMinutes ?? 30),
     staleEdits: Number(options.staleEdits ?? 10),
     notesToClaude: options.notesToClaude !== false,
+    breakSummaryAI: options.breakSummaryAI === true,
   }
 }
 
@@ -128,7 +144,6 @@ async function load($: EngineInterface): Promise<TaskView | null> {
     const hasVault = await $.fs.exists(root)
     await update($, task, () => null)
     await update($, problem, () => (hasVault ? '' : `No vault at ${root}`))
-    $.ui.status(undefined)
     return null
   }
   const path = `${root}/Tasks/${slug}.md`
@@ -147,20 +162,7 @@ async function load($: EngineInterface): Promise<TaskView | null> {
   }
   await update($, task, () => view)
   await update($, problem, () => '')
-  await showStatus($)
   return view
-}
-
-async function showStatus($: EngineInterface): Promise<void> {
-  const view = await read($, task)
-  if (!view) {
-    $.ui.status(undefined)
-    return
-  }
-  const { done, total } = progress(view.next)
-  const p = await read($, pomo)
-  const timer = pomoDots(p, await $.clock.now(), settings)
-  $.ui.status(`▶ ${view.slug} ${done}/${total} · ${timer}`)
 }
 
 /** Read fresh, change, write back: the note is the source of truth. */
@@ -177,7 +179,6 @@ async function edit($: EngineInterface, change: (text: string) => string): Promi
   editsSinceLog = 0
   isStaleNudged = false
   await update($, task, () => fresh)
-  await showStatus($)
   return fresh
 }
 
@@ -204,10 +205,14 @@ async function today($: EngineInterface): Promise<string> {
   return stamp(new Date(await $.clock.now())).date
 }
 
-/** The shared file; a fresh one when missing; null when unreadable this round (half-written). */
+/**
+ * The shared file; a fresh one only when it does not exist. Null when it exists but can't be read
+ * or parsed this round (half-written, permissions, sync): never replace a file we couldn't read.
+ */
 async function readPomo($: EngineInterface): Promise<PomoFile | null> {
-  const text = await $.fs.read(await pomoPath($)).catch(() => undefined)
-  if (text === undefined) return emptyPomo(await today($))
+  const path = await pomoPath($)
+  const text = await $.fs.read(path).catch(() => undefined)
+  if (text === undefined) return (await $.fs.exists(path)) ? null : emptyPomo(await today($))
   return parsePomo(text)
 }
 
@@ -217,11 +222,18 @@ async function writePomo($: EngineInterface, f: PomoFile): Promise<void> {
   const tmp = `${path}.${SESSION}.tmp`
   const text = serializePomo(f)
   await $.fs.write(tmp, text)
-  const isMoved = await $.process
+  const why = await $.process
     .run(['mv', '-f', tmp, path])
-    .then(r => r.exitCode === 0)
-    .catch(() => false)
-  if (!isMoved) await $.fs.write(path, text)
+    .then(r => (r.exitCode === 0 ? '' : `exit ${r.exitCode}: ${r.stderr.trim()}`))
+    .catch((err: unknown) => (err instanceof Error ? err.message : String(err)))
+  if (why) {
+    // Still written, but not atomically: say so once per session instead of falling back in silence.
+    if (!(await read($, toldMvFailed))) {
+      await update($, toldMvFailed, () => true)
+      $.ui.log(`task-track: mv onto ${path} failed (${why}); writing it directly, so another session may read half a file.`)
+    }
+    await $.fs.write(path, text)
+  }
   await update($, pomo, () => f)
 }
 
@@ -297,13 +309,95 @@ async function changePomo($: EngineInterface, change: (f: PomoFile) => PomoFile)
   return next
 }
 
-/** Activity in this session: written to the shared file at most once a minute. */
-async function markActive($: EngineInterface): Promise<void> {
+/**
+ * Activity in this session: written to the shared file at most once a minute. Q's own
+ * actions can start a block; Claude's tool calls (`byClaude`) only keep a running one alive.
+ */
+async function markActive($: EngineInterface, byClaude = false): Promise<void> {
   const view = await read($, task)
   if (!view) return
   const now = await $.clock.now()
-  if (!shouldTouch(await read($, pomo), now, view.slug)) return
-  await changePomo($, f => touch(f, now, view.slug, settings))
+  const p = await read($, pomo)
+  if (byClaude && !isRunning(p, now, settings)) return
+  if (!shouldTouch(p, now, view.slug)) return
+  await changePomo($, f => snapshotTask(touch(f, now, view.slug, settings), view.slug, checkedTitles(view.next)))
+}
+
+/** One entry for the AI summary, only while it is on and a block runs (not paused, stopped or on break). */
+async function noteActivity($: EngineInterface, entry: string): Promise<void> {
+  if (!settings.breakSummaryAI) {
+    // Turned off mid-block: what was already recorded leaves the synced file now, not at the block's end.
+    if ((await read($, pomo)).blockActivity.length > 0) await changePomo($, f => ({ ...f, blockActivity: [] }))
+    return
+  }
+  const now = await $.clock.now()
+  if (pomoState(await read($, pomo), now, settings) !== 'running') return
+  await changePomo($, f => (pomoState(f, now, settings) === 'running' ? recordActivity(f, entry) : f))
+}
+
+/** The opt-in AI line, after the note summary is on screen. A failed call says why. */
+async function aiLine($: EngineInterface, slug: string, noteSummary: string, activity: readonly string[]): Promise<void> {
+  const r = await $.model
+    .complete({ model: 'claude-haiku-5-5', system: SUMMARY_SYSTEM, prompt: summaryPrompt(slug, noteSummary, activity), maxTokens: 120, effort: 'low', timeoutMs: 10_000 })
+    .catch((err: unknown) => ({ isAnswered: false as const, reason: err instanceof Error ? err.message : String(err) }))
+  if (!r.isAnswered) {
+    $.ui.toast(`(AI summary failed: ${r.reason})`)
+    return
+  }
+  const text = r.text.trim()
+  if (!text) {
+    $.ui.toast('(AI summary failed: empty reply)')
+    return
+  }
+  $.ui.toast(text)
+  void $.ui.notify(text, { title: 'task-track' })
+}
+
+type PomoAction = 'toggle' | 'start' | 'pause' | 'resume' | 'stop'
+const POMO_ACTIONS: readonly string[] = ['start', 'pause', 'resume', 'stop']
+const isPomoAction = (s: string): s is PomoAction => s === 'toggle' || POMO_ACTIONS.includes(s)
+
+/**
+ * One control of the shared timer, from /pomo or a band button. It does not mark activity:
+ * a touch first would start a block and turn `/pomo start` into "already running".
+ * Returns what to tell Q.
+ */
+async function runPomo($: EngineInterface, action: PomoAction): Promise<string> {
+  const view = (await read($, task)) ?? (await load($))
+  if (!view) return 'No active task. /task-start <name>'
+  const now = await $.clock.now()
+  const out: { t?: Transition; held?: string } = {}
+  const f = await changePomo($, file => {
+    out.held = file.slug
+    const t =
+      action === 'toggle' ? togglePomo(file, now, view.slug, settings)
+      : action === 'start' ? start(file, now, view.slug, settings)
+      : action === 'pause' ? pause(file, now, settings)
+      : action === 'resume' ? resume(file, now, settings)
+      : stop(file, now, settings)
+    out.t = t
+    return 'error' in t ? file : snapshotTask(t.file, view.slug, checkedTitles(view.next))
+  })
+  if (!f) return `Can't read ${await pomoPath($)}: unreadable or not a timer file. Nothing changed.`
+  const t = out.t
+  if (!t) throw new Error(`runPomo(${action}): changePomo returned a file without running the change`)
+  if ('error' in t) return t.error
+  // No compare-and-set on the file: read back, so a change another session overwrote isn't reported as done.
+  const check = await readPomo($)
+  if (!check) return `Wrote ${await pomoPath($)} but can't read it back. Check the band before relying on it.`
+  if (pomoState(check, now, settings) !== pomoState(f, now, settings)) {
+    return `Didn't stick: another session wrote the timer at the same moment (${pomoDots(check, now, settings)}). Try again.`
+  }
+  if (action === 'stop') {
+    // stop credits the task holding the timer, which may be another session's.
+    const held = out.held || view.slug
+    await flushFocus($, held, held === view.slug ? view.path : `${await resolveVault($)}/Tasks/${held}.md`)
+  }
+  return `${pomoDots(f, now, settings)} · ${view.slug}`
+}
+
+async function pressPomo($: EngineInterface, action: PomoAction): Promise<void> {
+  $.ui.toast(await runPomo($, action))
 }
 
 /** Writes today's not-yet-logged focus on `slug` to its task Log and the daily note, once across sessions. */
@@ -331,16 +425,39 @@ async function tick($: EngineInterface): Promise<void> {
     out.event = r.event
     return r.event.kind === 'break' ? { ...r.file, notifiedBy: SESSION } : r.file
   })
-  await showStatus($)
   const event = out.event
   if (!f || event.kind !== 'break') return
   const check = await readPomo($)
   if (!check || check.notifiedBy !== SESSION || check.lastNotifiedBlock !== event.blocks) return
-  const text = event.isLong
+  const root = await resolveVault($)
+  const slugs = [...new Set([event.slug, ...Object.keys(event.snapshot)])]
+  // A note that can't be read is named in the summary; the break has already started.
+  const notes: NoteRead[] = await Promise.all(
+    slugs.map(slug =>
+      $.fs.read(`${root}/Tasks/${slug}.md`).then(
+        text => ({ slug, text }),
+        (err: unknown) => ({ slug, error: err instanceof Error ? err.message : String(err) }),
+      ),
+    ),
+  )
+  const header = event.isLong
     ? `${event.blocks} pomodoros on ${event.slug}. Long break: ${event.minutes} min.`
     : `Pomodoro ${event.blocks} done on ${event.slug}. Break: ${event.minutes} min.`
+  const summary = blockSummary(notes, event.snapshot, event.openedAt)
+  const text = `${header}\n${summary}`
   $.ui.toast(text)
   void $.ui.notify(text, { title: 'task-track' })
+  if (settings.breakSummaryAI) await aiLine($, event.slug, summary, event.activity)
+}
+
+/** A prompt during a break: say once per break how long is left, since no block runs until it ends. */
+async function remindBreak($: EngineInterface): Promise<void> {
+  const p = await read($, pomo)
+  const brk = onBreak(p, await $.clock.now())
+  // A paused break has no countdown, and the next block won't start on its own after it.
+  if (!brk || p.pausedAt || (await read($, toldBreakUntil)) === p.breakUntil) return
+  await update($, toldBreakUntil, () => p.breakUntil)
+  $.ui.toast(`On a ${brk.isLong ? 'long ' : ''}break: ${brk.minutesLeft} min left. The next block starts after it.`)
 }
 
 async function openPane($: EngineInterface): Promise<void> {
@@ -388,6 +505,7 @@ const COMMANDS = [
   { name: 'note', description: 'Add a line to the active task Log (no model turn)', argumentHint: '<text>', immediate: true },
   { name: 'done', description: 'Check off a Next item (default: the first open one)', argumentHint: '[n]', immediate: true },
   { name: 'openloop', description: 'Add an Open loop to the active task', argumentHint: '<text>', immediate: true },
+  { name: 'pomo', description: 'Pomodoro: /pomo pauses or resumes; /pomo start|pause|resume|stop', argumentHint: '[start|pause|resume|stop]', immediate: true },
 ] as const
 
 /** Registers each command on its own: one refused name (a built-in, another plugin's) never stops the rest or the start hook. */
@@ -432,15 +550,24 @@ export const register: Register = (on, options) => {
   // ── activity + staleness ────────────────────────────────────────────────
 
   on('prompt.submit', async ($, e, next) => {
+    // /pomo controls the timer; counting its keystroke as activity would start a block first.
+    if (/^\/pomo\b/.test(e.text.trimStart())) return next(e)
     await markActive($)
+    await remindBreak($)
+    await noteActivity($, `prompt: ${truncate(e.text.trim().replaceAll('\n', ' '), 80)}`)
     return next(e)
   }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
     const ran = await next(e)
-    await markActive($)
     const isEdit = e.tool === 'Edit' || e.tool === 'Write' || e.tool === 'NotebookEdit'
     const path = 'file_path' in e && typeof e.file_path === 'string' ? e.file_path : undefined
+    await markActive($, true)
+    if (isEdit && path) {
+      const root = await $.session.root()
+      await noteActivity($, `edit: ${path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path}`)
+    }
+    if (e.tool === 'Bash' && 'command' in e && typeof e.command === 'string') await noteActivity($, `ran: ${truncate(e.command, 80)}`)
     if (!isEdit || !path) return ran
     const view = await read($, task)
     if (view && path === view.path) {
@@ -506,6 +633,12 @@ export const register: Register = (on, options) => {
     return { text: `Open loop added to ${view.slug}.`, ...told(`Q added an open loop to ${view.slug}: ${text}`) }
   })
 
+  on('command.run', { command: 'pomo' }, async ($, e) => {
+    const action = e.args.trim() || 'toggle'
+    if (!isPomoAction(action)) return { text: `Unknown: /pomo ${action}. Use start|pause|resume|stop` }
+    return { text: await runPomo($, action) }
+  })
+
   // ── band above the prompt: only while a task is active ──────────────────
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -513,7 +646,9 @@ export const register: Register = (on, options) => {
     if (!view || e.props.hasSurvey || (await read($, isBandHidden))) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
     const p = await read($, pomo)
-    const timer = pomoDots(p, await $.clock.now(), settings)
+    const now = await $.clock.now()
+    const timer = pomoDots(p, now, settings)
+    const state = pomoState(p, now, settings)
     const { done, total } = progress(view.next)
     const open = view.next[firstOpen(view.next)]
     const step = open ? splitEstimate(open.text) : undefined
@@ -537,6 +672,12 @@ export const register: Register = (on, options) => {
           <Text color="subtle">
             {done}/{total} · {timer}
           </Text>
+        </Box>
+        <Box flexShrink={0} gap={1}>
+          {(state === 'running' || state === 'break') && <Button key="pomo-pause" label="⏸" onPress={() => pressPomo($, 'pause')} />}
+          {state === 'paused' && <Button key="pomo-resume" label="▶" onPress={() => pressPomo($, 'resume')} />}
+          {state !== 'stopped' && state !== 'idle' && <Button key="pomo-stop" label="⏹" onPress={() => pressPomo($, 'stop')} />}
+          {(state === 'stopped' || state === 'idle') && <Button key="pomo-start" label="▶" onPress={() => pressPomo($, 'start')} />}
         </Box>
         <Box flexShrink={0} gap={1}>
           {open && <Button key="done" label="Done" onPress={() => pressDoneFirst($)} />}

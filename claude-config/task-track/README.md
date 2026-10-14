@@ -17,6 +17,7 @@ Keeps the active Obsidian task note (the session's task: its /task-switch choice
 | `/note <text>` | Adds `- [[date]] HH:MM — text` to the Log |
 | `/done [n]` | Checks off item n, or the first open one (again to reopen) |
 | `/openloop <text>` | Adds an Open loop (`/loop` is a built-in) |
+| `/pomo [start\|pause\|resume\|stop]` | Controls the shared Pomodoro; bare `/pomo` pauses or resumes |
 
 Each also adds a hidden one-line note so Claude knows what you logged (turn off with `notesToClaude`).
 
@@ -25,8 +26,12 @@ Each also adds a hidden one-line note so Claude knows what you logged (turn off 
 One timer for every Claude Code session, kept in `vault/Tasks/.pomo.json` (hidden from Obsidian, synced with the vault):
 
 - **Timestamps, not counters.** Every session derives block progress from `now − blockStartedAt`, so two sessions never make a block fill twice as fast, and a restart picks up mid-block.
-- **Activity is shared.** A prompt, tool call, press or command in any session updates `lastActiveAt` (at most once a minute). No activity anywhere for the short-break length = break taken; the next activity starts a fresh block.
-- **One announcement.** 25 minutes into a block, the first session to tick bumps the count and announces it (toast + system notification). Others see it was announced and stay quiet. Every 4th block asks for the 30-minute long break.
+- **Activity is shared.** A prompt, press or command in any session updates `lastActiveAt` (at most once a minute). Claude's tool calls only keep a running block alive; they never start one. No activity anywhere for the short-break length mid-block ends the block; the next activity starts a fresh one.
+- **One announcement.** 25 minutes into a block, the first session to tick bumps the count and announces it (toast + system notification). Others see it was announced and stay quiet.
+- **Breaks are timed.** A finished block starts its break (`breakUntil`): 5 minutes, or 30 after every 4th block. The band shows `☕ ●○○○ break 4m left` / `☕ ●●●● long break 29m left`; no block starts and no focus is credited until it ends. The first prompt during a break says how long is left. The first activity after it starts the next block.
+- **Controls.** `/pomo` pauses or resumes (and starts the timer when it is stopped or idle); `/pomo start|pause|resume|stop` for the rest. The band shows `⏸` (pause), `▶` (resume or start) and `⏹` (stop) for the current state. Pause freezes a block or a break; stop credits the time so far, logs it, and keeps activity from starting a block until `/pomo start` or the next day. Other sessions show a change on their next minute tick.
+- **States at a glance.** `🍅 ●●○○ 12/25m` running · `⏸ … paused` · `☕ ●○○○ break 4m left` · `☕ ●●●● long break 29m left` · `⏹ off` · `○ ●●○○ idle`.
+- **Break summary.** The break notification lists the Next items checked and the Log lines written during the block (`✓ … · 📝 2 notes: "…"`), or says nothing was. With `breakSummaryAI` on, a one-line Claude Haiku summary of the block follows.
 - **Focus logged once.** Active time is credited once into today's per-task totals. On task switch or session end, the not-yet-logged part goes to the task Log and today's daily note — `focus 47m (2 pomodoros)` — and is marked logged so no other session repeats it. Finished days move to the plugin store (`focus:YYYY-MM-DD`).
 - **Safe writes.** Written to a temp file and renamed over, so no session reads half a file; an unreadable file skips that round instead of resetting the timer.
 
@@ -39,6 +44,7 @@ One timer for every Claude Code session, kept in `vault/Tasks/.pomo.json` (hidde
 | `longBreakEvery` / `longBreakMinutes` | 4 / 30 |
 | `staleEdits` | 10 edits by Claude since the Log changed → nudge (0 = off) |
 | `notesToClaude` | true |
+| `breakSummaryAI` | false. On: a one-line Haiku summary in the break notification; records your prompts (first 80 chars), edited files and commands during each block in `vault/Tasks/.pomo.json`, a synced file. About $0.0005 a break. |
 
 ## Install (local)
 
