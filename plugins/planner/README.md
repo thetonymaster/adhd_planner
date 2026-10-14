@@ -31,7 +31,7 @@ with `Tasks/` and `Daily/`), the planning skills use it too: morning-startup and
 plan-day write the Top 3 and the timed plan into today's daily note, capture-triage
 also empties the vault inbox, break-down-task writes subtasks into the task note,
 plan-week pulls open Next items from task notes, and eod-shutdown reads the day's log,
-parks the active task and seeds tomorrow's note. Without a vault nothing changes.
+parks the active task and seeds tomorrow's note. With several vaults in `~/.config/adhd-planner/vaults.json`, the skills use the session's vault (the `Vault:` line) and only that one. Without a vault nothing changes.
 Scheduled (unattended) runs never touch the vault. The skills also use
 `obsidian-vault`, `/tasks:task-start` and `/tasks:task-park` when they're installed; none of
 them ships with this plugin, and each step works without them.

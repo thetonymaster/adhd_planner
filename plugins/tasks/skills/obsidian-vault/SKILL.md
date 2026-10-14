@@ -5,7 +5,7 @@ description: Rules for reading and writing Q's Obsidian vault at ~/vault — fol
 
 # Obsidian vault (~/vault)
 
-The vault is the path on the session-start `Vault:` line (it follows the plugin's `vaultPath`); without that line, `$VAULT` if set, else `~/vault`. Every `~/vault` path in these skills means that root.
+The vault is the path on the session-start `Vault:` line; without that line, the `default` vault in `~/.config/adhd-planner/vaults.json` (or `$ADHD_PLANNER_VAULTS`) when that file loads; otherwise the plugin's vault path option `${user_config.vaultPath}` (skip it when empty), else `$VAULT`, else `~/vault`, the session-start hook's order. Every `~/vault` path in these skills means that root. With several vaults, read and write only that one; never link across vaults (a `[[link]]` resolves only inside its own vault).
 
 The graph is built only from `[[wikilinks]]` (body and frontmatter). Every link
 Claude writes is an edge Q will see. Wrong links = wrong graph.

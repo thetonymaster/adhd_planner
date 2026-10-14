@@ -78,6 +78,22 @@ vault is found, so they never break a session.
 planner as a file and upload it: `bash scripts/build-plugin.sh`, then Customize → Plugins →
 Upload → `planner.plugin`.
 
+## Several vaults
+
+One vault needs nothing here. For more, list them in `~/.config/adhd-planner/vaults.json` (or run `planner-setup add-vault`):
+
+```json
+{
+  "default": "personal",
+  "vaults": {
+    "personal": { "path": "~/vault" },
+    "work":     { "path": "~/work-vault", "folders": ["~/acme"] }
+  }
+}
+```
+
+Each session gets one vault: the one `/tasks:task-switch` last chose for it, else the vault holding a task whose `repo:` contains the folder, else the vault whose `folders` holds it, else `default`. Each vault keeps its own active task and timer. `/tasks:task-switch work:<slug>` moves a session to another vault. A broken file is named at session start and ignored (the single-vault settings apply).
+
 ## What each plugin needs
 
 - **planner**: Python 3.10+ in the planner folder; `reportlab` for the printing skills;

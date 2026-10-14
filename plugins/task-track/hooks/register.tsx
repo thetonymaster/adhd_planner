@@ -26,10 +26,10 @@ import {
   unlogged,
 } from './pomo'
 import type { DayTotals, PomoConfig, PomoEvent, Transition } from './pomo'
-import { frontmatter, normalize, pickTask } from './resolve'
+import { defaultVault, frontmatter, implicitVault, normalize, parseVaults, pickVault } from './resolve'
 import { blockSummary, checkedTitles, SUMMARY_SYSTEM, summaryPrompt } from './summary'
 import type { NoteRead } from './summary'
-import type { Candidate } from './resolve'
+import type { Candidate, VaultConfig, VaultSpec, VaultState } from './resolve'
 
 const task = atom({ plugin: 'task-track', key: 'task' } as const, null)
 const problem = atom({ plugin: 'task-track', key: 'problem' } as const, '')
@@ -38,6 +38,8 @@ const isBandHidden = atom({ plugin: 'task-track', key: 'isBandHidden' } as const
 const isLoopsOpen = atom({ plugin: 'task-track', key: 'isLoopsOpen' } as const, false)
 const isLogOpen = atom({ plugin: 'task-track', key: 'isLogOpen' } as const, false)
 const source = atom({ plugin: 'task-track', key: 'source' } as const, 'global')
+const vaultName = atom({ plugin: 'task-track', key: 'vaultName' } as const, '')
+const configError = atom({ plugin: 'task-track', key: 'configError' } as const, '')
 const toldBreakUntil = atom({ plugin: 'task-track', key: 'toldBreakUntil' } as const, 0)
 const toldMvFailed = atom({ plugin: 'task-track', key: 'toldMvFailed' } as const, false)
 
@@ -62,11 +64,12 @@ let settings: Settings = {
   notesToClaude: true,
   breakSummaryAI: false,
 }
+/** The vault this session resolved to on its last load; '' until the first load. */
 let vault = ''
 let editsSinceLog = 0
 let logSize = -1
 let isStaleNudged = false
-/** Frontmatter of each task note by slug, re-read only when the note's mtime moves. */
+/** Frontmatter of each task note by note path, re-read only when the note's mtime moves. */
 const noteCache = new Map<string, Candidate>()
 
 function readSettings(options: PluginOptions): Settings {
@@ -82,12 +85,35 @@ function readSettings(options: PluginOptions): Settings {
   }
 }
 
-async function resolveVault($: EngineInterface): Promise<string> {
-  if (vault) return vault
-  const fromEnv = await $.env.get('VAULT')
-  const home = (await $.env.get('HOME')) ?? ''
-  vault = (settings.vaultPath || fromEnv || `${home}/vault`).replace(/^~(?=\/)/, home).replace(/\/$/, '')
+/** vaults.json, read on every load so an edit applies without a restart; the implicit vault without one. */
+async function vaultConfig($: EngineInterface, home: string): Promise<VaultConfig> {
+  const fallback = settings.vaultPath || (await $.env.get('VAULT')) || `${home}/vault`
+  // `~` expanded here: settings.json `env` does not expand it. Same rule as vaults.py config_path.
+  const raw = (await $.env.get('ADHD_PLANNER_VAULTS')) ?? ''
+  const path = raw ? normalize(raw, home) : `${home}/.config/adhd-planner/vaults.json`
+  if (!path.startsWith('/')) return implicitVault(fallback, home, `$ADHD_PLANNER_VAULTS must be an absolute path or start with ~/, got '${raw}'`)
+  if (!(await $.fs.exists(path))) return implicitVault(fallback, home)
+  const text = await $.fs.read(path).catch((err: unknown) => new Error(err instanceof Error ? err.message : String(err)))
+  return text instanceof Error ? implicitVault(fallback, home, `${path}: ${text.message}`) : parseVaults(text, path, fallback, home)
+}
+
+/** The vault this session resolved to on its last load; loads once if nothing has yet. */
+async function currentVault($: EngineInterface): Promise<string> {
+  if (!vault) await load($)
   return vault
+}
+
+/** One vault's notes and pointer files; null when it has no Tasks/ (not mounted, not a vault). */
+async function vaultState($: EngineInterface, v: VaultSpec, sessionId: string): Promise<VaultState | null> {
+  if (!(await $.fs.exists(`${v.path}/Tasks`))) return null
+  const sessionFile = `${v.path}/Tasks/.session/${sessionId}`
+  const [found, override, global] = await Promise.all([
+    candidates($, v.path),
+    readIfExists($, sessionFile),
+    readIfExists($, `${v.path}/Tasks/.active`),
+  ])
+  const overrideMtimeMs = override ? (await $.fs.stat(sessionFile)).mtimeMs : 0
+  return { vault: v, candidates: found, override, overrideMtimeMs, global }
 }
 
 /** Every task note's slug, repo, status and mtime; [] when there is no Tasks/ folder. */
@@ -98,9 +124,9 @@ async function candidates($: EngineInterface, root: string): Promise<Candidate[]
   for (const entry of await $.fs.list(dir)) {
     if (entry.kind !== 'file' || !entry.name.endsWith('.md')) continue
     const slug = entry.name.slice(0, -3)
-    let c = noteCache.get(slug)
+    const path = `${dir}/${entry.name}`
+    let c = noteCache.get(path)
     if (!c || c.mtimeMs !== entry.mtimeMs) {
-      const path = `${dir}/${entry.name}`
       // Deleted between the listing and the read: not a candidate. Any other read error propagates.
       const text = await $.fs.read(path).catch(async (err: unknown) => {
         if (await $.fs.exists(path)) throw err
@@ -109,7 +135,7 @@ async function candidates($: EngineInterface, root: string): Promise<Candidate[]
       if (text === undefined) continue
       const fm = frontmatter(text)
       c = { slug, repo: fm.repo, status: fm.status, mtimeMs: entry.mtimeMs }
-      noteCache.set(slug, c)
+      noteCache.set(path, c)
     }
     out.push(c)
   }
@@ -123,24 +149,31 @@ async function readIfExists($: EngineInterface, path: string): Promise<string> {
 
 /** Resolves the session's task and re-reads its note when it changed; returns the current view. */
 async function load($: EngineInterface): Promise<TaskView | null> {
-  const root = await resolveVault($)
   const home = (await $.env.get('HOME')) ?? ''
-  const sessionId = await $.session.id()
-  const [found, override, dir, global] = await Promise.all([
-    candidates($, root),
-    readIfExists($, `${root}/Tasks/.session/${sessionId}`),
-    $.session.root(),
-    readIfExists($, `${root}/Tasks/.active`),
-  ])
-  const picked = pickTask({ override, dir, home, candidates: found, global })
-  const slug = picked?.slug ?? ''
-  const repo = found.find(c => c.slug === slug)?.repo ?? ''
-  const label = picked?.source === 'session' ? 'this session' : picked?.source === 'repo' ? `project: ${normalize(repo, home).split('/').pop()}` : 'global'
-  await update($, source, () => label)
+  const config = await vaultConfig($, home)
+  const [sessionId, dir] = await Promise.all([$.session.id(), $.session.root()])
+  // A vault that can't be read is left out and named, so it can't stop the others from loading.
+  const loaded = await Promise.all(
+    config.vaults.map(v =>
+      vaultState($, v, sessionId).catch((err: unknown) => new Error(`vault ${v.name} (${v.path}) skipped: ${err instanceof Error ? err.message : String(err)}`)),
+    ),
+  )
+  const states = loaded.filter((s): s is VaultState => s !== null && !(s instanceof Error))
+  const unreadable = loaded.flatMap(s => (s instanceof Error ? [s.message] : []))
+  const picked = pickVault({ config, states, dir, home })
+  const root = picked?.vault.path ?? defaultVault(config).path
   const prev = await read($, task)
+  // Credit the old task on the old vault's timer before this session moves to the new vault's.
+  const isVaultChange = vault !== '' && root !== vault
+  if (prev && isVaultChange) await flushFocus($, prev.slug, prev.path)
+  vault = root
+  await update($, source, () => picked?.reason ?? 'global')
+  await update($, vaultName, () => (config.vaults.length > 1 && picked ? picked.vault.name : ''))
+  await update($, configError, () => [config.error, ...unreadable].filter(Boolean).join('; '))
   await refreshPomo($)
+  const slug = picked?.slug ?? ''
   if (!slug) {
-    if (prev) await flushFocus($, prev.slug, prev.path)
+    if (prev && !isVaultChange) await flushFocus($, prev.slug, prev.path)
     const hasVault = await $.fs.exists(root)
     await update($, task, () => null)
     await update($, problem, () => (hasVault ? '' : `No vault at ${root}`))
@@ -150,12 +183,15 @@ async function load($: EngineInterface): Promise<TaskView | null> {
   const stat = await $.fs.stat(path).catch(() => undefined)
   if (!stat) {
     await update($, problem, () => `Active task "${slug}" has no note at ${path}`)
-    return prev
+    if (!isVaultChange) return prev
+    // prev is the old vault's note: keeping it would edit that note on this vault's timer.
+    await update($, task, () => null)
+    return null
   }
   if (prev && prev.path === path && prev.mtimeMs === stat.mtimeMs) return prev
   const view = parseNote(slug, path, await $.fs.read(path), stat.mtimeMs)
-  if (prev && prev.slug !== slug) await flushFocus($, prev.slug, prev.path)
-  if (view.logCount !== logSize || prev?.slug !== slug) {
+  if (prev && prev.path !== path && !isVaultChange) await flushFocus($, prev.slug, prev.path)
+  if (view.logCount !== logSize || prev?.path !== path) {
     logSize = view.logCount
     editsSinceLog = 0
     isStaleNudged = false
@@ -198,7 +234,7 @@ async function addLoop($: EngineInterface, text: string): Promise<TaskView | nul
 // ── the shared Pomodoro file ──────────────────────────────────────────────
 
 async function pomoPath($: EngineInterface): Promise<string> {
-  return `${await resolveVault($)}/Tasks/.pomo.json`
+  return `${await currentVault($)}/Tasks/.pomo.json`
 }
 
 async function today($: EngineInterface): Promise<string> {
@@ -242,8 +278,14 @@ async function refreshPomo($: EngineInterface): Promise<void> {
   if (f) await update($, pomo, () => f)
 }
 
+/**
+ * With several vaults the key names the vault whose timer this is, so two vaults' totals for one day
+ * don't overwrite each other. Taken from the config, not the band's vaultName, which is '' when no task is picked.
+ */
 async function saveDay($: EngineInterface, d: DayTotals): Promise<void> {
-  await $.store.set(`focus:${d.day}`, { ms: d.dayMs, blocks: d.dayBlocks })
+  const config = await vaultConfig($, (await $.env.get('HOME')) ?? '')
+  const owner = config.vaults.length > 1 ? config.vaults.find(v => v.path === vault) : undefined
+  await $.store.set(owner ? `focus:${owner.name}:${d.day}` : `focus:${d.day}`, { ms: d.dayMs, blocks: d.dayBlocks })
 }
 
 function focusText(pending: { ms: number; blocks: number }): string {
@@ -259,7 +301,7 @@ function focusText(pending: { ms: number; blocks: number }): string {
  */
 async function dailyText($: EngineInterface, path: string, date: string): Promise<string> {
   if (await $.fs.exists(path)) return $.fs.read(path)
-  const template = `${await resolveVault($)}/Templates/Daily.md`
+  const template = `${await currentVault($)}/Templates/Daily.md`
   if (await $.fs.exists(template)) {
     return (await $.fs.read(template)).replaceAll('{{date}}', date).replaceAll('{{title}}', date)
   }
@@ -272,13 +314,13 @@ async function writeFocus($: EngineInterface, slug: string, taskPath: string, da
     const taskText = await $.fs.read(taskPath)
     await $.fs.write(taskPath, insertInSection(taskText, 'Log', `- [[${date}]] ${time} — ${spent}`))
   }
-  const daily = `${await resolveVault($)}/Daily/${date}.md`
+  const daily = `${await currentVault($)}/Daily/${date}.md`
   await $.fs.write(daily, insertInSection(await dailyText($, daily, date), 'Log', `- ${time} [[${slug}]] ${spent}`))
 }
 
 /** A finished day's focus that no session wrote (it ran past midnight, or crashed): written to that day's notes. */
 async function flushDay($: EngineInterface, d: DayTotals): Promise<void> {
-  const root = await resolveVault($)
+  const root = await currentVault($)
   for (const slug of Object.keys(d.dayMs)) {
     const logged = d.logged[slug] ?? { ms: 0, blocks: 0 }
     const pending = { ms: (d.dayMs[slug] ?? 0) - logged.ms, blocks: (d.dayBlocks[slug] ?? 0) - logged.blocks }
@@ -391,7 +433,7 @@ async function runPomo($: EngineInterface, action: PomoAction): Promise<string> 
   if (action === 'stop') {
     // stop credits the task holding the timer, which may be another session's.
     const held = out.held || view.slug
-    await flushFocus($, held, held === view.slug ? view.path : `${await resolveVault($)}/Tasks/${held}.md`)
+    await flushFocus($, held, held === view.slug ? view.path : `${await currentVault($)}/Tasks/${held}.md`)
   }
   return `${pomoDots(f, now, settings)} · ${view.slug}`
 }
@@ -429,7 +471,7 @@ async function tick($: EngineInterface): Promise<void> {
   if (!f || event.kind !== 'break') return
   const check = await readPomo($)
   if (!check || check.notifiedBy !== SESSION || check.lastNotifiedBlock !== event.blocks) return
-  const root = await resolveVault($)
+  const root = await currentVault($)
   const slugs = [...new Set([event.slug, ...Object.keys(event.snapshot)])]
   // A note that can't be read is named in the summary; the break has already started.
   const notes: NoteRead[] = await Promise.all(
@@ -462,7 +504,8 @@ async function remindBreak($: EngineInterface): Promise<void> {
 
 async function openPane($: EngineInterface): Promise<void> {
   const view = await read($, task)
-  await $.ui.open({ id: PANE, title: view ? `Task · ${view.slug}` : 'Task', focus: true })
+  const prefix = await read($, vaultName)
+  await $.ui.open({ id: PANE, title: view ? `Task · ${prefix ? `${prefix} · ` : ''}${view.slug}` : 'Task', focus: true })
 }
 
 async function noteFromPane($: EngineInterface, slug: string, value: string): Promise<void> {
@@ -657,10 +700,11 @@ export const register: Register = (on, options) => {
     // without a width the row grows past the edge instead of cutting the text. The engine draws
     // its own `[-]` control at the right end of the band, so the row leaves it 5 columns (its 3 and a gap each side).
     const columns = e.viewport?.columns === undefined ? undefined : Math.max(20, e.viewport.columns - 5)
+    const prefix = await read($, vaultName)
     return (
       <Box gap={1} width={columns} marginTop={1}>
         <Box flexShrink={0}>
-          <Text bold color="claude">▶ {view.slug}</Text>
+          <Text bold color="claude">▶ {prefix ? `${prefix} · ` : ''}{view.slug}</Text>
         </Box>
         <Box flexShrink={1} flexGrow={1}>
           <Text wrap="truncate-end">
@@ -697,9 +741,11 @@ export const register: Register = (on, options) => {
     const view = await read($, task)
     if (!view) {
       const why = await read($, problem)
+      const configErr = await read($, configError)
       return (
         <Box flexDirection="column">
           <Text>{why || 'No active task.'}</Text>
+          {configErr ? <Text color="subtle" wrap="truncate-end">Vault config error: {configErr}</Text> : null}
           <Text dimColor>Start one with /tasks:task-start &lt;name&gt;</Text>
         </Box>
       )
@@ -708,6 +754,8 @@ export const register: Register = (on, options) => {
     const now = await $.clock.now()
     const timer = pomoDots(p, now, settings)
     const why = await read($, source)
+    const vaultLabel = await read($, vaultName)
+    const configErr = await read($, configError)
     const { done, total } = progress(view.next)
     const nowIndex = firstOpen(view.next)
     const open = view.next.flatMap((item, i) => (!item.isDone && i !== nowIndex ? [{ item, i }] : []))
@@ -762,8 +810,9 @@ export const register: Register = (on, options) => {
           <Text>
             {timer} <Text color="subtle">· today {elapsed(p.dayMs[view.slug] ?? 0)} · Next {done}/{total}</Text>
             {view.up ? <Text color="subtle"> · {view.up}</Text> : null}
-            <Text color="subtle"> · {why}</Text>
+            <Text color="subtle"> · {vaultLabel ? `${vaultLabel} · ` : ''}{why}</Text>
           </Text>
+          {configErr ? <Text color="subtle" wrap="truncate-end">Vault config error: {configErr}</Text> : null}
         </Box>
         {label('NOW')}
         {nowItem ? nextRow({ item: nowItem, i: nowIndex }, true) : <Text color="subtle">  Nothing open. Add a step to ## Next.</Text>}

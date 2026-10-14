@@ -9,7 +9,7 @@ from pathlib import Path
 from . import actions, paths, settings
 
 MENU = ("Status", "Install plugins (Claude Code)", "Settings (vault path, permissions)",
-        "Vault starter", "Example CLAUDE.md", "Cowork steps", "Quit")
+        "Vault starter", "Add another vault", "Example CLAUDE.md", "Cowork steps", "Quit")
 
 
 def _ctx(args: argparse.Namespace, confirm=None) -> actions.Ctx:
@@ -30,6 +30,11 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--permissions", action="store_true", help="also add the vault to additionalDirectories and allow Bash(obsidian:*)")
     p = sub.add_parser("vault")
     p.add_argument("--vault", type=Path)
+    p = sub.add_parser("add-vault", help="register another vault in ~/.config/adhd-planner/vaults.json")
+    p.add_argument("name", help="kebab-case, e.g. work")
+    p.add_argument("--path", type=Path, required=True)
+    p.add_argument("--folder", action="append", default=[], help="a folder whose sessions use this vault (repeatable)")
+    p.add_argument("--existing-name", default="personal", help="name for today's vault when the file is created")
     sub.add_parser("claude-md")
     sub.add_parser("cowork")
     return ap
@@ -60,6 +65,13 @@ def _menu(args: argparse.Namespace) -> int:
             vault = questionary.path("Create the starter vault at", default=default_vault).ask()
             if vault:
                 actions.seed_vault(ctx, Path(os.path.expanduser(vault)).absolute())
+        elif choice == "Add another vault":
+            name = questionary.text("Name (kebab-case, e.g. work)").ask()
+            where = questionary.path("Vault path", only_directories=True).ask()
+            folders = questionary.text("Folders whose sessions use it (comma-separated, optional)").ask() or ""
+            if name and where:
+                actions.add_vault(ctx, name.strip(), Path(os.path.expanduser(where)).absolute(),
+                                  [f.strip() for f in folders.split(",") if f.strip()])
         elif choice == "Example CLAUDE.md":
             actions.claude_md(ctx)
         elif choice == "Cowork steps":
@@ -82,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
         "install": lambda: actions.install(ctx, args.plugins),
         "settings": lambda: actions.configure(ctx, vault, args.permissions),
         "vault": lambda: actions.seed_vault(ctx, vault),
+        "add-vault": lambda: actions.add_vault(ctx, args.name, Path(os.path.expanduser(str(args.path))).absolute(),
+                                               args.folder, args.existing_name),
         "claude-md": lambda: actions.claude_md(ctx),
         "cowork": lambda: actions.cowork(ctx),
     }[args.cmd]()

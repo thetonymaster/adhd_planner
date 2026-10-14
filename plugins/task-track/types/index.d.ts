@@ -71,8 +71,12 @@ declare module 'claude-code' {
       isLoopsOpen: boolean
       /** The pane's Log section shows every kept line, wrapped, not three truncated. */
       isLogOpen: boolean
-      /** Why the session shows its task, as the pane says it: `this session`, `project: <folder>` or `global`. */
+      /** Why the session shows its task, as the pane says it: `this session`, `project: <folder>`, `folder <path>`, `default` or `global`. */
       source: string
+      /** The session's vault name while 2+ vaults are registered; '' with one, so nothing is prefixed. */
+      vaultName: string
+      /** Why vaults.json was ignored (shown in the pane); '' when it was used or absent. */
+      configError: string
       /** breakUntil of the break this session already reminded Q of on a prompt. */
       toldBreakUntil: number
       /** This session already said that mv onto .pomo.json failed. */

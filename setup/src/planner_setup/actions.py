@@ -1,13 +1,16 @@
-"""The six things setup can do. Each returns an exit code and talks through ctx.say."""
+"""The seven things setup can do. Each returns an exit code and talks through ctx.say."""
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import claude_cli, files, paths, settings
+
+VAULT_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 @dataclass
@@ -49,6 +52,23 @@ def _state(ctx: Ctx) -> tuple[bool, dict[str, bool]] | None:
     return added, installed
 
 
+def _current_vault(ctx: Ctx, current: dict) -> tuple[Path, bool]:
+    """Today's vault: the tasks plugin's vaultPath in settings.json, else $VAULT, else ~/vault; and whether settings named it."""
+    tasks_id = f"tasks@{settings.MARKETPLACE}"
+    configs = settings._child(current, "pluginConfigs", dict, "pluginConfigs")
+    options = settings._child(settings._child(configs, tasks_id, dict, f"pluginConfigs.{tasks_id}"),
+                              "options", dict, f"pluginConfigs.{tasks_id}.options")
+    configured = options.get("vaultPath")
+    if configured:
+        return Path(paths.norm(configured, ctx.home)), True
+    return paths.vault(ctx.env, ctx.home), False
+
+
+def _absolute(ctx: Ctx, written: str) -> Path:
+    """`written` with `~` expanded and a relative path taken from where setup runs, normalised."""
+    return Path(paths.norm(str(ctx.cwd / paths.norm(written, ctx.home)), ctx.home))
+
+
 def status(ctx: Ctx) -> int:
     if not claude_cli.available():
         ctx.say("claude: not found on PATH (plugin state unknown)")
@@ -61,12 +81,7 @@ def status(ctx: Ctx) -> int:
                 ctx.say(f"  {p}: " + ("not installed" if p not in installed
                                       else "enabled" if installed[p] else "installed, disabled"))
     current = files.load_json(ctx.settings_path)
-    tasks_id = f"tasks@{settings.MARKETPLACE}"
-    configs = settings._child(current, "pluginConfigs", dict, "pluginConfigs")
-    options = settings._child(settings._child(configs, tasks_id, dict, f"pluginConfigs.{tasks_id}"),
-                              "options", dict, f"pluginConfigs.{tasks_id}.options")
-    configured = options.get("vaultPath")
-    vault = Path(paths.norm(configured, ctx.home)) if configured else paths.vault(ctx.env, ctx.home)
+    vault, configured = _current_vault(ctx, current)
     ctx.say(f"vault: {vault} ({'exists' if vault.is_dir() else 'missing'}; {'from settings' if configured else 'default'})")
     dirs = settings._child(settings._child(current, "permissions", dict, "permissions"),
                            "additionalDirectories", list, "permissions.additionalDirectories")
@@ -134,6 +149,54 @@ def seed_vault(ctx: Ctx, vault: Path) -> int:
     shutil.copytree(paths.examples() / "vault-starter", vault)
     (vault / "_claude").rename(vault / ".claude")
     ctx.say(f"Vault created at {vault}. Open it in Obsidian: Open folder as vault.")
+    return 0
+
+
+def add_vault(ctx: Ctx, name: str, path: Path, folders: Sequence[str], existing_name: str = "personal") -> int:
+    """Registers another vault in vaults.json. The first time, today's vault goes in too, as the default."""
+    for n in (name, existing_name):
+        if not VAULT_NAME.match(n):
+            ctx.say(f"Vault name {n!r} must be kebab-case (a-z, 0-9, -); nothing was changed.")
+            return 2
+    target = paths.vaults_file(ctx.env, ctx.home)
+    if not target.is_absolute():
+        # The hooks would read it relative to each session's folder: a different file per repo.
+        ctx.say(f"$ADHD_PLANNER_VAULTS must be an absolute path or start with ~/, got {str(target)!r}; nothing was changed.")
+        return 2
+    current = files.load_json(target)
+    vaults = dict(current.get("vaults") or {})
+    if not vaults:
+        seed, _ = _current_vault(ctx, files.load_json(ctx.settings_path))
+        vaults[existing_name] = {"path": paths.tilde(_absolute(ctx, str(seed)), ctx.home)}
+        current["default"] = existing_name
+    elif "default" not in current and len(vaults) == 1:
+        # One vault needs no default; two do, or the hooks reject the file.
+        current["default"] = next(iter(vaults))
+    if name in vaults:
+        ctx.say(f"{target} already has a vault named {name!r} ({vaults[name].get('path')}); nothing was changed.")
+        return 1
+    # The hooks reject the whole file for a relative folder or one listed under two vaults.
+    resolved = [_absolute(ctx, f) for f in folders]
+    owners = {_absolute(ctx, f): n for n, spec in vaults.items() if isinstance(spec, dict)
+              for f in spec.get("folders") or [] if isinstance(f, str)}
+    for folder in resolved:
+        if folder in owners:
+            ctx.say(f"{paths.tilde(folder, ctx.home)} is already in {owners[folder]!r}'s folders in {target}; "
+                    f"a folder belongs to one vault only. Move it there by hand; nothing was changed.")
+            return 1
+    entry: dict = {"path": paths.tilde(path, ctx.home)}
+    if folders:
+        entry["folders"] = [paths.tilde(f, ctx.home) for f in resolved]
+    merged = {**current, "vaults": {**vaults, name: entry}}
+    if not (path / "Tasks").is_dir():
+        ctx.say(f"{path} has no Tasks/ yet: sessions skip this vault until it has one.")
+    ctx.say(("Would write " if ctx.dry_run else "Will write ") + f"{target}:\n{json.dumps(merged, indent=2)}")
+    if ctx.dry_run:
+        return 0
+    if not (ctx.yes or ctx.confirm("Write it?")):
+        return 1
+    files.write_json(target, merged, files.backup_dir(ctx.home), home=ctx.home)
+    ctx.say(f"Wrote {target}. New sessions see vault {name!r}; /tasks:task-switch {name}:<slug> moves a session there.")
     return 0
 
 

@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from pathlib import Path
 
 from planner_setup import actions, paths
 
@@ -167,3 +168,100 @@ def test_claude_timeout_is_a_failed_result(monkeypatch):
     monkeypatch.setattr(subprocess, "run", hang)
     r = claude_cli.run("plugin", "list")
     assert r.code != 0 and "timed out" in r.err
+
+
+def vaults_json(ctx):
+    return ctx.home / ".config" / "adhd-planner" / "vaults.json"
+
+
+def test_add_vault_creates_the_file_with_the_current_vault_as_default(ctx):
+    work = ctx.home / "work-vault"
+    (work / "Tasks").mkdir(parents=True)
+    assert actions.add_vault(ctx, "work", work, ["~/acme"]) == 0
+    assert json.loads(vaults_json(ctx).read_text()) == {
+        "default": "personal",
+        "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work-vault", "folders": ["~/acme"]}},
+    }
+
+
+def test_add_vault_merges_and_keeps_every_existing_entry(ctx):
+    vaults_json(ctx).parent.mkdir(parents=True)
+    vaults_json(ctx).write_text(json.dumps({"default": "home", "vaults": {"home": {"path": "~/vault"}, "side": {"path": "/s"}}}))
+    assert actions.add_vault(ctx, "work", ctx.home / "w", []) == 0
+    data = json.loads(vaults_json(ctx).read_text())
+    assert data["default"] == "home"
+    assert list(data["vaults"]) == ["home", "side", "work"]
+    assert data["vaults"]["work"] == {"path": "~/w"}
+
+
+def test_add_vault_refuses_a_taken_or_bad_name_and_changes_nothing(ctx):
+    assert actions.add_vault(ctx, "Work", ctx.home / "w", []) == 2
+    assert not vaults_json(ctx).exists()
+    assert actions.add_vault(ctx, "personal", ctx.home / "w", []) == 1
+    assert not vaults_json(ctx).exists()
+    assert "already has a vault named 'personal'" in text(ctx)
+
+
+def test_add_vault_dry_run_writes_nothing(ctx):
+    assert actions.add_vault(replace(ctx, dry_run=True), "work", ctx.home / "w", []) == 0
+    assert not vaults_json(ctx).exists()
+    assert "Would write" in text(ctx)
+
+
+def test_add_vault_warns_when_the_vault_has_no_tasks_folder(ctx):
+    assert actions.add_vault(ctx, "work", ctx.home / "w", []) == 0
+    assert "has no Tasks/ yet" in text(ctx)
+
+
+def test_the_written_file_parses_with_the_hook_parser(ctx):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugins" / "tasks" / "hooks"))
+    import vaults
+    actions.add_vault(ctx, "work", ctx.home / "w", ["~/acme"])
+    config = vaults.parse(vaults_json(ctx).read_text(), "vaults.json", {}, str(ctx.home))
+    assert config.error == ""
+    assert [v.name for v in config.vaults] == ["personal", "work"]
+
+
+def test_add_vault_seeds_the_vault_path_from_settings(ctx):
+    ctx.settings_path.parent.mkdir(parents=True)
+    ctx.settings_path.write_text(json.dumps(
+        {"pluginConfigs": {"tasks@adhd-planner": {"options": {"vaultPath": str(ctx.home / "Notes" / "main")}}}}))
+    assert actions.add_vault(ctx, "work", ctx.home / "w", []) == 0
+    data = json.loads(vaults_json(ctx).read_text())
+    assert data["vaults"]["personal"] == {"path": "~/Notes/main"}
+    assert data["default"] == "personal"
+
+
+def test_add_vault_writes_relative_folders_as_absolute(ctx):
+    assert actions.add_vault(replace(ctx, cwd=ctx.home / "code"), "work", ctx.home / "w", ["api", "~/acme/"]) == 0
+    assert json.loads(vaults_json(ctx).read_text())["vaults"]["work"]["folders"] == ["~/code/api", "~/acme"]
+
+
+def test_add_vault_refuses_a_folder_another_vault_lists_and_changes_nothing(ctx):
+    vaults_json(ctx).parent.mkdir(parents=True)
+    before = json.dumps({"default": "home", "vaults": {"home": {"path": "~/vault", "folders": ["~/acme"]}}})
+    vaults_json(ctx).write_text(before)
+    assert actions.add_vault(ctx, "work", ctx.home / "w", [str(ctx.home / "acme")]) == 1
+    assert vaults_json(ctx).read_text() == before
+    assert "already in 'home'" in text(ctx)
+
+
+def test_add_vault_seeds_a_relative_vault_env_as_absolute(ctx):
+    assert actions.add_vault(replace(ctx, env={"VAULT": "notes"}), "work", ctx.home / "w", []) == 0
+    assert json.loads(vaults_json(ctx).read_text())["vaults"]["personal"] == {"path": str(ctx.cwd / "notes")}
+
+
+def test_add_vault_expands_tilde_in_the_env_file_and_refuses_a_relative_one(ctx):
+    assert actions.add_vault(replace(ctx, env={"ADHD_PLANNER_VAULTS": "~/v.json"}), "work", ctx.home / "w", []) == 0
+    assert (ctx.home / "v.json").exists()
+    assert actions.add_vault(replace(ctx, env={"ADHD_PLANNER_VAULTS": "v.json"}), "work", ctx.home / "w", []) == 2
+    assert not (ctx.cwd / "v.json").exists()
+    assert "must be an absolute path or start with ~/" in text(ctx)
+
+
+def test_add_vault_sets_the_default_when_a_one_vault_file_has_none(ctx):
+    vaults_json(ctx).parent.mkdir(parents=True)
+    vaults_json(ctx).write_text(json.dumps({"vaults": {"home": {"path": "~/vault"}}}))
+    assert actions.add_vault(ctx, "work", ctx.home / "w", []) == 0
+    assert json.loads(vaults_json(ctx).read_text())["default"] == "home"

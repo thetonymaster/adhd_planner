@@ -53,8 +53,8 @@ If the user's Obsidian vault is reachable, use it alongside the planner files.
 If it isn't, or the run is unattended (a scheduled firing), skip this section
 without mentioning it: the planner works without it.
 
-- **Find it once:** a connected folder named `vault` (`~/mnt/vault` in the
-  device shell), else `$VAULT`, else `~/vault`, whichever the shell can see. It
+- **Find it once:** the session-start `Vault:` line, else a connected folder named `vault` (`~/mnt/vault` in the
+  device shell), else the `default` vault's `path` in `~/.config/adhd-planner/vaults.json`, else `$VAULT`, else `~/vault`, whichever the shell can see. Only that one vault is read or written, even when several are registered. It
   counts only if it has `Tasks/` and `Daily/`. Use the path you found on every
   command: `cd "<vault-path>" && …`.
 - **Date:** the daily note's date is the device's local date

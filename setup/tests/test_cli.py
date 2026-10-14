@@ -50,3 +50,12 @@ def test_relative_vault_is_stored_absolute(tmp_path, monkeypatch):
     assert cli.main(["--yes", "settings", "--vault", "v"]) == 0
     data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
     assert data["pluginConfigs"]["tasks@adhd-planner"]["options"]["vaultPath"] == str(tmp_path / "v")
+
+
+def test_add_vault_subcommand(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("VAULT", raising=False)
+    monkeypatch.delenv("ADHD_PLANNER_VAULTS", raising=False)
+    assert cli.main(["--yes", "add-vault", "work", "--path", str(tmp_path / "w"), "--folder", "~/acme"]) == 0
+    data = json.loads((tmp_path / ".config" / "adhd-planner" / "vaults.json").read_text())
+    assert data["vaults"]["work"] == {"path": "~/w", "folders": ["~/acme"]}

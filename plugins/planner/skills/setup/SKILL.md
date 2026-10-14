@@ -116,7 +116,7 @@ exists, leave it and say so.
    ```
 
 8. **Vault (optional).** Check for the user's Obsidian vault: a connected folder
-   named `vault` (`~/mnt/vault`), else `$VAULT`, else `~/vault`, with `Tasks/`
+   named `vault` (`~/mnt/vault`), else `$VAULT`, else `~/vault` (or, when `~/.config/adhd-planner/vaults.json` exists, each vault it lists — report each as found or missing `Tasks/`), with `Tasks/`
    and `Daily/` inside. Report "vault found at …, planner skills will use it" or
    "no vault, skills run on planner files only". With a vault, also compare the
    timezone in `tools/calendars.json` with the device's (`date +%Z`): daily notes

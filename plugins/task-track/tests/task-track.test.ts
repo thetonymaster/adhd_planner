@@ -6,8 +6,10 @@ import { codeSpans, insertInSection, logEntry, logOrder, parseNote, splitEstimat
 import { advance, blockMinutes, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
-import { frontmatter, normalize, pickTask } from '../hooks/resolve'
-import type { Candidate } from '../hooks/resolve'
+import { frontmatter, implicitVault, normalize, parseVaults, pickTask, pickVault } from '../hooks/resolve'
+import type { Candidate, VaultState } from '../hooks/resolve'
+import { CASES } from './fixtures/vault-cases'
+import type { VaultCase } from './fixtures/vault-case'
 
 const NOTE = `---
 status: active
@@ -1165,5 +1167,228 @@ describe('the session\'s own task', () => {
     await clock.advance(MIN)
     expect(parsePomo(files['/v/Tasks/.pomo.json'] ?? '')?.blocksDone).toBe(1)
     expect(notified[0]?.split('\n')[0]).toBe('Pomodoro 1 done on other. Break: 5 min.')
+  })
+})
+
+describe('shared vault cases (tests/test_load_task.py runs the same ones)', () => {
+  const HOME = '/home/q'
+  function input(k: VaultCase) {
+    const config =
+      k.config === null
+        ? implicitVault('~/vault', HOME)
+        : parseVaults(typeof k.config === 'string' ? k.config : JSON.stringify(k.config), 'vaults.json', '~/vault', HOME)
+    const states: VaultState[] = config.vaults.flatMap(v => {
+      const dir = Object.entries(k.vaults).find(([rel]) => normalize(`~/${rel}`, HOME) === v.path)?.[1]
+      if (!dir) return []
+      const candidates = Object.entries(dir.notes ?? {}).map(([slug, n]) => ({
+        slug,
+        repo: n.repo ?? '',
+        status: n.status ?? 'active',
+        mtimeMs: (n.mtime ?? 0) * 1000,
+      }))
+      return [{ vault: v, candidates, override: dir.session?.slug ?? '', overrideMtimeMs: (dir.session?.mtime ?? 0) * 1000, global: dir.active ?? '' }]
+    })
+    return { config, states, dir: normalize(k.cwd, HOME), home: HOME }
+  }
+
+  test('there are enough cases to mean something', () => {
+    expect(CASES.length).toBeGreaterThan(15)
+  })
+
+  for (const k of CASES) {
+    test(k.name, () => {
+      const args = input(k)
+      if (k.expect.error) expect(args.config.error).toContain(k.expect.error)
+      else expect(args.config.error).toBe('')
+      const picked = pickVault(args)
+      if (k.expect.vault === null) {
+        expect(picked).toBeNull()
+        return
+      }
+      expect(picked?.vault.path).toBe(normalize(k.expect.vault, HOME))
+      expect(picked?.slug).toBe(k.expect.slug)
+      expect(picked?.reason).toBe(k.expect.reason)
+    })
+  }
+})
+
+describe('several vaults', () => {
+  const CONFIG = '/home/q/.config/adhd-planner/vaults.json'
+  const TWO = JSON.stringify({ default: 'personal', vaults: { personal: { path: '/v' }, work: { path: '/w', folders: ['~/acme'] } } })
+  const WORK = NOTE.replace('# Set up vault', '# Deploy fix')
+  const files = () => ({
+    [CONFIG]: TWO,
+    '/v/Tasks/.active': 'set-up-vault\n',
+    [PATH]: NOTE,
+    '/w/Tasks/.active': 'deploy-fix\n',
+    '/w/Tasks/deploy-fix.md': WORK,
+  })
+
+  test('a session in a bound folder shows the work task, prefixed with its vault', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    fakeVault(on, files(), { root: '/home/q/acme/api' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to deploy-fix.')
+    const band = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+    expect(await band.find({ type: 'Text', text: /▶ work · deploy-fix/ })).toBeDefined()
+    const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
+    expect(await pane.find({ type: 'Text', text: /work · folder ~\/acme/ })).toBeDefined()
+  })
+
+  test('with no vaults.json the band has no vault prefix', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE })
+    await run($, 'note', 'x')
+    const band = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+    expect(await band.find({ type: 'Text', text: /^▶ set-up-vault$/ })).toBeDefined()
+  })
+
+  test('each vault keeps its own timer', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 })
+    const written = fakeVault(on, files(), { root: '/home/q/acme/api' })
+    await run($, 'openloop', 'load the task')
+    await run($, 'note', 'activity')
+    expect(parsePomo(written['/w/Tasks/.pomo.json'] ?? '')?.lastActiveAt).toBe(T0)
+    expect(written['/v/Tasks/.pomo.json']).toBeUndefined()
+  })
+
+  test('a switch to a task in another vault credits the old task on the old vault\'s timer', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 })
+    const held = { ...emptyPomo('2026-10-13'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 10 * MIN } }
+    const written = fakeVault(on, { ...files(), '/v/Tasks/.pomo.json': serializePomo(held) }, { id: 's1', root: '/home/q/elsewhere' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
+    written['/w/Tasks/.session/s1'] = 'deploy-fix\n'
+    expect((await run($, 'note', 'y')).text).toBe('Logged to deploy-fix.')
+    expect(written[PATH]).toMatch(/— focus /)
+    expect(written['/w/Tasks/deploy-fix.md']).not.toMatch(/— focus /)
+    expect(unlogged(parsePomo(written['/v/Tasks/.pomo.json'] ?? '') ?? emptyPomo(''), 'set-up-vault').ms).toBe(0)
+  })
+
+  test('a switch to another vault writes the old task\'s focus line to the old vault\'s Daily note', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 })
+    const held = { ...emptyPomo('2026-10-13'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 10 * MIN } }
+    const written = fakeVault(on, { ...files(), '/v/Tasks/.pomo.json': serializePomo(held) }, { id: 's1', root: '/home/q/elsewhere' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
+    written['/w/Tasks/.session/s1'] = 'deploy-fix\n'
+    expect((await run($, 'note', 'y')).text).toBe('Logged to deploy-fix.')
+    expect(written['/v/Daily/2026-10-13.md']).toMatch(/\[\[set-up-vault\]\] focus 10m/)
+    expect(Object.keys(written).filter(k => k.startsWith('/w/Daily/'))).toEqual([])
+  })
+
+  test('the same slug in two vaults keeps each vault\'s own frontmatter', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    const bound = NOTE.replace('status: active\n', 'status: active\nrepo: ~/code/app\n')
+    fakeVault(on, {
+      [CONFIG]: TWO,
+      '/v/Tasks/.active': 'other\n',
+      '/v/Tasks/other.md': NOTE,
+      [PATH]: NOTE,
+      '/w/Tasks/set-up-vault.md': bound,
+    }, { root: '/home/q/code/app' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
+    const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
+    expect(await pane.find({ type: 'Text', text: /work · project: app/ })).toBeDefined()
+  })
+
+  test('a broken vaults.json is named in the pane and the single vault still works', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    fakeVault(on, { ...files(), [CONFIG]: '{not json' }, { root: '/home/q/acme/api' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
+    const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
+    expect(await pane.find({ type: 'Text', text: /Vault config error: .*vaults\.json: not valid JSON/ })).toBeDefined()
+  })
+
+  test('$ADHD_PLANNER_VAULTS expands ~/', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q', ADHD_PLANNER_VAULTS: '~/cfg.json' })
+    mock.clock(on)
+    const { [CONFIG]: two, ...rest } = files()
+    fakeVault(on, { ...rest, '/home/q/cfg.json': two ?? '' }, { root: '/home/q/acme/api' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to deploy-fix.')
+  })
+
+  test('a relative $ADHD_PLANNER_VAULTS is named and the single vault is used', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q', ADHD_PLANNER_VAULTS: 'cfg.json' })
+    mock.clock(on)
+    fakeVault(on, { ...files(), 'cfg.json': TWO }, { root: '/home/q/acme/api' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
+    const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
+    expect(await pane.find({ type: 'Text', text: /must be an absolute path or start with ~\/, got 'cfg\.json'/ })).toBeDefined()
+  })
+
+  test('a move to a vault whose task has no note drops the old vault\'s task', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    const written = fakeVault(on, { ...files(), '/w/Tasks/.active': 'gone\n' }, { root: '/home/q/elsewhere' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
+    const before = written[PATH]
+    written[CONFIG] = JSON.stringify({ default: 'personal', vaults: { personal: { path: '/v' }, work: { path: '/w', folders: ['~/elsewhere'] } } })
+    expect((await run($, 'note', 'y')).text).not.toBe('Logged to set-up-vault.')
+    expect(written[PATH]).toBe(before)
+  })
+
+  test('an unreadable note in another vault is named; this session\'s vault still loads', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    fakeVault(on, { ...files(), '/w/Tasks/bad.md': WORK }, { root: '/home/q/elsewhere' }, { unreadable: ['/w/Tasks/bad.md'] })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
+    const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
+    expect(await pane.find({ type: 'Text', text: /Vault config error: .*work.*EACCES: \/w\/Tasks\/bad\.md/ })).toBeDefined()
+  })
+
+  test('with several vaults, a finished day\'s focus is stored under its vault\'s name', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 })
+    const yesterday = { ...emptyPomo('2026-10-12'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 47 * MIN }, dayBlocks: { 'set-up-vault': 1 } }
+    fakeVault(on, { ...files(), '/v/Tasks/.pomo.json': serializePomo(yesterday) }, { root: '/home/q/elsewhere' })
+    const stored: Record<string, unknown> = {}
+    on('store.set', ($, e) => {
+      stored[e.key] = e.value
+      return { value: undefined }
+    })
+    await run($, 'openloop', 'load the task')
+    await run($, 'note', 'morning')
+    expect(Object.keys(stored).filter(k => k.startsWith('focus:'))).toEqual(['focus:personal:2026-10-12'])
+  })
+
+  test('a day first rolled over by the flush after the task is gone is still stored under its vault', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 })
+    const written = fakeVault(on, files(), { root: '/home/q/elsewhere' })
+    const stored: Record<string, unknown> = {}
+    on('store.set', ($, e) => {
+      stored[e.key] = e.value
+      return { value: undefined }
+    })
+    await run($, 'openloop', 'load the task')
+    delete written['/v/Tasks/.active']
+    // Asleep past midnight: no tick rolled the day, so this flush is the first to.
+    written['/v/Tasks/.pomo.json'] = serializePomo({ ...emptyPomo('2026-10-12'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 10 * MIN } })
+    await run($, 'note', 'next day')
+    expect(Object.keys(stored).filter(k => k.startsWith('focus:'))).toEqual(['focus:personal:2026-10-12'])
+  })
+
+  test('a day rolled over while this vault is skipped as unreadable is still stored under its vault', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 })
+    const unreadable: string[] = []
+    const written = fakeVault(on, files(), { root: '/home/q/elsewhere' }, { unreadable })
+    const stored: Record<string, unknown> = {}
+    on('store.set', ($, e) => {
+      stored[e.key] = e.value
+      return { value: undefined }
+    })
+    await run($, 'openloop', 'load the task')
+    // A note added since the last load is not cached, so it is read, and the read fails.
+    unreadable.push('/v/Tasks/other.md')
+    written['/v/Tasks/other.md'] = NOTE
+    written['/v/Tasks/.pomo.json'] = serializePomo({ ...emptyPomo('2026-10-12'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 10 * MIN } })
+    expect((await run($, 'note', 'next day')).text).toBe('No active task. /tasks:task-start <name>')
+    expect(Object.keys(stored).filter(k => k.startsWith('focus:'))).toEqual(['focus:personal:2026-10-12'])
   })
 })

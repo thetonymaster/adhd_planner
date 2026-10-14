@@ -85,6 +85,29 @@ class LoadTaskTest(unittest.TestCase):
         self.assertIn("Active task: g (global)", out)
         self.assertIn("skipped unreadable notes: bad.md, dir.md", out)
 
+    def test_an_unreadable_active_note_keeps_the_vault_and_task_lines(self):
+        (self.tasks / "g.md").write_bytes(b"\xff\xfe")
+        (self.tasks / ".active").write_text("g\n")
+        out = self.run_hook({"session_id": "x", "cwd": str(self.home)})
+        self.assertIn(f"Vault: {self.home / 'vault'}\n", out)
+        self.assertIn("Active task: g (global)", out)
+        self.assertIn(f"(could not read {self.tasks / 'g.md'}: UnicodeDecodeError", out)
+
+    def test_a_resolver_error_falls_back_to_the_default_vaults_active_task(self):
+        self.assertNotEqual(os.geteuid(), 0, "run as non-root: root reads mode 000 files")
+        self.note("g")
+        (self.tasks / ".active").write_text("g\n")
+        sessions = self.tasks / ".session"
+        sessions.mkdir()
+        override = sessions / "x"
+        override.write_text("g\n")
+        override.chmod(0)
+        try:
+            out = self.run_hook({"session_id": "x", "cwd": str(self.home)})
+        finally:
+            override.chmod(0o600)
+        self.assertIn("Active task: g (global (resolver error: PermissionError", out)
+
     def test_a_failed_prune_is_named_and_does_not_block_the_task(self):
         self.assertNotEqual(os.geteuid(), 0, "run as non-root: root ignores the read-only .session dir")
         self.note("g")
@@ -167,5 +190,118 @@ class LoadTaskTest(unittest.TestCase):
         self.assertIn("No active task", out)
 
 
+CASES = HOOK.parent.parent.parent / "task-track" / "tests" / "fixtures" / "vault-cases.ts"
+MARK = "export const CASES: readonly VaultCase[] = "
+
+
+class SharedVaultCasesTest(unittest.TestCase):
+    """The cases tests/task-track.test.ts also runs against resolve.ts: the two resolvers must agree."""
+
+    def test_every_shared_case(self):
+        cases = json.loads(CASES.read_text().split(MARK, 1)[1])
+        self.assertGreater(len(cases), 15)
+        for case in cases:
+            with self.subTest(case["name"]):
+                home = pathlib.Path(tempfile.mkdtemp())
+                try:
+                    self.check(home, case, self.run_case(home, case))
+                finally:
+                    shutil.rmtree(home)
+
+    def run_case(self, home, case):
+        if case["config"] is not None:
+            cfg = home / ".config" / "adhd-planner" / "vaults.json"
+            cfg.parent.mkdir(parents=True)
+            cfg.write_text(case["config"] if isinstance(case["config"], str) else json.dumps(case["config"]))
+        base = time.time() - 1000
+        for rel, v in case["vaults"].items():
+            tasks = home / rel / "Tasks"
+            tasks.mkdir(parents=True)
+            for slug, n in v.get("notes", {}).items():
+                p = tasks / f"{slug}.md"
+                p.write_text(NOTE.format(slug=slug, status=n.get("status", "active"),
+                                         repo=f"repo: {n['repo']}\n" if n.get("repo") else ""))
+                os.utime(p, (base + n.get("mtime", 0),) * 2)
+            if "active" in v:
+                (tasks / ".active").write_text(v["active"] + "\n")
+            if "session" in v:
+                (tasks / ".session").mkdir()
+                s = tasks / ".session" / "s1"
+                s.write_text(v["session"]["slug"] + "\n")
+                os.utime(s, (base + v["session"].get("mtime", 0),) * 2)
+        cwd = str(home) + case["cwd"][1:]
+        env = {"HOME": str(home), "PATH": os.environ["PATH"]}
+        out = subprocess.run(["bash", str(HOOK)], input=json.dumps({"session_id": "s1", "cwd": cwd}).encode(),
+                             env=env, capture_output=True, timeout=10, check=True)
+        return out.stdout.decode()
+
+    def check(self, home, case, out):
+        want = case["expect"]
+        if "error" in want:
+            self.assertIn("Vault config error: ", out)
+            self.assertIn(want["error"], out)
+        else:
+            self.assertNotIn("Vault config error", out)
+        if "skipped" in want:
+            self.assertIn(f"(skipped vault {want['skipped']}: no Tasks/ at ", out)
+        if want["vault"] is None:
+            self.assertNotIn("Vault:", out)
+            return
+        self.assertIn(f"Vault: {home}{want['vault'][1:]}\n", out)
+        if want["slug"]:
+            self.assertIn(f"Active task: {want['slug']} ({want['reason']}) — full note: ", out)
+        else:
+            self.assertIn("No active task", out)
+        if "nameLine" in want:
+            self.assertIn(want["nameLine"] + "\n", out)
+        if case["config"] is None or "error" in want:
+            self.assertNotIn("Vault name:", out)
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResolverErrorTest(unittest.TestCase):
+    """A resolver error with vaults.json in use: named in the reason, or on its own line when no task can be shown."""
+
+    def setUp(self):
+        self.assertNotEqual(os.geteuid(), 0, "run as non-root: root reads mode 000 files")
+        self.home = pathlib.Path(tempfile.mkdtemp())
+        cfg = self.home / ".config" / "adhd-planner" / "vaults.json"
+        cfg.parent.mkdir(parents=True)
+        cfg.write_text(json.dumps({"default": "personal", "vaults": {
+            "personal": {"path": "~/vault"}, "work": {"path": "~/work"}}}))
+
+    def tearDown(self):
+        shutil.rmtree(self.home)
+
+    def vault_with_unreadable_override(self, rel):
+        tasks = self.home / rel / "Tasks"
+        (tasks / ".session").mkdir(parents=True)
+        (tasks / "g.md").write_text(NOTE.format(slug="g", status="active", repo=""))
+        (tasks / ".active").write_text("g\n")
+        override = tasks / ".session" / "s1"
+        override.write_text("g\n")
+        override.chmod(0)
+        return override
+
+    def run_hook(self, *overrides):
+        env = {"HOME": str(self.home), "PATH": os.environ["PATH"]}
+        try:
+            out = subprocess.run(["bash", str(HOOK)], input=json.dumps({"session_id": "s1", "cwd": str(self.home)}).encode(),
+                                 env=env, capture_output=True, timeout=10, check=True)
+        finally:
+            for o in overrides:
+                o.chmod(0o600)
+        return out.stdout.decode()
+
+    def test_the_reason_says_default_when_vaults_json_is_in_use(self):
+        out = self.run_hook(self.vault_with_unreadable_override("vault"))
+        self.assertIn("Active task: g (default (resolver error: PermissionError", out)
+
+    def test_an_unusable_default_vault_still_names_the_error(self):
+        out = self.run_hook(self.vault_with_unreadable_override("work"))
+        self.assertIn("(skipped vault personal: no Tasks/ at ", out)
+        self.assertIn("Task resolver error: PermissionError: ", out)
+        self.assertNotIn("Active task:", out)

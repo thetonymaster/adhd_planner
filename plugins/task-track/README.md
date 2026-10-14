@@ -32,14 +32,18 @@ One timer for every Claude Code session, kept in `vault/Tasks/.pomo.json` (hidde
 - **Controls.** `/pomo` pauses or resumes (and starts the timer when it is stopped or idle); `/pomo start|pause|resume|stop` for the rest. The band shows `⏸` (pause), `▶` (resume or start) and `⏹` (stop) for the current state. Pause freezes a block or a break; stop credits the time so far, logs it, and keeps activity from starting a block until `/pomo start` or the next day. Other sessions show a change on their next minute tick.
 - **States at a glance.** `🍅 ●●○○ 12/25m` running · `⏸ … paused` · `☕ ●○○○ break 4m left` · `☕ ●●●● long break 29m left` · `⏹ off` · `○ ●●○○ idle`.
 - **Break summary.** The break notification lists the Next items checked and the Log lines written during the block (`✓ … · 📝 2 notes: "…"`), or says nothing was. With `breakSummaryAI` on, a one-line Claude Haiku summary of the block follows.
-- **Focus logged once.** Active time is credited once into today's per-task totals. On task switch or session end, the not-yet-logged part goes to the task Log and today's daily note — `focus 47m (2 pomodoros)` — and is marked logged so no other session repeats it. Finished days move to the plugin store (`focus:YYYY-MM-DD`).
+- **Focus logged once.** Active time is credited once into today's per-task totals. On task switch or session end, the not-yet-logged part goes to the task Log and today's daily note — `focus 47m (2 pomodoros)` — and is marked logged so no other session repeats it. Finished days move to the plugin store (`focus:YYYY-MM-DD`; with 2+ vaults, `focus:<vault>:YYYY-MM-DD`).
 - **Safe writes.** Written to a temp file and renamed over, so no session reads half a file; an unreadable file skips that round instead of resetting the timer.
+
+## Several vaults
+
+With `~/.config/adhd-planner/vaults.json` (see `docs/setup.md`), each session follows its own vault: the band and pane prefix `<vault> · ` (only with 2+ vaults), and each vault keeps its own timer in its `Tasks/.pomo.json`. A `/tasks:task-switch` to a task in another vault writes the old task's focus to its note first.
 
 ## Settings (`/config`, or `pluginConfigs["task-track@adhd-planner"].options` in settings.json)
 
 | Field | Default |
 |---|---|
-| `vaultPath` | empty → `$VAULT`, else `~/vault` |
+| `vaultPath` | empty → `$VAULT`, else `~/vault`; ignored when a valid `vaults.json` loads; an absent, unreadable or invalid one falls back to it (the pane names the error) |
 | `focusMinutes` / `breakMinutes` | 25 / 5 |
 | `longBreakEvery` / `longBreakMinutes` | 4 / 30 |
 | `staleEdits` | 10 edits by Claude since the Log changed → nudge (0 = off) |

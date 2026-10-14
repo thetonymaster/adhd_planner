@@ -3,9 +3,9 @@ name: task-park
 description: Save the active task's state to its note so the session can be cleared or the task switched. Use on /tasks:task-park, "park this", when context is noisy, before switching tasks, or when wrapping up.
 ---
 
-The vault root is the path on the session-start `Vault:` line (it follows the plugin's `vaultPath`); without that line, `$VAULT` when set, else `~/vault`. Every `~/vault` path below means that root.
+The vault root is the path on the session-start `Vault:` line; without that line, the `default` vault in `~/.config/adhd-planner/vaults.json` (or `$ADHD_PLANNER_VAULTS`) when that file loads; otherwise the plugin's vault path option `${user_config.vaultPath}` (skip it when empty), else `$VAULT`, else `~/vault`, the session-start hook's order. Every `~/vault` path below means that root.
 
-1. Read `~/vault/Tasks/.active`; open that note. None active → say so, stop.
+1. Pick the task, first match wins: (a) the task this session last started or switched to with `/tasks:task-start` or `/tasks:task-switch`, at `<its vault>/Tasks/<slug>.md`; (b) else the session-start `Active task:` line's `full note:` path; (c) else `~/vault/Tasks/.active`. The `Active task:` line is written once at session start, so after a mid-session switch it still names the old task: (a) comes first. Open that note. None active → say so, stop.
 2. Rewrite `## Next` with the 1–3 concrete next actions as `- [ ]` with time estimates. Someone with no memory of this session must be able to start from line 1.
 3. Add new questions to `## Open loops`; strike through resolved ones with the answer.
 4. Append one line to `## Log`: `- [[YYYY-MM-DD]] HH:MM — <what got done, what was learned>`.

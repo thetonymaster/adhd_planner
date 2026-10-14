@@ -15,6 +15,20 @@ def vault(env: Mapping[str, str], home: Path) -> Path:
     return Path(str(home) + raw[1:]) if raw == "~" or raw.startswith("~/") else Path(raw)
 
 
+def vaults_file(env: Mapping[str, str], home: Path) -> Path:
+    """The vault registry the hooks and the mod read (plugins/tasks/hooks/vaults.py)."""
+    raw = env.get("ADHD_PLANNER_VAULTS")
+    return Path(norm(raw, home)) if raw else home / ".config" / "adhd-planner" / "vaults.json"
+
+
+def tilde(path: Path, home: Path) -> str:
+    """`path` with `~` for home, the way vaults.json and `repo:` write paths."""
+    try:
+        return "~/" + str(path.relative_to(home))
+    except ValueError:
+        return str(path)
+
+
 def norm(path: str, home: Path | str) -> str:
     """`~` → home, then normalised (no trailing slash, no `..`), for comparing paths as written."""
     if path == "~" or path.startswith("~/"):

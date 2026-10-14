@@ -96,3 +96,64 @@ class VaultAllowTest(unittest.TestCase):
     def test_missing_vault_or_bad_json_does_nothing(self):
         self.assertIsNone(self.ask("Read", {"file_path": "/tmp/a"}, env_extra={"VAULT": str(self.home / "nope")}))
         self.assertIsNone(self.ask("Read", {}, raw=b"not json"))
+
+    def two_vaults(self, work_path=None):
+        work = work_path or self.home / "work"
+        (work / "Tasks").mkdir(parents=True, exist_ok=True)
+        cfg = self.home / "vaults.json"
+        cfg.write_text(json.dumps({"default": "personal", "vaults": {
+            "personal": {"path": str(self.vault)}, "work": {"path": str(work)}}}))
+        return work, {"ADHD_PLANNER_VAULTS": str(cfg)}
+
+    def test_a_path_in_the_second_vault_adds_that_vault(self):
+        work, env = self.two_vaults()
+        result = self.ask("Read", {"file_path": str(work / "Tasks" / "w.md")}, env_extra=env)
+        self.assertEqual(result["hookSpecificOutput"]["decision"]["updatedPermissions"][0]["directories"], [str(work)])
+        self.assertAllowed(self.ask("Read", {"file_path": str(self.vault / "a.md")}, env_extra=env))
+
+    def test_a_search_spanning_two_vaults_is_left_to_the_user(self):
+        _, env = self.two_vaults()
+        self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": str(self.home)}, env_extra=env))
+
+    def test_symlinked_second_vault_is_resolved(self):
+        real = self.home / "icloud" / "work"
+        (real / "Tasks").mkdir(parents=True)
+        os.symlink(real, self.home / "w")
+        _, env = self.two_vaults(work_path=self.home / "w")
+        result = self.ask("Read", {"file_path": str(real / "x.md")}, env_extra=env)
+        self.assertEqual(result["hookSpecificOutput"]["decision"]["updatedPermissions"][0]["directories"], [str(real)])
+
+    def test_a_broken_config_uses_only_the_single_vault(self):
+        cfg = self.home / "vaults.json"
+        cfg.write_text("{not json")
+        (self.home / "work" / "Tasks").mkdir(parents=True)
+        env = {"ADHD_PLANNER_VAULTS": str(cfg)}
+        self.assertAllowed(self.ask("Read", {"file_path": str(self.vault / "a.md")}, env_extra=env))
+        self.assertIsNone(self.ask("Read", {"file_path": str(self.home / "work" / "a.md")}, env_extra=env))
+
+    def ask_from(self, process_cwd, tool, tool_input, env_extra):
+        """Like ask, with the hook process itself started in `process_cwd` (where a relative path would land)."""
+        env = {"HOME": str(self.home), "PATH": os.environ["PATH"], **env_extra}
+        data = json.dumps({"hook_event_name": "PermissionRequest", "tool_name": tool,
+                           "tool_input": tool_input, "cwd": str(process_cwd)}).encode()
+        out = subprocess.run([str(HOOK)], input=data, env=env, cwd=process_cwd, capture_output=True, timeout=10)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return json.loads(out.stdout) if out.stdout.strip() else None
+
+    def test_a_relative_vault_path_does_not_approve_the_cwd(self):
+        project = self.home / "project"
+        (project / "Tasks").mkdir(parents=True)
+        cfg = self.home / "vaults.json"
+        cfg.write_text(json.dumps({"default": "a", "vaults": {"a": {"path": "~/vault"}, "b": {"path": "."}}}))
+        env = {"ADHD_PLANNER_VAULTS": str(cfg)}
+        self.assertIsNone(self.ask_from(project, "Write", {"file_path": str(project / "main.go")}, env))
+
+    def test_a_vault_nested_in_another_approves_and_adds_the_inner_one(self):
+        inner, env = self.two_vaults(work_path=self.vault / "work")
+        result = self.ask("Read", {"file_path": str(inner / "Tasks" / "w.md")}, env_extra=env)
+        self.assertEqual(result["hookSpecificOutput"]["decision"]["updatedPermissions"][0]["directories"], [str(inner)])
+
+    def test_a_prefix_sibling_of_a_registered_vault_is_outside(self):
+        _, env = self.two_vaults()
+        (self.home / "work-evil").mkdir()
+        self.assertIsNone(self.ask("Read", {"file_path": str(self.home / "work-evil" / "a.md")}, env_extra=env))

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""tasks plugin PermissionRequest hook: approve file tools whose every path is inside the vault.
+"""tasks plugin PermissionRequest hook: approve file tools whose every path is inside one vault.
 
-Vault: CLAUDE_PLUGIN_OPTION_VAULTPATH, else $VAULT, else ~/vault (symlinks resolved).
-Approves for this session only and adds the vault as a working directory. Anything else —
-Bash, other tools, a path outside, no vault, unreadable input — prints nothing, so the
-normal permission prompt appears. Always exits 0.
+Vaults: the ones registered in vaults.json (see vaults.py), else CLAUDE_PLUGIN_OPTION_VAULTPATH,
+$VAULT or ~/vault; symlinks resolved. Approves for this session only and adds that one vault as a
+working directory. Anything else — Bash, other tools, a path outside, paths spanning two vaults,
+no vault, unreadable input — prints nothing, so the normal permission prompt appears. Always exits 0.
 """
 import json
 import os
 import sys
+
+import vaults
 
 # tool -> keys in tool_input holding a path; a missing optional key means cwd.
 PATH_KEYS = {
@@ -24,10 +26,11 @@ CWD_DEFAULT = {"Glob", "Grep"}
 PATTERN_KEYS = {"Glob": "pattern", "Grep": "glob"}
 
 
-def vault_root():
-    raw = os.environ.get("CLAUDE_PLUGIN_OPTION_VAULTPATH") or os.environ.get("VAULT") or "~/vault"
-    root = os.path.realpath(os.path.expanduser(raw))
-    return root if os.path.isdir(root) else None
+def vault_roots():
+    """Every registered vault that exists, symlinks resolved, deepest first (a vault nested in another wins)."""
+    config = vaults.load_config(os.environ, os.path.expanduser("~"))
+    roots = {os.path.realpath(v.path) for v in config.vaults}
+    return sorted((r for r in roots if os.path.isdir(r)), key=len, reverse=True)
 
 
 def inside(path, root):
@@ -57,8 +60,8 @@ def main():
     tool = request.get("tool_name")
     if tool not in PATH_KEYS:
         return
-    root = vault_root()
-    if root is None:
+    roots = vault_roots()
+    if not roots:
         return
     tool_input = request.get("tool_input") or {}
     try:
@@ -68,7 +71,8 @@ def main():
             return
     except (AttributeError, TypeError):
         return  # malformed input: leave it to the normal prompt
-    if not paths or not all(inside(p, root) for p in paths):
+    root = next((r for r in roots if paths and all(inside(p, r) for p in paths)), None)
+    if root is None:
         return
     json.dump({"hookSpecificOutput": {
         "hookEventName": "PermissionRequest",

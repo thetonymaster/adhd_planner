@@ -8,7 +8,7 @@
     "vaultPath": {
       "type": "string",
       "title": "Vault path",
-      "description": "Absolute path to the Obsidian vault. Empty: $VAULT, else ~/vault.",
+      "description": "Absolute path to the Obsidian vault, used when vaults.json ($ADHD_PLANNER_VAULTS, else ~/.config/adhd-planner/vaults.json) is absent, unreadable or invalid. Empty: $VAULT, else ~/vault.",
       "default": ""
     }
   }

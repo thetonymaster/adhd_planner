@@ -10,9 +10,10 @@ renames, moves or deletes a note (that is `/tasks:task-start`, and Q's job in Ob
 
 First match wins:
 1. The session-start `Vault: <path>` line, else the folder above `Tasks/` in its `Active task: … — full note: <path>` line.
-2. A connected or working folder named `vault`, or one holding both `Tasks/` and `Daily/`.
-3. `$VAULT`.
-4. `~/vault`.
+2. The `default` vault's `path` in `~/.config/adhd-planner/vaults.json` (or `$ADHD_PLANNER_VAULTS`), when that file exists and parses.
+3. A connected or working folder named `vault`, or one holding both `Tasks/` and `Daily/`.
+4. `$VAULT`.
+5. `~/vault`.
 
 None has `Tasks/` → say "No vault found (looked in: <each place checked>)" and stop.
 
@@ -20,6 +21,7 @@ None has `Tasks/` → say "No vault found (looked in: <each place checked>)" and
 
 - Q named one → match the file stem in `Tasks/`, else a note whose `aliases` contains the
   name (case-insensitive). Several match → list them and ask.
+- `<vault>:<slug>` → that vault's `Tasks/<slug>.md`.
 - Q named none → the task named in the session-start `Active task:` line, else `Tasks/.active`.
   Neither → list open tasks and ask.
 
@@ -28,7 +30,7 @@ None has `Tasks/` → say "No vault found (looked in: <each place checked>)" and
 | Q asks | Do |
 |---|---|
 | show / what's next | Print `## Goal`, open `## Next` items numbered, `## Open loops`. Skip lines struck through with `~~`. |
-| list open tasks | Every `Tasks/*.md` whose frontmatter `status` is not `done`: `slug — status — first open Next item`. |
+| list open tasks | Every `Tasks/*.md` whose `status` is not `done`, in every vault `vaults.json` registers that has `Tasks/` (or the one vault): `<vault>:slug — status — first open Next item` (plain `slug` with one vault). |
 | add a note | Append to `## Log`: `- [[YYYY-MM-DD]] HH:MM — <text>` (local date and time). |
 | check / uncheck item | `- [ ]` ↔ `- [x]` on the item Q means (number from "show", or text match). Ambiguous → ask. |
 | add an open loop | Append `- <text>` to `## Open loops`. |
