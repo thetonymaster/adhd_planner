@@ -1,0 +1,5 @@
+{
+  "name": "planner-dev",
+  "version": "0.1.0",
+  "description": "For developing this repo: release-plugin skill, skill-trigger-reviewer agent, guard on built files. Claude Code only."
+}
