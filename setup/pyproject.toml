@@ -19,6 +19,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/planner_setup"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"../examples" = "planner_setup/examples"
-"../docs/setup.md" = "planner_setup/examples/setup.md"
+# examples/ and docs/setup.md live outside setup/: hatch_build.py adds them to
+# the wheel, and the sdist carries copies so a wheel can be built from it.
+[tool.hatch.build.targets.wheel.hooks.custom]
+
+[tool.hatch.build.targets.sdist.force-include]
+"../examples" = "src/planner_setup/examples"
+"../docs/setup.md" = "src/planner_setup/examples/setup.md"

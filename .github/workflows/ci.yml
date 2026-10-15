@@ -27,6 +27,13 @@ jobs:
       - name: planner-setup (pytest)
         working-directory: setup
         run: uv run --locked pytest
+      - name: planner-setup builds (sdist, then a wheel from the sdist)
+        working-directory: setup
+        run: uv build --out-dir "$RUNNER_TEMP/dist"
+      - name: Page linter
+        run: |
+          node --test scripts/*.test.mjs
+          node scripts/lint-pages.mjs *.html
       - name: Install Claude Code
         run: npm i -g @anthropic-ai/claude-code@2.1.301 # bump deliberately, after validating locally
       - name: Validate plugins and marketplace

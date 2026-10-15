@@ -19,7 +19,7 @@ Work from the repo root. Report each step's outcome as observed; stop at the fir
    | `plugins/task-track/` | `cd plugins/task-track && claude plugin test .` |
    | `.claude/skills/planner-dev/` | `claude plugin validate .claude/skills/planner-dev` and `cd .claude/skills/planner-dev && claude plugin test .` |
    | `setup/`, `examples/`, `docs/setup.md` | `cd setup && uv run pytest` |
-   | root `*.html` or `scripts/` | `node --test scripts/` and `node scripts/lint-pages.mjs *.html` |
+   | root `*.html` or `scripts/` | `node --test scripts/*.test.mjs` and `node scripts/lint-pages.mjs *.html` |
 
    Vault-resolution changes (`vaults.py`, `session_task.py`, `resolve.ts`) need both the Python and the task-track suite, whichever side changed.
 4. **Build.** If `plugins/planner/` changed: `bash scripts/build-plugin.sh`, then confirm `git status` shows `planner.plugin` modified.
