@@ -18,8 +18,7 @@ uvx --from ./setup planner-setup
 
 - **Status**: marketplace and plugins installed? vault path, and is it in `additionalDirectories`?
 - **Install plugins**: `claude plugin marketplace add` + `claude plugin install` for the ones you tick.
-- **Settings**: writes `vaultPath` for `tasks` and `task-track`; optionally adds the vault to
-  `additionalDirectories` and allows `Bash(obsidian:*)`.
+- **Settings**: writes `vaultPath` for `tasks` and `task-track`; optionally allows `Bash(obsidian:*)`.
 - **Vault starter**: creates a starter vault, only if the path doesn't exist.
 - **Example CLAUDE.md**: copies `examples/CLAUDE.md` only if you have no `~/.claude/CLAUDE.md`.
 - **Cowork steps**: prints the section below.
@@ -56,9 +55,23 @@ Empty means `$VAULT`, else `~/vault`.
 Plugins cannot set permissions, so these stay in your own settings
 (see [`examples/settings.example.json`](../examples/settings.example.json)):
 
-- **Vault access.** The `tasks` plugin's PermissionRequest hook approves Read/Edit/Write/Glob/Grep
-  inside the vault and adds the vault as a working directory for that session. To make it
-  permanent and skip even the first prompt, add the vault to `permissions.additionalDirectories`.
+- **Vault access.** The `tasks` plugin's PermissionRequest hook approves, per call and without a
+  prompt: Read/Glob anywhere in the vault except dot-folders (`.obsidian/`, `.git/`, ...), and Grep
+  only for a single note file or with an anchored glob like `Projects/*.md` (literal folders;
+  vault-wide `*.md` searches get the prompt because Claude Code searches hidden folders too; so does
+  a `Projects/*.md` search while `Projects/` holds a hidden `.something.md`). Write/Edit of `*.md` /
+  `*.canvas` notes outside dot-folders (never `CLAUDE.md` / `CLAUDE.local.md`, in any letter case)
+  plus `Tasks/.active`, `Tasks/.pomo.json` and `Tasks/.session/*`; a write containing a dataviewjs
+  fence, Templater (`<%`) or inline `$=` code gets the normal prompt, also when the fence sits
+  inside a quote or list (`> `, `- `, `1. `). That check is a best-effort tripwire, not a guarantee:
+  it cannot see code split across several writes, and other Obsidian plugins that execute note
+  content are not detected, so review the plugins in vaults you let Claude write. Everything else
+  gets the normal prompt. It trusts no vault that is `/`, your home folder or above it, or inside
+  `~/.claude` or `$CLAUDE_CONFIG_DIR` (as written and `~`-expanded), and approves nothing while
+  `vaults.json` has an error. Don't add the vault to `permissions.additionalDirectories` (if you
+  did, remove it: in `acceptEdits` mode edits there skip the hook). A session started inside the
+  vault in `acceptEdits` mode is auto-approved by Claude Code itself, outside the hook's reach. To
+  turn the hook off, disable the `tasks` plugin's hooks or uninstall it.
 - **Obsidian CLI.** `permissions.allow: ["Bash(obsidian:*)"]` lets skills run `obsidian` checks
   without asking. The hook never approves Bash.
 - **CLAUDE.md.** [`examples/CLAUDE.md`](../examples/CLAUDE.md) is one person's file; copy what you want.

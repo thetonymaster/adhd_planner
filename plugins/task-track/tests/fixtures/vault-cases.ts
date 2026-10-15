@@ -94,5 +94,14 @@ export const CASES: readonly VaultCase[] = [
   {"name": "no usable vault at all: nothing past Now",
    "config": {"default": "personal", "vaults": {"personal": {"path": "~/vault"}}},
    "vaults": {}, "cwd": "~/x",
-   "expect": {"vault": null}}
+   "expect": {"vault": null}},
+  {"name": "an .active that is not a slug is ignored",
+   "config": null, "vaults": {"vault": {"notes": {"g": {}}, "active": "../../outside/secret"}}, "cwd": "~/x",
+   "expect": {"vault": "~/vault", "slug": "", "reason": "global"}},
+  {"name": "a session override that is not a slug falls through to the default .active",
+   "config": null, "vaults": {"vault": {"notes": {"g": {}}, "active": "g", "session": {"slug": "../g"}}}, "cwd": "~/x",
+   "expect": {"vault": "~/vault", "slug": "g", "reason": "global"}},
+  {"name": "a note whose name is not a slug never binds by repo",
+   "config": null, "vaults": {"vault": {"notes": {"My Task": {"repo": "~/code/app"}, "g": {}}, "active": "g"}}, "cwd": "~/code/app",
+   "expect": {"vault": "~/vault", "slug": "g", "reason": "global"}}
 ]

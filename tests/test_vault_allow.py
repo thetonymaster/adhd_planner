@@ -31,18 +31,16 @@ class VaultAllowTest(unittest.TestCase):
         self.assertIsNotNone(result)
         out = result["hookSpecificOutput"]
         self.assertEqual(out["hookEventName"], "PermissionRequest")
-        self.assertEqual(out["decision"]["behavior"], "allow")
-        self.assertEqual(out["decision"]["updatedPermissions"],
-                         [{"type": "addDirectories", "directories": [str(self.vault)], "destination": "session"}])
+        self.assertEqual(out["decision"], {"behavior": "allow"})
 
     def test_read_inside_vault_is_allowed(self):
         self.assertAllowed(self.ask("Read", {"file_path": str(self.vault / "Tasks" / "a.md")}))
 
-    def test_edit_write_notebook_grep_inside_are_allowed(self):
+    def test_edit_write_grep_inside_are_allowed(self):
         self.assertAllowed(self.ask("Edit", {"file_path": str(self.vault / "x.md")}))
         self.assertAllowed(self.ask("Write", {"file_path": str(self.vault / "new" / "y.md")}))
-        self.assertAllowed(self.ask("NotebookEdit", {"notebook_path": str(self.vault / "n.ipynb")}))
-        self.assertAllowed(self.ask("Grep", {"pattern": "x", "path": str(self.vault)}))
+        self.assertAllowed(self.ask("Write", {"file_path": str(self.vault / "board.canvas")}))
+        self.assertAllowed(self.ask("Grep", {"pattern": "x", "path": str(self.vault), "glob": "Projects/*.md"}))
 
     def test_outside_vault_is_left_to_the_user(self):
         self.assertIsNone(self.ask("Read", {"file_path": str(self.home / "secrets.txt")}))
@@ -78,7 +76,7 @@ class VaultAllowTest(unittest.TestCase):
         os.symlink(real, self.home / "v")
         result = self.ask("Read", {"file_path": str(real / "a.md")},
                           env_extra={"CLAUDE_PLUGIN_OPTION_VAULTPATH": "~/v/"})
-        self.assertEqual(result["hookSpecificOutput"]["decision"]["updatedPermissions"][0]["directories"], [str(real)])
+        self.assertAllowed(result)
 
     def test_glob_pattern_escaping_the_vault_is_left_to_the_user(self):
         self.assertIsNone(self.ask("Glob", {"pattern": "/etc/**"}, cwd=str(self.vault)))
@@ -87,7 +85,7 @@ class VaultAllowTest(unittest.TestCase):
 
     def test_grep_glob_escaping_the_vault_is_left_to_the_user(self):
         self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": str(self.vault), "glob": "/etc/*"}))
-        self.assertAllowed(self.ask("Grep", {"pattern": "x", "path": str(self.vault), "glob": "*.md"}))
+        self.assertAllowed(self.ask("Grep", {"pattern": "x", "path": str(self.vault), "glob": "Projects/*.md"}))
 
     def test_malformed_tool_input_exits_cleanly(self):
         self.assertIsNone(self.ask("Read", "not an object"))
@@ -105,31 +103,23 @@ class VaultAllowTest(unittest.TestCase):
             "personal": {"path": str(self.vault)}, "work": {"path": str(work)}}}))
         return work, {"ADHD_PLANNER_VAULTS": str(cfg)}
 
-    def test_a_path_in_the_second_vault_adds_that_vault(self):
+    def test_a_path_in_the_second_vault_is_allowed(self):
         work, env = self.two_vaults()
         result = self.ask("Read", {"file_path": str(work / "Tasks" / "w.md")}, env_extra=env)
-        self.assertEqual(result["hookSpecificOutput"]["decision"]["updatedPermissions"][0]["directories"], [str(work)])
+        self.assertAllowed(result)
         self.assertAllowed(self.ask("Read", {"file_path": str(self.vault / "a.md")}, env_extra=env))
 
     def test_a_search_spanning_two_vaults_is_left_to_the_user(self):
         _, env = self.two_vaults()
         self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": str(self.home)}, env_extra=env))
 
-    def test_symlinked_second_vault_is_resolved(self):
+    def test_a_symlinked_second_vault_is_resolved(self):
         real = self.home / "icloud" / "work"
         (real / "Tasks").mkdir(parents=True)
         os.symlink(real, self.home / "w")
         _, env = self.two_vaults(work_path=self.home / "w")
         result = self.ask("Read", {"file_path": str(real / "x.md")}, env_extra=env)
-        self.assertEqual(result["hookSpecificOutput"]["decision"]["updatedPermissions"][0]["directories"], [str(real)])
-
-    def test_a_broken_config_uses_only_the_single_vault(self):
-        cfg = self.home / "vaults.json"
-        cfg.write_text("{not json")
-        (self.home / "work" / "Tasks").mkdir(parents=True)
-        env = {"ADHD_PLANNER_VAULTS": str(cfg)}
-        self.assertAllowed(self.ask("Read", {"file_path": str(self.vault / "a.md")}, env_extra=env))
-        self.assertIsNone(self.ask("Read", {"file_path": str(self.home / "work" / "a.md")}, env_extra=env))
+        self.assertAllowed(result)
 
     def ask_from(self, process_cwd, tool, tool_input, env_extra):
         """Like ask, with the hook process itself started in `process_cwd` (where a relative path would land)."""
@@ -148,12 +138,202 @@ class VaultAllowTest(unittest.TestCase):
         env = {"ADHD_PLANNER_VAULTS": str(cfg)}
         self.assertIsNone(self.ask_from(project, "Write", {"file_path": str(project / "main.go")}, env))
 
-    def test_a_vault_nested_in_another_approves_and_adds_the_inner_one(self):
+    def test_a_vault_nested_in_another_is_allowed(self):
         inner, env = self.two_vaults(work_path=self.vault / "work")
         result = self.ask("Read", {"file_path": str(inner / "Tasks" / "w.md")}, env_extra=env)
-        self.assertEqual(result["hookSpecificOutput"]["decision"]["updatedPermissions"][0]["directories"], [str(inner)])
+        self.assertAllowed(result)
 
     def test_a_prefix_sibling_of_a_registered_vault_is_outside(self):
         _, env = self.two_vaults()
         (self.home / "work-evil").mkdir()
         self.assertIsNone(self.ask("Read", {"file_path": str(self.home / "work-evil" / "a.md")}, env_extra=env))
+
+    def test_writes_that_can_run_code_or_steer_claude_are_left_to_the_user(self):
+        for rel in (".git/config", ".git/hooks/pre-commit", ".claude/settings.json",
+                    ".obsidian/plugins/p/main.js", "CLAUDE.md", "Projects/CLAUDE.md",
+                    "scripts/x.sh", "n.ipynb", ".obsidian/notes.md"):
+            with self.subTest(rel):
+                self.assertIsNone(self.ask("Write", {"file_path": str(self.vault / rel)}))
+                self.assertIsNone(self.ask("Edit", {"file_path": str(self.vault / rel)}))
+        self.assertIsNone(self.ask("NotebookEdit", {"notebook_path": str(self.vault / "n.ipynb")}))
+
+    def test_task_state_files_are_writable(self):
+        for rel in ("Tasks/.active", "Tasks/.pomo.json", "Tasks/.session/abc-123"):
+            with self.subTest(rel):
+                self.assertAllowed(self.ask("Write", {"file_path": str(self.vault / rel)}))
+        self.assertIsNone(self.ask("Write", {"file_path": str(self.vault / "Tasks" / ".session" / "a" / "b")}))
+        self.assertIsNone(self.ask("Write", {"file_path": str(self.vault / "Tasks" / ".other")}))
+        self.assertIsNone(self.ask("Write", {"file_path": str(self.vault / "Notes" / ".active")}))
+
+    def test_reads_skip_dot_paths(self):
+        self.assertAllowed(self.ask("Read", {"file_path": str(self.vault / "Notes" / "a.md")}))
+        self.assertAllowed(self.ask("Read", {"file_path": str(self.vault / "attachments" / "x.png")}))
+        self.assertIsNone(self.ask("Read", {"file_path": str(self.vault / ".obsidian" / "plugins" / "p" / "data.json")}))
+        self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": str(self.vault / ".git")}))
+
+    def test_a_dot_inside_a_segment_is_not_hidden(self):
+        self.assertAllowed(self.ask("Write", {"file_path": str(self.vault / "Projects" / "v1.2" / "plan.md")}))
+
+    def test_the_vault_root_itself_is_searchable_not_writable(self):
+        self.assertAllowed(self.ask("Glob", {"pattern": "**/*.md", "path": str(self.vault)}))
+        self.assertIsNone(self.ask("Write", {"file_path": str(self.vault)}))
+
+    def test_notes_in_a_symlinked_vault_are_writable(self):
+        real = self.home / "icloud" / "vault"
+        real.mkdir(parents=True)
+        os.symlink(real, self.home / "v")
+        env = {"CLAUDE_PLUGIN_OPTION_VAULTPATH": "~/v"}
+        self.assertAllowed(self.ask("Write", {"file_path": str(self.home / "v" / "a.md")}, env_extra=env))
+        self.assertIsNone(self.ask("Write", {"file_path": str(self.home / "v" / ".git" / "config")}, env_extra=env))
+
+    def test_claude_memory_files_are_refused_in_any_case(self):
+        for rel in ("Projects/claude.md", "Claude.md", "CLAUDE.local.md", "Projects/Claude.Local.md"):
+            with self.subTest(rel):
+                self.assertIsNone(self.ask("Write", {"file_path": str(self.vault / rel)}))
+
+    def test_a_symlink_to_a_dot_path_is_refused(self):
+        (self.vault / ".git").mkdir()
+        os.symlink(self.vault / ".git" / "config", self.vault / "notes-link.md")
+        self.assertIsNone(self.ask("Write", {"file_path": str(self.vault / "notes-link.md")}))
+
+    def test_edit_of_a_session_pointer_is_allowed(self):
+        self.assertAllowed(self.ask("Edit", {"file_path": str(self.vault / "Tasks" / ".session" / "abc")}))
+
+    def test_home_root_and_ancestors_are_never_a_vault(self):
+        (self.home / ".ssh").mkdir()
+        for vault in (str(self.home), "/", str(self.home.parent)):
+            with self.subTest(vault):
+                self.assertIsNone(self.ask("Write", {"file_path": str(self.home / "notes.md")},
+                                           env_extra={"VAULT": vault}))
+                self.assertIsNone(self.ask("Read", {"file_path": str(self.home / ".ssh" / "id_rsa")},
+                                           env_extra={"VAULT": vault}))
+
+    def test_claude_config_is_never_a_vault(self):
+        skills = self.home / ".claude" / "skills" / "x"
+        skills.mkdir(parents=True)
+        for vault in (str(self.home / ".claude"), str(self.home / ".claude" / "skills")):
+            with self.subTest(vault):
+                self.assertIsNone(self.ask("Write", {"file_path": str(skills / "SKILL.md")},
+                                           env_extra={"VAULT": vault}))
+        custom = self.home / "cfg"
+        (custom / "rules").mkdir(parents=True)
+        self.assertIsNone(self.ask("Write", {"file_path": str(custom / "rules" / "r.md")},
+                                   env_extra={"VAULT": str(custom), "CLAUDE_CONFIG_DIR": str(custom)}))
+
+    def test_a_literal_tilde_claude_config_dir_inside_the_vault_makes_it_untrusted(self):
+        (self.vault / "cfg" / "commands").mkdir(parents=True)
+        # settings.json `env` does not expand `~`; Claude Code may read it either way.
+        self.assertIsNone(self.ask("Write", {"file_path": str(self.vault / "cfg" / "commands" / "x.md")},
+                                   env_extra={"CLAUDE_CONFIG_DIR": "~/vault/cfg"}))
+        self.assertIsNone(self.ask("Write", {"file_path": str(self.vault / "a.md")},
+                                   env_extra={"CLAUDE_CONFIG_DIR": "~/vault/cfg"}))
+
+    def test_a_relative_implicit_vault_approves_nothing(self):
+        project = self.home / "project"
+        project.mkdir()
+        self.assertIsNone(self.ask_from(project, "Write", {"file_path": str(project / "a.md")}, {"VAULT": "."}))
+
+    def test_a_vaults_json_inside_a_vault_approves_nothing(self):
+        cfg = self.vault / "vaults.json"
+        cfg.write_text(json.dumps({"vaults": {"personal": {"path": str(self.vault)}}}))
+        env = {"ADHD_PLANNER_VAULTS": str(cfg)}
+        self.assertIsNone(self.ask("Write", {"file_path": str(self.vault / "a.md")}, env_extra=env))
+        self.assertIsNone(self.ask("Read", {"file_path": str(cfg)}, env_extra=env))
+
+    def test_a_broken_config_approves_nothing(self):
+        cfg = self.home / "vaults.json"
+        cfg.write_text("{not json")
+        env = {"ADHD_PLANNER_VAULTS": str(cfg)}
+        self.assertIsNone(self.ask("Read", {"file_path": str(self.vault / "a.md")}, env_extra=env))
+
+    def test_json_that_is_not_an_object_exits_cleanly(self):
+        for raw in (b"[1]", b"42", b'"x"', b"null"):
+            with self.subTest(raw):
+                self.assertIsNone(self.ask("Read", {}, raw=raw))
+
+    def test_brace_or_dot_glob_patterns_are_left_to_the_user(self):
+        self.assertIsNone(self.ask("Glob", {"pattern": "{..,x}/**", "path": str(self.vault)}))
+        self.assertIsNone(self.ask("Glob", {"pattern": ".obsidian/**", "path": str(self.vault)}))
+        self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": str(self.vault), "glob": "{a,../b}"}))
+        self.assertAllowed(self.ask("Glob", {"pattern": "Projects/**/*.md", "path": str(self.vault)}))
+
+    def test_grep_that_can_reach_hidden_files_is_left_to_the_user(self):
+        v = str(self.vault)
+        self.assertIsNone(self.ask("Grep", {"pattern": "sk-", "path": v}))
+        self.assertIsNone(self.ask("Grep", {"pattern": "sk-"}, cwd=v))
+        self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": v, "glob": "*.json"}))
+        self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": v, "glob": "*.md.json"}))
+
+    def test_grep_with_a_note_glob_or_a_single_note_is_allowed(self):
+        v = str(self.vault)
+        (self.vault / "Notes").mkdir()
+        (self.vault / "Notes" / "a.md").write_text("x")
+        for glob in ("Projects/*.md", "/Daily/*.md", "Areas/Work/notes.md", "Areas/*.canvas", "Areas/my-note_1.canvas"):
+            with self.subTest(glob):
+                self.assertAllowed(self.ask("Grep", {"pattern": "x", "path": v, "glob": glob}))
+        self.assertAllowed(self.ask("Grep", {"pattern": "x", "glob": "Projects/*.md"}, cwd=v))
+        self.assertAllowed(self.ask("Grep", {"pattern": "x", "path": str(self.vault / "Notes" / "a.md")}))
+
+    def test_grep_globs_outside_the_strict_grammar_are_left_to_the_user(self):
+        v = str(self.vault)
+        (self.vault / ".obsidian" / "plugins" / "x").mkdir(parents=True)
+        (self.vault / ".obsidian" / "plugins" / "x" / "data.json").write_text("{}")
+        for glob in ("*.md", "**/*.md", "*/*.md", "Projects/**/*.md", ".obsidian/*.md", "!x.md",
+                     "*.json *.md", "*.json,*.md", "Projects/*.json", "{a,b}/*.md", "Daily Notes/*.md",
+                     "Projects/[a]*.md", "Projects/.hid/*.md", "**/*.canvas", "Projects/*.md\n*.json"):
+            with self.subTest(glob):
+                self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": v, "glob": glob}))
+                self.assertIsNone(self.ask("Grep", {"pattern": "x", "glob": glob}, cwd=v))
+
+    def test_grep_of_a_hidden_single_file_or_missing_file_is_left_to_the_user(self):
+        (self.vault / ".obsidian").mkdir()
+        (self.vault / ".obsidian" / "data.json").write_text("{}")
+        self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": str(self.vault / ".obsidian" / "data.json")}))
+        self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": str(self.vault / "Notes" / "nope.md")}))
+
+    def test_writes_that_plant_plugin_code_are_left_to_the_user(self):
+        path = str(self.vault / "a.md")
+        for marker in ("```dataviewjs\nx\n```", "hi <%* tp.file %>", "`$= 1+1`", "~~~dataviewjs\nx",
+                       "``` dataviewjs\nx", "````DataviewJS\nx", "  ```dataviewjs\nx", "a\n\t~~~~ DATAVIEWJS"):
+            with self.subTest(marker):
+                self.assertIsNone(self.ask("Write", {"file_path": path, "content": marker}))
+                self.assertIsNone(self.ask("Edit", {"file_path": path, "new_string": marker}))
+        self.assertAllowed(self.ask("Write", {"file_path": path, "content": "# plain\n```dataview\nLIST\n```"}))
+        self.assertAllowed(self.ask("Write", {"file_path": path, "content": "I use dataview and dataviewjs a lot"}))
+        self.assertAllowed(self.ask("Edit", {"file_path": path, "old_string": "a", "new_string": "b"}))
+
+    def test_a_fence_behind_a_markdown_container_prefix_is_still_code(self):
+        path = str(self.vault / "a.md")
+        for marker in ("> ```dataviewjs\nx", "> [!note]\n> ```dataviewjs\nx", "- ```dataviewjs\nx",
+                       "1. ~~~dataviewjs\nx", ">> ```dataviewjs\nx", "2) ```dataviewjs\nx",
+                       "  > - * ```dataviewjs\nx", "+\t```dataviewjs\nx", "\t>\t~~~~DataviewJS\nx"):
+            with self.subTest(marker):
+                self.assertIsNone(self.ask("Write", {"file_path": path, "content": marker}))
+                self.assertIsNone(self.ask("Edit", {"file_path": path, "new_string": marker}))
+        quiet = "# t\n> quote about dataviewjs\n- item\n1. step\n> - nested\n"
+        self.assertAllowed(self.ask("Write", {"file_path": path, "content": quiet}))
+
+    def test_grep_glob_that_could_match_a_hidden_note_is_left_to_the_user(self):
+        v = str(self.vault)
+        (self.vault / "Projects").mkdir()
+        (self.vault / "Projects" / "a.md").write_text("x")
+        self.assertAllowed(self.ask("Grep", {"pattern": "x", "path": v, "glob": "Projects/*.md"}))
+        (self.vault / "Projects" / ".secret.md").write_text("x")
+        for glob in ("Projects/*.md", "/Projects/*.md"):
+            with self.subTest(glob):
+                self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": v, "glob": glob}))
+                self.assertIsNone(self.ask("Grep", {"pattern": "x", "glob": glob}, cwd=v))
+        self.assertAllowed(self.ask("Grep", {"pattern": "x", "path": v, "glob": "Projects/a.md"}))
+        self.assertAllowed(self.ask("Grep", {"pattern": "x", "path": v, "glob": "Projects/*.canvas"}))
+        self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": str(self.vault / "Projects"), "glob": "*.md"}))
+        self.assertAllowed(self.ask("Grep", {"pattern": "x", "path": v, "glob": "Missing/*.md"}))
+
+    def test_a_canvas_in_a_dot_folder_is_not_writable(self):
+        self.assertIsNone(self.ask("Write", {"file_path": str(self.vault / ".obsidian" / "b.canvas")}))
+
+    def test_a_symlink_to_a_hidden_target_is_refused(self):
+        (self.vault / ".obsidian").mkdir()
+        (self.vault / ".obsidian" / "data.json").write_text("{}")
+        os.symlink(self.vault / ".obsidian" / "data.json", self.vault / "link.md")
+        self.assertIsNone(self.ask("Read", {"file_path": str(self.vault / "link.md")}))
+        self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": str(self.vault / "link.md")}))

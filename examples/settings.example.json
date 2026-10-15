@@ -1,7 +1,6 @@
 {
   "//": "Copy the parts you want into ~/.claude/settings.json. planner-setup's Settings item writes the same keys.",
   "permissions": {
-    "additionalDirectories": ["~/vault"],
     "allow": ["Bash(obsidian:*)"]
   },
   "pluginConfigs": {

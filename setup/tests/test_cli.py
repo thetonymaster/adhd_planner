@@ -15,7 +15,8 @@ def test_settings_subcommand_with_flags(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     assert cli.main(["--yes", "settings", "--vault", str(tmp_path / "v"), "--permissions"]) == 0
     data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-    assert data["permissions"]["additionalDirectories"] == [str(tmp_path / "v")]
+    assert "additionalDirectories" not in data["permissions"]
+    assert data["permissions"]["allow"] == ["Bash(obsidian:*)"]
 
 
 def test_install_defaults_to_all_plugins(tmp_path, monkeypatch, fake_claude):

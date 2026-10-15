@@ -6,7 +6,7 @@ import { codeSpans, insertInSection, logEntry, logOrder, parseNote, splitEstimat
 import { advance, blockMinutes, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
-import { frontmatter, implicitVault, normalize, parseVaults, pickTask, pickVault } from '../hooks/resolve'
+import { frontmatter, implicitVault, isSlug, normalize, parseVaults, pickTask, pickVault, taskNotePath } from '../hooks/resolve'
 import type { Candidate, VaultState } from '../hooks/resolve'
 import { CASES } from './fixtures/vault-cases'
 import type { VaultCase } from './fixtures/vault-case'
@@ -1410,5 +1410,119 @@ describe('several vaults', () => {
     written['/v/Tasks/.pomo.json'] = serializePomo({ ...emptyPomo('2026-10-12'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 10 * MIN } })
     expect((await run($, 'note', 'next day')).text).toBe('No active task. /tasks:task-start <name>')
     expect(Object.keys(stored).filter(k => k.startsWith('focus:'))).toEqual(['focus:personal:2026-10-12'])
+  })
+})
+
+describe('task slugs from vault files', () => {
+  test('isSlug accepts kebab-case only', () => {
+    expect(isSlug('set-up-vault')).toBe(true)
+    for (const bad of ['../../outside/secret', 'a/b', '.hidden', '-x', 'Up', 'a b', '', 'x.md']) expect(isSlug(bad)).toBe(false)
+  })
+
+  test('taskNotePath refuses a non-slug', () => {
+    expect(taskNotePath('/v', 'a-b')).toBe('/v/Tasks/a-b.md')
+    expect(() => taskNotePath('/v', '../../x')).toThrow(/not kebab-case/)
+  })
+
+  test('a note named "My Task" bound to the cwd does not make the load throw', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    const files = fakeVault(
+      on,
+      {
+        '/v/Tasks/.active': 'set-up-vault\n',
+        '/v/Tasks/set-up-vault.md': NOTE,
+        '/v/Tasks/My Task.md': '---\nstatus: active\nrepo: ~/code/app\n---\n# My Task\n',
+      },
+      { root: '/home/q/code/app' },
+    )
+    const out = await run($, 'note', 'hello')
+    expect(out.text).not.toMatch(/not kebab-case/)
+    expect(files['/v/Tasks/set-up-vault.md']).toContain('hello')
+  })
+
+  test('/note with an escaping .active writes nothing outside the vault', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    const files = fakeVault(on, { '/v/Tasks/.active': '../../outside/secret\n', '/outside/secret.md': '# s\n' })
+    await run($, 'note', 'pwned')
+    expect(files['/outside/secret.md']).toBe('# s\n')
+  })
+})
+
+describe('a non-slug in .pomo.json', () => {
+  const POMO = '/v/Tasks/.pomo.json'
+  const DAILY = '/v/Daily/2026-10-12.md'
+  const base = () => ({ '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, '/v/Tasks/good-slug.md': NOTE, '/outside/evil.md': '# e\n' })
+  const outside = (files: Record<string, string>) => Object.keys(files).filter(k => !k.startsWith('/v/') || k.includes('..'))
+  const storeDays = (on: On) => on('store.set', () => ({ value: undefined }))
+
+  test('a finished day with a bad slug logs the good slug once and reports the bad one', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 })
+    const day = { ...emptyPomo('2026-10-12'), slug: 'good-slug', dayMs: { 'good-slug': 30 * MIN, '../evil': 30 * MIN }, dayBlocks: { 'good-slug': 1, '../evil': 1 } }
+    const files = fakeVault(on, { ...base(), [POMO]: serializePomo(day) }, { root: '/home/q/elsewhere' })
+    storeDays(on)
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    await run($, 'note', 'one')
+    await run($, 'note', 'two')
+    expect((files['/v/Tasks/good-slug.md'] ?? '').match(/end of day — focus/g)).toHaveLength(1)
+    expect(files['/outside/evil.md']).toBe('# e\n')
+    expect(Object.keys(files).filter(k => k.includes('evil'))).toEqual(['/outside/evil.md'])
+    expect(logs.some(l => l.includes("names '../evil', which is not a task slug; it was not logged") && l.includes(POMO))).toBe(true)
+  })
+
+  test('/pomo stop with a bad slug held returns the stop text and writes nothing outside', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 30 * MIN })
+    const held = { ...touch(emptyPomo('2026-10-13'), T0, '../evil', CFG), lastActiveAt: T0 + 20 * MIN }
+    const files = fakeVault(on, { ...base(), [POMO]: serializePomo(held) })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    const out = await run($, 'pomo', 'stop')
+    expect(out.text).toMatch(/ · set-up-vault$/)
+    expect(files['/outside/evil.md']).toBe('# e\n')
+    expect(outside(files)).toEqual(['/outside/evil.md'])
+    expect(logs.some(l => l.includes("names '../evil', which is not a task slug"))).toBe(true)
+  })
+
+  test('a finished day whose date is not a date writes nothing', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 })
+    const day = { ...emptyPomo('../../x'), slug: 'good-slug', dayMs: { 'good-slug': 30 * MIN }, dayBlocks: { 'good-slug': 1 } }
+    const files = fakeVault(on, { ...base(), [POMO]: serializePomo(day) }, { root: '/home/q/elsewhere' })
+    storeDays(on)
+    await run($, 'note', 'one')
+    await run($, 'note', 'two')
+    expect(outside(files)).toEqual(['/outside/evil.md'])
+    expect(Object.keys(files).filter(k => k.startsWith('/v/Daily/'))).toEqual([])
+    expect(files['/v/Tasks/good-slug.md']).toBe(NOTE)
+    void DAILY
+  })
+
+  test('a finished day that matches the date shape but is not a calendar date writes nothing and is reported', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 })
+    const day = { ...emptyPomo('2026-99-99'), slug: 'good-slug', dayMs: { 'good-slug': 30 * MIN }, dayBlocks: { 'good-slug': 1 } }
+    const files = fakeVault(on, { ...base(), [POMO]: serializePomo(day) }, { root: '/home/q/elsewhere' })
+    storeDays(on)
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    await run($, 'note', 'one')
+    await run($, 'note', 'two')
+    expect(files['/v/Daily/2026-99-99.md']).toBeUndefined()
+    expect(Object.keys(files).filter(k => k.startsWith('/v/Daily/'))).toEqual([])
+    expect(files['/v/Tasks/good-slug.md']).toBe(NOTE)
+    expect(logs.some(l => l.includes("names '2026-99-99', which is not a date"))).toBe(true)
   })
 })

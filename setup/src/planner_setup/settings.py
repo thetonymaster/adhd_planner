@@ -16,7 +16,7 @@ def desired(vault: str, *, permissions: bool) -> dict:
         f"{p}@{MARKETPLACE}": {"options": {"vaultPath": vault}} for p in VAULT_PLUGINS
     }}
     if permissions:
-        wanted["permissions"] = {"additionalDirectories": [vault], "allow": [OBSIDIAN_ALLOW]}
+        wanted["permissions"] = {"allow": [OBSIDIAN_ALLOW]}
     return wanted
 
 

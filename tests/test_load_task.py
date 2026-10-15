@@ -183,6 +183,29 @@ class LoadTaskTest(unittest.TestCase):
         out = self.run_hook({"session_id": "x", "cwd": "/"})
         self.assertIn("/tasks:task-start", out)
 
+    def _escaping_active(self):
+        outside = self.home / "outside"
+        outside.mkdir()
+        (outside / "secret.md").write_text("## Next\n- AWS_SECRET=abc123\n")
+        (self.tasks / ".active").write_text("../../outside/secret\n")
+
+    def test_an_active_slug_that_escapes_tasks_is_ignored(self):
+        self._escaping_active()
+        out = self.run_hook({"session_id": "x", "cwd": "/"})
+        self.assertIn("No active task", out)
+        self.assertNotIn("AWS_SECRET", out)
+
+    def test_without_python_an_escaping_active_slug_is_ignored(self):
+        self._escaping_active()
+        bin_dir = self.home / "bin"
+        bin_dir.mkdir()
+        for tool in ("bash", "date", "tr", "awk", "head", "cat", "dirname"):
+            os.symlink(shutil.which(tool), bin_dir / tool)
+        out = self.run_hook(stdin=subprocess.DEVNULL, env_extra={"PATH": str(bin_dir)})
+        self.assertIn("Vault:", out)
+        self.assertIn("No active task", out)
+        self.assertNotIn("AWS_SECRET", out)
+
     def test_vault_line_names_the_resolved_vault_even_with_no_task(self):
         (self.home / "alt" / "Tasks").mkdir(parents=True)
         out = self.run_hook({"session_id": "x", "cwd": "/"}, env_extra={"CLAUDE_PLUGIN_OPTION_VAULTPATH": "~/alt"})

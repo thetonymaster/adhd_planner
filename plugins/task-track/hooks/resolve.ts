@@ -64,6 +64,17 @@ export type VaultPick = { vault: VaultSpec; slug: string; reason: string }
 
 const VAULT_NAME = /^[a-z0-9][a-z0-9-]*$/
 
+/** A task slug read from a vault file. Mirrors vaults.slug_or_empty: anything else could name a path outside Tasks/. */
+export function isSlug(s: string): boolean {
+  return VAULT_NAME.test(s)
+}
+
+/** `<root>/Tasks/<slug>.md`; throws for a non-slug instead of building a path that leaves Tasks/. */
+export function taskNotePath(root: string, slug: string): string {
+  if (!isSlug(slug)) throw new Error(`task slug '${slug}' is not kebab-case; refusing to build a path from it`)
+  return `${root}/Tasks/${slug}.md`
+}
+
 /** No vaults.json, or a broken one: the single vault from the plugin option, $VAULT or ~/vault. */
 export function implicitVault(fallback: string, home: string, error = ''): VaultConfig {
   return { default: 'default', vaults: [{ name: 'default', path: normalize(fallback, home), folders: [] }], isImplicit: true, error }
@@ -129,7 +140,7 @@ export function defaultVault(config: VaultConfig): VaultSpec {
 
 /**
  * Session override (newest across vaults) → a repo note in any vault (deepest, then active, then
- * newest; done never binds) → the deepest bound folder (its vault's .active) → the default
+ * newest; done never binds, nor does a note whose name is not a slug) → the deepest bound folder (its vault's .active) → the default
  * vault's .active. `states` holds only vaults that have Tasks/; null when none of them answers.
  */
 export function pickVault(input: { config: VaultConfig; states: readonly VaultState[]; dir: string; home: string }): VaultPick | null {
@@ -137,11 +148,11 @@ export function pickVault(input: { config: VaultConfig; states: readonly VaultSt
   const dir = normalize(input.dir, home)
   // candidates are every readable note; the mod's candidates() rethrows read errors, so this matches vaults.py's all-stems check
   const over = states
-    .filter(s => s.override !== '' && s.candidates.some(c => c.slug === s.override))
+    .filter(s => isSlug(s.override) && s.candidates.some(c => c.slug === s.override))
     .sort((a, b) => b.overrideMtimeMs - a.overrideMtimeMs)[0]
   if (over) return { vault: over.vault, slug: over.override, reason: 'this session' }
   const best = states
-    .flatMap(s => s.candidates.filter(c => c.repo !== '' && c.status !== 'done').map(c => ({ s, c, root: normalize(c.repo, home) })))
+    .flatMap(s => s.candidates.filter(c => isSlug(c.slug) && c.repo !== '' && c.status !== 'done').map(c => ({ s, c, root: normalize(c.repo, home) })))
     .filter(x => isWithin(dir, x.root))
     .sort(
       (a, b) =>
@@ -154,7 +165,7 @@ export function pickVault(input: { config: VaultConfig; states: readonly VaultSt
   const folder = states
     .flatMap(s => s.vault.folders.filter(f => isWithin(dir, f.root)).map(f => ({ s, f })))
     .sort((a, b) => b.f.root.length - a.f.root.length)[0]
-  if (folder) return { vault: folder.s.vault, slug: folder.s.global, reason: `folder ${folder.f.written}` }
+  if (folder) return { vault: folder.s.vault, slug: isSlug(folder.s.global) ? folder.s.global : '', reason: `folder ${folder.f.written}` }
   const byDefault = states.find(s => s.vault.name === config.default)
-  return byDefault ? { vault: byDefault.vault, slug: byDefault.global, reason: config.isImplicit ? 'global' : 'default' } : null
+  return byDefault ? { vault: byDefault.vault, slug: isSlug(byDefault.global) ? byDefault.global : '', reason: config.isImplicit ? 'global' : 'default' } : null
 }

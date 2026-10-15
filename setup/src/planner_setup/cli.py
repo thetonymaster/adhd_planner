@@ -27,7 +27,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--plugins", nargs="+", choices=settings.PLUGINS, default=list(settings.PLUGINS))
     p = sub.add_parser("settings")
     p.add_argument("--vault", type=Path)
-    p.add_argument("--permissions", action="store_true", help="also add the vault to additionalDirectories and allow Bash(obsidian:*)")
+    p.add_argument("--permissions", action="store_true", help="also allow Bash(obsidian:*)")
     p = sub.add_parser("vault")
     p.add_argument("--vault", type=Path)
     p = sub.add_parser("add-vault", help="register another vault in ~/.config/adhd-planner/vaults.json")
@@ -58,7 +58,7 @@ def _menu(args: argparse.Namespace) -> int:
         elif choice.startswith("Settings"):
             vault = questionary.path("Vault path", default=default_vault, only_directories=True).ask()
             if vault:
-                perms = bool(questionary.confirm("Also add it to additionalDirectories and allow Bash(obsidian:*)?",
+                perms = bool(questionary.confirm("Also allow Bash(obsidian:*)?",
                                                  default=False).ask())
                 actions.configure(ctx, Path(os.path.expanduser(vault)).absolute(), perms)
         elif choice == "Vault starter":

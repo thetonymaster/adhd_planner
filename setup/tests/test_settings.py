@@ -11,7 +11,7 @@ def test_desired_sets_vault_for_both_plugins_only():
 
 def test_desired_with_permissions():
     d = desired("/v", permissions=True)
-    assert d["permissions"] == {"additionalDirectories": ["/v"], "allow": ["Bash(obsidian:*)"]}
+    assert d["permissions"] == {"allow": ["Bash(obsidian:*)"]}
 
 
 def test_merge_keeps_unrelated_keys():
@@ -69,5 +69,7 @@ def test_wrong_typed_keys_abort_naming_the_key():
     ]
     for current, label in cases:
         with pytest.raises(SystemExit) as err:
-            merge(current, desired("/v", permissions=True), home="/h")
+            wanted = desired("/v", permissions=True)
+            wanted["permissions"]["additionalDirectories"] = ["/v"]  # merge() must still validate it
+            merge(current, wanted, home="/h")
         assert f"settings.json {label} is a " in str(err.value) and "nothing was changed" in str(err.value), label

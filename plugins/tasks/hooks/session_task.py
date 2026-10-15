@@ -52,7 +52,7 @@ def fallback(config, usable, why):
     for v in usable:
         if v.name == config.default:
             active = pathlib.Path(v.path) / "Tasks" / ".active"
-            return vaults.Pick(v, active.read_text().strip() if active.is_file() else "", why)
+            return vaults.Pick(v, vaults.slug_or_empty(active.read_text()) if active.is_file() else "", why)
     return None
 
 

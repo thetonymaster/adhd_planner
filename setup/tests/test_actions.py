@@ -143,7 +143,7 @@ def test_status_expands_tilde_vault_and_dirs(ctx):
     actions.status(ctx)
     out = text(ctx)
     assert f"vault: {ctx.home / 'vault'} (exists; from settings)" in out
-    assert "vault in additionalDirectories: yes" in out
+    assert "vault in additionalDirectories: yes (not needed; edits there may skip the tasks hook's write rules: consider removing it)" in out
 
 
 def test_status_with_wrong_typed_settings_names_the_key(ctx):

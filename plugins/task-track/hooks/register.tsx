@@ -26,7 +26,7 @@ import {
   unlogged,
 } from './pomo'
 import type { DayTotals, PomoConfig, PomoEvent, Transition } from './pomo'
-import { defaultVault, frontmatter, implicitVault, normalize, parseVaults, pickVault } from './resolve'
+import { defaultVault, frontmatter, implicitVault, isSlug, normalize, parseVaults, pickVault, taskNotePath } from './resolve'
 import { blockSummary, checkedTitles, SUMMARY_SYSTEM, summaryPrompt } from './summary'
 import type { NoteRead } from './summary'
 import type { Candidate, VaultConfig, VaultSpec, VaultState } from './resolve'
@@ -179,7 +179,7 @@ async function load($: EngineInterface): Promise<TaskView | null> {
     await update($, problem, () => (hasVault ? '' : `No vault at ${root}`))
     return null
   }
-  const path = `${root}/Tasks/${slug}.md`
+  const path = taskNotePath(root, slug)
   const stat = await $.fs.stat(path).catch(() => undefined)
   if (!stat) {
     await update($, problem, () => `Active task "${slug}" has no note at ${path}`)
@@ -318,14 +318,38 @@ async function writeFocus($: EngineInterface, slug: string, taskPath: string, da
   await $.fs.write(daily, insertInSection(await dailyText($, daily, date), 'Log', `- ${time} [[${slug}]] ${spent}`))
 }
 
+/**
+ * A value in .pomo.json that can't name a note: shown where the band's other problems are, and logged
+ * (the pane shows `problem` only while no task is picked). Never thrown: a throw would wedge every timer change.
+ */
+async function reportPomoValue($: EngineInterface, value: string, what: string): Promise<void> {
+  const text = `${await pomoPath($)} names '${value}', which is not ${what}; it was not logged. Fix or delete ${await pomoPath($)}.`
+  await update($, problem, () => text)
+  $.ui.log(`task-track: ${text}`)
+}
+
+/** `YYYY-MM-DD` naming a real day: `2026-99-99` has the shape but a UTC Date would roll it into another month. */
+function isCalendarDay(day: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false
+  const [y, m, d] = day.split('-').map(Number)
+  const date = new Date(Date.UTC(y ?? 0, (m ?? 0) - 1, d))
+  return date.toISOString().slice(0, 10) === day
+}
+
 /** A finished day's focus that no session wrote (it ran past midnight, or crashed): written to that day's notes. */
 async function flushDay($: EngineInterface, d: DayTotals): Promise<void> {
   const root = await currentVault($)
+  // Validate before any write: a bad value is skipped and reported, the good slugs are still written once.
+  if (!isCalendarDay(d.day)) return reportPomoValue($, d.day, 'a date')
   for (const slug of Object.keys(d.dayMs)) {
     const logged = d.logged[slug] ?? { ms: 0, blocks: 0 }
     const pending = { ms: (d.dayMs[slug] ?? 0) - logged.ms, blocks: (d.dayBlocks[slug] ?? 0) - logged.blocks }
     if (pending.ms < MIN_LOGGED_MS) continue
-    await writeFocus($, slug, `${root}/Tasks/${slug}.md`, d.day, 'end of day', focusText(pending))
+    if (!isSlug(slug)) {
+      await reportPomoValue($, slug, 'a task slug')
+      continue
+    }
+    await writeFocus($, slug, taskNotePath(root, slug), d.day, 'end of day', focusText(pending))
   }
 }
 
@@ -433,7 +457,8 @@ async function runPomo($: EngineInterface, action: PomoAction): Promise<string> 
   if (action === 'stop') {
     // stop credits the task holding the timer, which may be another session's.
     const held = out.held || view.slug
-    await flushFocus($, held, held === view.slug ? view.path : `${await currentVault($)}/Tasks/${held}.md`)
+    if (isSlug(held)) await flushFocus($, held, held === view.slug ? view.path : taskNotePath(await currentVault($), held))
+    else await reportPomoValue($, held, 'a task slug')
   }
   return `${pomoDots(f, now, settings)} · ${view.slug}`
 }
@@ -476,7 +501,7 @@ async function tick($: EngineInterface): Promise<void> {
   // A note that can't be read is named in the summary; the break has already started.
   const notes: NoteRead[] = await Promise.all(
     slugs.map(slug =>
-      $.fs.read(`${root}/Tasks/${slug}.md`).then(
+      Promise.resolve().then(() => $.fs.read(taskNotePath(root, slug))).then(
         text => ({ slug, text }),
         (err: unknown) => ({ slug, error: err instanceof Error ? err.message : String(err) }),
       ),

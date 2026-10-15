@@ -86,7 +86,9 @@ def status(ctx: Ctx) -> int:
     dirs = settings._child(settings._child(current, "permissions", dict, "permissions"),
                            "additionalDirectories", list, "permissions.additionalDirectories")
     listed = any(paths.norm(d, ctx.home) == paths.norm(str(vault), ctx.home) for d in dirs if isinstance(d, str))
-    ctx.say(f"vault in additionalDirectories: {'yes' if listed else 'no (the tasks hook approves vault access per session)'}")
+    ctx.say("vault in additionalDirectories: " + (
+        "yes (not needed; edits there may skip the tasks hook's write rules: consider removing it)"
+        if listed else "no (the tasks hook approves note reads and writes per call)"))
     return 0
 
 

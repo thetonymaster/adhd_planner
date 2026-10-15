@@ -16,6 +16,12 @@ from dataclasses import dataclass
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
+def slug_or_empty(text: str) -> str:
+    """A task slug read from a vault file, or '' when it is not one (it would name a path outside Tasks/)."""
+    slug = text.strip()
+    return slug if NAME.match(slug) else ""
+
+
 @dataclass(frozen=True)
 class Vault:
     name: str
@@ -165,10 +171,10 @@ def read_state(vault: Vault, sid: str) -> tuple[State, list[str]]:
     session = tasks / ".session" / sid
     override, override_mtime = "", 0.0
     if sid and session.is_file():
-        override, override_mtime = session.read_text().strip(), session.stat().st_mtime
+        override, override_mtime = slug_or_empty(session.read_text()), session.stat().st_mtime
     active = tasks / ".active"
     state = State(vault, frozenset(p.stem for p in paths), tuple(notes), override, override_mtime,
-                  active.read_text().strip() if active.is_file() else "")
+                  slug_or_empty(active.read_text()) if active.is_file() else "")
     return state, skipped
 
 
@@ -182,7 +188,7 @@ def pick(config: Config, states: list[State], cwd: str, home: str) -> Pick | Non
     bound = []
     for s in states:
         for n in s.notes:
-            if not n.repo or n.status == "done":
+            if not n.repo or n.status == "done" or not NAME.match(n.slug):
                 continue
             root = norm(n.repo, home)
             if within(here, root):

@@ -18,6 +18,12 @@ def parse(data, env=None):
 
 
 class ConfigTest(unittest.TestCase):
+    def test_slug_or_empty_accepts_only_kebab_slugs(self):
+        self.assertEqual(vaults.slug_or_empty("set-up-vault\n"), "set-up-vault")
+        for bad in ("../../outside/secret", "a/b", ".hidden", "-x", "Up", "a b", "", "x.md"):
+            with self.subTest(bad):
+                self.assertEqual(vaults.slug_or_empty(bad), "")
+
     def test_two_vaults_with_folders(self):
         c = parse({"default": "personal", "vaults": {
             "personal": {"path": "~/vault"},
