@@ -500,6 +500,26 @@ describe('band above the prompt', () => {
     })
   }
 
+  // The desktop app reports no viewport, so the band takes its width from bodyColumns. The Next
+  // step gets a row of its own and wraps, so the whole step reads at a glance.
+  test('without a viewport: timer and buttons on the first row, the Next step wrapped on its own row', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE })
+    await run($, 'openloop', 'load the task')
+    const band = await $.ui.mount({ plugin: 'task-track', surface: 'desktop', component: 'AbovePrompt', props: BAND_PROPS })
+    const root = await band.drawn()
+    expect(root.props.width).toBe(120)
+    const [top, nextRow] = root.children
+    expect(JSON.stringify(top)).toMatch(/set-up-vault/)
+    expect(JSON.stringify(top)).toMatch(/idle|off|🍅/)
+    expect(JSON.stringify(top)).toContain('"done"')
+    expect(JSON.stringify(top)).not.toContain('Next:')
+    const next = await band.find({ type: 'Text', text: /Next: Copy hooks/ })
+    expect(next?.props.wrap).toBe('wrap')
+    expect(JSON.stringify(nextRow)).toContain('Next: Copy hooks')
+  })
+
   test('shows the timer another session wrote, and this session\'s activity writes to the same file', async ($, on) => {
     const now = T0 + 12 * MIN
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })

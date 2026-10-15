@@ -695,39 +695,38 @@ export const register: Register = (on, options) => {
     const { done, total } = progress(view.next)
     const open = view.next[firstOpen(view.next)]
     const step = open ? splitEstimate(open.text) : undefined
-    // One row: the slug, counts and buttons keep their width; only the Next text gives way,
-    // cut by the terminal so nothing wraps under the prompt. The band spans the surface, and
-    // without a width the row grows past the edge instead of cutting the text. The engine draws
-    // its own `[-]` control at the right end of the band, so the row leaves it 5 columns (its 3 and a gap each side).
-    const columns = e.viewport?.columns === undefined ? undefined : Math.max(20, e.viewport.columns - 5)
+    // Two rows: the slug, counts, timer and buttons on the first; the Next step on its own row,
+    // wrapped so the whole step reads at a glance. The width is bodyColumns, which every surface
+    // sends (the desktop app sends no viewport) and which already leaves out the engine's `[-]`;
+    // without a width the row grows past the edge and the surface clips it.
     const prefix = await read($, vaultName)
     return (
-      <Box gap={1} width={columns} marginTop={1}>
-        <Box flexShrink={0}>
-          <Text bold color="claude">▶ {prefix ? `${prefix} · ` : ''}{view.slug}</Text>
+      <Box flexDirection="column" width={Math.max(20, e.props.bodyColumns)} marginTop={1}>
+        <Box gap={1}>
+          <Box flexShrink={0}>
+            <Text bold color="claude">▶ {prefix ? `${prefix} · ` : ''}{view.slug}</Text>
+          </Box>
+          <Box flexShrink={0}>
+            <Text color="subtle">
+              {done}/{total} · {timer}
+            </Text>
+          </Box>
+          <Box flexShrink={0} gap={1}>
+            {(state === 'running' || state === 'break') && <Button key="pomo-pause" label="⏸" onPress={() => pressPomo($, 'pause')} />}
+            {state === 'paused' && <Button key="pomo-resume" label="▶" onPress={() => pressPomo($, 'resume')} />}
+            {state !== 'stopped' && state !== 'idle' && <Button key="pomo-stop" label="⏹" onPress={() => pressPomo($, 'stop')} />}
+            {(state === 'stopped' || state === 'idle') && <Button key="pomo-start" label="▶" onPress={() => pressPomo($, 'start')} />}
+          </Box>
+          <Box flexShrink={0} gap={1}>
+            {open && <Button key="done" label="Done" onPress={() => pressDoneFirst($)} />}
+            <Button key="pane" label="Task" onPress={() => openPane($)} />
+            <Button key="hide" label="Hide" onPress={() => hideBand($)} />
+          </Box>
         </Box>
-        <Box flexShrink={1} flexGrow={1}>
-          <Text wrap="truncate-end">
-            {step ? `Next: ${step.text.replaceAll('`', '')}` : 'All Next done'}
-            {step?.est ? <Text color="subtle">  {step.est}</Text> : null}
-          </Text>
-        </Box>
-        <Box flexShrink={0}>
-          <Text color="subtle">
-            {done}/{total} · {timer}
-          </Text>
-        </Box>
-        <Box flexShrink={0} gap={1}>
-          {(state === 'running' || state === 'break') && <Button key="pomo-pause" label="⏸" onPress={() => pressPomo($, 'pause')} />}
-          {state === 'paused' && <Button key="pomo-resume" label="▶" onPress={() => pressPomo($, 'resume')} />}
-          {state !== 'stopped' && state !== 'idle' && <Button key="pomo-stop" label="⏹" onPress={() => pressPomo($, 'stop')} />}
-          {(state === 'stopped' || state === 'idle') && <Button key="pomo-start" label="▶" onPress={() => pressPomo($, 'start')} />}
-        </Box>
-        <Box flexShrink={0} gap={1}>
-          {open && <Button key="done" label="Done" onPress={() => pressDoneFirst($)} />}
-          <Button key="pane" label="Task" onPress={() => openPane($)} />
-          <Button key="hide" label="Hide" onPress={() => hideBand($)} />
-        </Box>
+        <Text wrap="wrap">
+          {step ? `Next: ${step.text.replaceAll('`', '')}` : 'All Next done'}
+          {step?.est ? <Text color="subtle">  {step.est}</Text> : null}
+        </Text>
       </Box>
     )
   })
