@@ -10,7 +10,7 @@ You review skill routing in the adhd-planner repo. Read-only: never edit files.
 Scope: every `plugins/*/skills/*/SKILL.md` and every repo-local `.claude/skills/*/skills/*/SKILL.md`. Read only the YAML frontmatter `name` and `description` of each unless a finding needs the body.
 
 For each pair of skills whose descriptions could both match one realistic request:
-1. Write the request (one line, the way Q would type it).
+1. Write the request (one line, the way a user would type it).
 2. Say which skill should own it and why.
 3. Quote the phrase in the other description that wrongly claims it, and the "not X, use Y" carve-out that is missing or points the wrong way.
 

@@ -14,13 +14,10 @@ This repo is a Claude plugin marketplace, `adhd-planner`, with three plugins:
 
 ## Install
 
-The repo is private: you need read access on GitHub and an SSH key set up for it
-([GitHub docs](https://docs.github.com/en/authentication/connecting-to-github-with-ssh)).
-
-Claude Code, with the interactive installer:
+Claude Code, with the interactive installer (needs [uv](https://docs.astral.sh/uv/)):
 
 ```bash
-uvx --from "git+ssh://git@github.com/thetonymaster/adhd_planner#subdirectory=setup" planner-setup
+uvx --from "git+https://github.com/thetonymaster/adhd_planner#subdirectory=setup" planner-setup
 ```
 
 Or by hand:
@@ -62,6 +59,13 @@ Cowork, vault paths, several vaults and permissions: [docs/setup.md](docs/setup.
 | `docs/` | Setup guide; specs and plans under `docs/superpowers/` |
 | `*.html`, `app.js`, `styles.css` | The original fillable planner pages (open `index.html`) |
 | `tools/`, `habits*.json`, `inbox.md` | The author's own running planner folder |
+
+## Disclaimer
+
+A productivity tool, not medical advice; not affiliated with any planner brand. ADHD
+is a medical condition: talk to a clinician about diagnosis and treatment.
+
+Licensed under [MIT](LICENSE). Security notes: [SECURITY.md](SECURITY.md).
 
 ## Contributing
 

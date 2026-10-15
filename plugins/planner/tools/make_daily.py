@@ -20,11 +20,9 @@ import json
 import os
 import sys
 
-from reportlab.lib.units import mm
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from planner_common import (  # noqa: E402
-    new_canvas, A5, INK, MUTED, LINE, ACCENT, ACCENT_SOFT, DOT)
+    mm, new_canvas, A5, INK, MUTED, LINE, ACCENT, ACCENT_SOFT, DOT)
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
             "Saturday", "Sunday"]

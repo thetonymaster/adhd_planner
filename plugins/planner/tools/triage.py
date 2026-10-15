@@ -115,7 +115,7 @@ def cmd_apply(args):
     with open(args.inbox, "w", encoding="utf-8") as f:
         f.write("# Capture inbox\n\n"
                 "Jot anything here through the day — one thought per line, "
-                "starting with `- `.\nBig or small, tasks or ideas. At 18:00 the "
+                "starting with `- `.\nBig or small, tasks or ideas. At the end of the workday the "
                 "triage skill sorts and clears this.\n\n- \n")
 
     print(summary)

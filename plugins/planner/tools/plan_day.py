@@ -14,6 +14,7 @@ Pomodoro defaults: 25 min work / 5 min break, a 30 min long break after every
 
 Usage:
   python3 tools/plan_day.py --tasks tasks.json --busy busy.json --date 2026-06-30
+  # flags override calendars.json's "work", "lunch" and "pomodoro"
   python3 tools/plan_day.py --tasks tasks.json --date 2026-06-30 \
       --work 09:00-18:00 --lunch 14:00-15:00 --work-min 25 --break-min 5 \
       --long-min 30 --long-every 4
@@ -27,20 +28,15 @@ import json
 import os
 import sys
 
-def _load_timezone():
-    """Read the IANA timezone from calendars.json (edit that file to set yours)."""
-    import json as _json
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calendars.json")
-    try:
-        with open(path, encoding="utf-8") as _f:
-            return _json.load(_f).get("timezone", "UTC")
-    except Exception:
-        print(f"WARNING: could not read a timezone from {path}; falling back to UTC. "
-              f"Times will be wrong unless you are actually in UTC.", file=sys.stderr)
-        return "UTC"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import planner_config  # noqa: E402
 
-
-TZ_NAME = _load_timezone()
+try:
+    CFG = planner_config.load()
+except planner_config.ConfigError as e:
+    print(f"ERROR: {e}", file=sys.stderr)
+    sys.exit(2)
+TZ_NAME = CFG["timezone"]
 
 
 def hm(minutes):
@@ -223,12 +219,12 @@ def main():
     ap.add_argument("--tasks", required=True)
     ap.add_argument("--busy", default=None, help="calendar list_events JSON")
     ap.add_argument("--date", default=dt.date.today().isoformat())
-    ap.add_argument("--work", default="09:00-18:00")
-    ap.add_argument("--lunch", default="14:00-15:00")
-    ap.add_argument("--work-min", type=int, default=25)
-    ap.add_argument("--break-min", type=int, default=5)
-    ap.add_argument("--long-min", type=int, default=30)
-    ap.add_argument("--long-every", type=int, default=4)
+    ap.add_argument("--work", default=None, help="HH:MM-HH:MM (default: calendars.json, else 09:00-18:00)")
+    ap.add_argument("--lunch", default=None, help='HH:MM-HH:MM, or "" for none (default: calendars.json)')
+    ap.add_argument("--work-min", type=int, default=None)
+    ap.add_argument("--break-min", type=int, default=None)
+    ap.add_argument("--long-min", type=int, default=None)
+    ap.add_argument("--long-every", type=int, default=None)
     ap.add_argument("--out-dir", default=None)
     args = ap.parse_args()
 
@@ -236,12 +232,14 @@ def main():
     with open(args.tasks) as f:
         tasks = json.load(f)
     busy = load_busy(args.busy, args.date)
-    cfg = {"work": args.work_min, "short": args.break_min,
-           "long": args.long_min, "long_every": args.long_every}
+    pomo = CFG["pomodoro"]
+    pick = lambda flag, key: pomo[key] if flag is None else flag  # noqa: E731
+    cfg = {"work": pick(args.work_min, "work"), "short": pick(args.break_min, "break"),
+           "long": pick(args.long_min, "long"), "long_every": pick(args.long_every, "long_every")}
+    work = CFG["work"] if args.work is None else parse_range(args.work)
+    lunch = CFG["lunch"] if args.lunch is None else (parse_range(args.lunch) if args.lunch else None)
 
-    blocks, unscheduled = schedule(
-        tasks, busy, parse_range(args.work),
-        parse_range(args.lunch) if args.lunch else None, cfg)
+    blocks, unscheduled = schedule(tasks, busy, work, lunch, cfg)
 
     out_dir = args.out_dir or os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "out")

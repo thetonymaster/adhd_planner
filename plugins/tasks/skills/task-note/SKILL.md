@@ -1,10 +1,10 @@
 ---
 name: task-note
-description: Read or update an existing Obsidian task note — show a task, list open tasks, add a Log note, check or uncheck a Next item, add an Open loop. Use when Q says "add a note to <task>", "mark <item> done", "what's next on <task>", "which tasks are open", or in Cowork wherever /note, /done or /openloop would be used in Claude Code.
+description: Read or update an existing Obsidian task note — show a task, list open tasks, add a Log note, check or uncheck a Next item, add an Open loop. Use when the user says "add a note to <task>", "mark <item> done" on a task, "what's next on <task>", "which tasks are open", or in Cowork wherever /note, /done or /openloop would be used in Claude Code. Not for habits (habit-tracker); for a new task, suggest /tasks:task-start.
 ---
 
 Works in Claude Code and Cowork. Edits notes that already exist; it never creates,
-renames, moves or deletes a note (that is `/tasks:task-start`, and Q's job in Obsidian).
+renames, moves or deletes a note (that is `/tasks:task-start`, and the user's job in Obsidian).
 
 ## Find the vault
 
@@ -19,20 +19,20 @@ None has `Tasks/` → say "No vault found (looked in: <each place checked>)" and
 
 ## Pick the task
 
-- Q named one → match the file stem in `Tasks/`, else a note whose `aliases` contains the
+- The user named one → match the file stem in `Tasks/`, else a note whose `aliases` contains the
   name (case-insensitive). Several match → list them and ask.
 - `<vault>:<slug>` → that vault's `Tasks/<slug>.md`.
-- Q named none → the task named in the session-start `Active task:` line, else `Tasks/.active`.
+- The user named none → the task named in the session-start `Active task:` line, else `Tasks/.active`.
   Neither → list open tasks and ask.
 
 ## Actions
 
-| Q asks | Do |
+| The user asks | Do |
 |---|---|
 | show / what's next | Print `## Goal`, open `## Next` items numbered, `## Open loops`. Skip lines struck through with `~~`. |
 | list open tasks | Every `Tasks/*.md` whose `status` is not `done`, in every vault `vaults.json` registers that has `Tasks/` (or the one vault): `<vault>:slug — status — first open Next item` (plain `slug` with one vault). |
 | add a note | Append to `## Log`: `- [[YYYY-MM-DD]] HH:MM — <text>` (local date and time). |
-| check / uncheck item | `- [ ]` ↔ `- [x]` on the item Q means (number from "show", or text match). Ambiguous → ask. |
+| check / uncheck item | `- [ ]` ↔ `- [x]` on the item the user means (number from "show", or text match). Ambiguous → ask. |
 | add an open loop | Append `- <text>` to `## Open loops`. |
 
 Rules:

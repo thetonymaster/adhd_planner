@@ -1,6 +1,9 @@
 {
-  "_note": "Routing map for add_event.py. 'tag' is what you type; it resolves to a real calendar id, a default color, and defaults. FILL IN the ids for the calendars you use (Google Calendar > Settings > Integrate calendar > Calendar ID). Set 'timezone' to your IANA timezone (e.g. America/New_York, Europe/Madrid).",
+  "_note": "Routing map for add_event.py. 'tag' is what you type; it resolves to a real calendar id, a default color, and defaults. FILL IN the ids for the calendars you use (Google Calendar > Settings > Integrate calendar > Calendar ID). Set 'timezone' to your IANA timezone (e.g. America/New_York, Europe/Madrid). 'work' and 'lunch' are HH:MM-HH:MM (lunch null for none); 'pomodoro' is minutes of focus, break and long break, and how many focus blocks before the long one.",
   "timezone": "UTC",
+  "work": "09:00-18:00",
+  "lunch": "14:00-15:00",
+  "pomodoro": {"work": 25, "break": 5, "long": 30, "long_every": 4},
   "calendars": {
     "work": {
       "id": "",

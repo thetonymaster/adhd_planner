@@ -22,6 +22,7 @@ class Ctx:
     dry_run: bool
     confirm: Callable[[str], bool]
     say: Callable[[str], None]
+    checkout: Path | None = None
 
     @property
     def settings_path(self) -> Path:
@@ -102,7 +103,7 @@ def install(ctx: Ctx, plugins: Sequence[str]) -> int:
     added, installed = state
     steps: list[tuple[str, ...]] = []
     if not added:
-        steps.append(("plugin", "marketplace", "add", paths.marketplace_source(ctx.cwd)))
+        steps.append(("plugin", "marketplace", "add", paths.marketplace_source(ctx.checkout)))
     steps += [("plugin", "install", f"{p}@{settings.MARKETPLACE}") for p in plugins if p not in installed]
     if not steps:
         ctx.say("Nothing to install: marketplace and plugins are already there.")
@@ -213,7 +214,7 @@ def claude_md(ctx: Ctx) -> int:
         return 0 if ctx.dry_run else 1
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(example, target)
-    ctx.say("Copied. Edit it: it is written for one person (Q).")
+    ctx.say("Copied. Edit it to fit how you work.")
     return 0
 
 
@@ -224,6 +225,6 @@ def cowork(ctx: Ctx) -> int:
         "  2. Install `planner` and `tasks` (task-track is Claude Code only).",
         "  3. Connect your vault folder to the session.",
         '  4. Try: "add a note to <task>: test".',
-        "If adding the marketplace fails (private repo), see setup.md → Cowork fallback.",
+        "If adding the marketplace fails, see setup.md → Cowork fallback.",
     ]))
     return 0

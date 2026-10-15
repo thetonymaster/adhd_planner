@@ -95,7 +95,7 @@ def main() -> list[str]:
         others = [v.name for v in usable if v != picked.vault]
         out.append(f"Vault name: {picked.vault.name} ({picked.reason})" + (f" · others: {', '.join(others)}" if others else ""))
     if not picked.slug:
-        out.append("No active task. Ask Q what we're working on, or suggest /tasks:task-start.")
+        out.append("No active task. Ask the user what they're working on, or suggest /tasks:task-start.")
         return out
     note = pathlib.Path(picked.vault.path) / "Tasks" / f"{picked.slug}.md"
     if not note.is_file():

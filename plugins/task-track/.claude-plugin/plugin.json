@@ -1,10 +1,13 @@
 {
   "name": "task-track",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Keeps the active Obsidian task note in view (band, pane), runs one shared Pomodoro you can /pomo start, pause, resume and stop, and lets /note, /done, /openloop write to the note without a model turn.",
   "author": {
     "name": "Antonio Cabrera"
   },
+  "homepage": "https://github.com/thetonymaster/adhd_planner",
+  "repository": "https://github.com/thetonymaster/adhd_planner",
+  "license": "MIT",
   "types": "./types/index.d.ts",
   "userConfig": {
     "vaultPath": {

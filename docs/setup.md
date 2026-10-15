@@ -8,10 +8,12 @@ This repo is one plugin marketplace, `adhd-planner`, with three plugins:
 | `tasks` | Obsidian task notes: `task-start`/`task-park`/`task-switch`/`task-note`, session-start context, vault access | Claude Code, Cowork |
 | `task-track` | Task band, pane, shared Pomodoro, `/note` `/done` `/openloop` (a mod) | Claude Code only |
 
+> A productivity tool, not medical advice; not affiliated with any planner brand.
+
 ## Claude Code — with the menu
 
 ```bash
-uvx --from "git+ssh://git@github.com/thetonymaster/adhd_planner#subdirectory=setup" planner-setup
+uvx --from "git+https://github.com/thetonymaster/adhd_planner#subdirectory=setup" planner-setup
 # or, from a checkout:
 uvx --from ./setup planner-setup
 ```
@@ -20,12 +22,15 @@ uvx --from ./setup planner-setup
 - **Install plugins**: `claude plugin marketplace add` + `claude plugin install` for the ones you tick.
 - **Settings**: writes `vaultPath` for `tasks` and `task-track`; optionally allows `Bash(obsidian:*)`.
 - **Vault starter**: creates a starter vault, only if the path doesn't exist.
+- **Add another vault**: registers a second vault in `~/.config/adhd-planner/vaults.json` (see Several vaults).
 - **Example CLAUDE.md**: copies `examples/CLAUDE.md` only if you have no `~/.claude/CLAUDE.md`.
 - **Cowork steps**: prints the section below.
 
-Every item is also a subcommand: `planner-setup status`, `install [--plugins …]`,
-`settings [--vault PATH] [--permissions]`, `vault [--vault PATH]`, `claude-md`, `cowork`.
-Add `--dry-run` to see what would change, `--yes` to skip the confirmation.
+Every item is also a `planner-setup` subcommand: `status`, `install [--plugins …]`,
+`settings [--vault PATH] [--permissions]`, `vault [--vault PATH]`,
+`add-vault NAME --path PATH [--folder DIR]…`, `claude-md`, `cowork`.
+`--dry-run` (show what would change) and `--yes` (skip the confirmation) go **before**
+the subcommand: `planner-setup --dry-run install`, `planner-setup --yes settings --vault ~/vault`.
 Anything it changes is backed up under `~/.claude/backups/<timestamp>/` first.
 
 ## Claude Code — by hand
@@ -74,7 +79,7 @@ Plugins cannot set permissions, so these stay in your own settings
   turn the hook off, disable the `tasks` plugin's hooks or uninstall it.
 - **Obsidian CLI.** `permissions.allow: ["Bash(obsidian:*)"]` lets skills run `obsidian` checks
   without asking. The hook never approves Bash.
-- **CLAUDE.md.** [`examples/CLAUDE.md`](../examples/CLAUDE.md) is one person's file; copy what you want.
+- **CLAUDE.md.** [`examples/CLAUDE.md`](../examples/CLAUDE.md) is a short example; copy what you want.
 
 ## Cowork
 
@@ -87,7 +92,7 @@ In Cowork, `tasks` gives you `task-note` (show a task, add a Log line, check a N
 add an Open loop) and the start/park/switch skills. Its hooks print only the time when no
 vault is found, so they never break a session.
 
-**Cowork fallback.** If Cowork can't add the marketplace (the repo is private), build the
+**Cowork fallback.** If Cowork can't add the marketplace, build the
 planner as a file and upload it: `bash scripts/build-plugin.sh`, then Customize → Plugins →
 Upload → `planner.plugin`.
 
@@ -100,7 +105,7 @@ One vault needs nothing here. For more, list them in `~/.config/adhd-planner/vau
   "default": "personal",
   "vaults": {
     "personal": { "path": "~/vault" },
-    "work":     { "path": "~/work-vault", "folders": ["~/acme"] }
+    "work":     { "path": "~/work-vault", "folders": ["~/work"] }
   }
 }
 ```

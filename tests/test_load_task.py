@@ -193,6 +193,7 @@ class LoadTaskTest(unittest.TestCase):
         self._escaping_active()
         out = self.run_hook({"session_id": "x", "cwd": "/"})
         self.assertIn("No active task", out)
+        self.assertIn("Ask the user what they're working on", out)
         self.assertNotIn("AWS_SECRET", out)
 
     def test_without_python_an_escaping_active_slug_is_ignored(self):
@@ -204,6 +205,7 @@ class LoadTaskTest(unittest.TestCase):
         out = self.run_hook(stdin=subprocess.DEVNULL, env_extra={"PATH": str(bin_dir)})
         self.assertIn("Vault:", out)
         self.assertIn("No active task", out)
+        self.assertIn("Ask the user what they're working on", out)
         self.assertNotIn("AWS_SECRET", out)
 
     def test_vault_line_names_the_resolved_vault_even_with_no_task(self):

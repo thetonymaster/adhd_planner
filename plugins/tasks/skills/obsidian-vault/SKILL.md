@@ -1,6 +1,6 @@
 ---
 name: obsidian-vault
-description: Rules for reading and writing Q's Obsidian vault at ~/vault — folder placement, templates, frontmatter, wikilink rules that keep the graph accurate, and the Obsidian CLI checks to run after writing. Use before creating, editing, linking, moving or renaming any note in ~/vault, including task notes and daily notes.
+description: Rules for reading and writing the user's Obsidian vault — folder placement, templates, frontmatter, wikilink rules that keep the graph accurate, and the Obsidian CLI checks to run after writing. Use before creating, editing, linking, moving or renaming a note in the vault, such as daily notes, project and area hubs, people and meeting notes. Task notes have their own skills, which follow these rules: task-note reads or edits one, task-park saves its state; for a new task, suggest /tasks:task-start (the user runs it).
 ---
 
 # Obsidian vault (~/vault)
@@ -8,7 +8,7 @@ description: Rules for reading and writing Q's Obsidian vault at ~/vault — fol
 The vault is the path on the session-start `Vault:` line; without that line, the `default` vault in `~/.config/adhd-planner/vaults.json` (or `$ADHD_PLANNER_VAULTS`) when that file loads; otherwise the plugin's vault path option `${user_config.vaultPath}` (skip it when empty), else `$VAULT`, else `~/vault`, the session-start hook's order. Every `~/vault` path in these skills means that root. With several vaults, read and write only that one; never link across vaults (a `[[link]]` resolves only inside its own vault).
 
 The graph is built only from `[[wikilinks]]` (body and frontmatter). Every link
-Claude writes is an edge Q will see. Wrong links = wrong graph.
+Claude writes is an edge the user will see. Wrong links = wrong graph.
 
 ## Where notes go
 
@@ -17,21 +17,21 @@ Claude writes is an edge Q will see. Wrong links = wrong graph.
 | `00 Inbox/` | Unsorted captures. Only place a note may sit without an `up` link. | — |
 | `Daily/` | `YYYY-MM-DD.md`, one per day | `Templates/Daily.md` |
 | `Tasks/` | One note per task, kebab-case slug filename. `repo:` binds a task to a repo folder. `.active` holds the last chosen slug; `.session/<id>` a session's own. | `Templates/Task.md` |
-| `Projects/` | Hub per project with an end (Northwind, ADHD Planner) | `Templates/Project.md` |
-| `Areas/` | Hub per ongoing responsibility with no end (Acme SRE, Health) | `Templates/Project.md` |
+| `Projects/` | Hub per project with an end (Website relaunch, ADHD Planner) | `Templates/Project.md` |
+| `Areas/` | Hub per ongoing responsibility with no end (Health, Finances) | `Templates/Project.md` |
 | `Notes/` | Evergreen knowledge: concepts, runbooks, decisions, references | `Templates/Note.md` |
-| `People/` | One note per person Q works with | `Templates/Person.md` |
-| `Meetings/` | One note per meeting, created by the Meetings Plus plugin from the calendar. Set `up:` to the project/area it served; action items that are real work become task notes (`/tasks:task-start`). | `Templates/Meeting.md` |
+| `People/` | One note per person the user works with | `Templates/Person.md` |
+| `Meetings/` | One note per meeting, created by the Meetings Plus plugin from the calendar. Set `up:` to the project/area it served; action items that are real work become task notes (suggest `/tasks:task-start`). | `Templates/Meeting.md` |
 | `Attachments/` | Images, PDFs | — |
 
 Create notes from the template file: copy its content, then fill the fields.
-Don't invent new top-level folders; ask Q.
+Don't invent new top-level folders; ask the user.
 
 ## Link rules
 
 1. **Links are relationships; tags are categories.** `status`, `type`, `#daily` go in
    frontmatter/tags. Never link to a status or type.
-2. **Every note links up once** via the `up:` property (`up: "[[Northwind]]"`).
+2. **Every note links up once** via the `up:` property (`up: "[[Website relaunch]]"`).
    Task → project/area. Note → project, area, or a parent note. Person → area.
 3. **No unresolved links from Claude.** Before writing `[[X]]`, confirm X exists
    (`ls ~/vault/**/X.md`, or `obsidian search query="X"` for aliases). If it doesn't:

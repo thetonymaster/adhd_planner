@@ -42,7 +42,7 @@ them ships with this plugin, and each step works without them.
 |---|---|
 | `capture-triage` | Sort a brain dump into Today/Soon/Eventually + a priority matrix |
 | `break-down-task` | Split one big task into ~25-min startable subtasks with estimates |
-| `plan-day` | Time-block a task list into the gaps around your meetings (Pomodoro 25/5) |
+| `plan-day` | Time-block a task list into the gaps around your meetings (Pomodoro blocks, lengths from calendars.json) |
 | `plan-week` | Spread a backlog across the week by each day's free capacity |
 | `add-event` | Add meetings/appointments/birthdays, routed to the right calendar |
 | `daily-page` | Print an A5 day: your real meetings left, tasks + notes right |
@@ -56,7 +56,7 @@ them ships with this plugin, and each step works without them.
 ## Requirements
 
 - A connected planner folder (this is where everything reads and writes).
-- **Python 3.10+** and **reportlab** (`pip install reportlab`) on the machine holding
+- **Python 3.10+** and **reportlab** (in a venv in the planner folder: `uv venv .venv && uv pip install --python .venv reportlab`) on the machine holding
   that folder — only needed for the two printing skills.
 - A **Google Calendar** connector, for anything that touches your real schedule.
   Everything else works without it.

@@ -27,12 +27,12 @@ class ConfigTest(unittest.TestCase):
     def test_two_vaults_with_folders(self):
         c = parse({"default": "personal", "vaults": {
             "personal": {"path": "~/vault"},
-            "work": {"path": "~/work-vault/", "folders": ["~/acme"]}}})
+            "work": {"path": "~/work-vault/", "folders": ["~/work"]}}})
         self.assertEqual(c.error, "")
         self.assertFalse(c.implicit)
         self.assertEqual(c.default, "personal")
         self.assertEqual([(v.name, v.path) for v in c.vaults], [("personal", "/home/q/vault"), ("work", "/home/q/work-vault")])
-        self.assertEqual(c.vaults[1].folders[0][0], "~/acme")
+        self.assertEqual(c.vaults[1].folders[0][0], "~/work")
 
     def test_one_vault_needs_no_default(self):
         self.assertEqual(parse({"vaults": {"main": {"path": "/v"}}}).default, "main")

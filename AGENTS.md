@@ -17,6 +17,8 @@ Five suites; run the ones covering what you touched.
 
 Single test: `python3 -m unittest tests.test_vaults.<Class>.<method>`, `cd setup && uv run pytest tests/test_cli.py -k <name>`.
 
+CI (`.github/workflows/ci.yml`) runs the Python suite, the `setup` pytest and `claude plugin validate` for the three plugins and the marketplace on every PR; the task-track and planner-dev `claude plugin test` suites and the page linter run locally only.
+
 `/planner-dev:release-plugin` runs the right subset before a PR. Build the Cowork upload file: `bash scripts/build-plugin.sh` → `planner.plugin` (validates, runs `tests/`, zips `plugins/planner`). `planner.plugin` is committed; never edit it by hand, rebuild it when `plugins/planner` changes.
 
 ## Layout

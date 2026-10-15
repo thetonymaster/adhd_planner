@@ -31,7 +31,7 @@ export type PomoFile = {
   isLongBreak: boolean
   /** Epoch ms the timer was paused; 0 = not paused. Pause freezes a block or a break. */
   pausedAt: number
-  /** Q stopped the timer: activity starts no block until /pomo start or the next day. */
+  /** The user stopped the timer: activity starts no block until /pomo start or the next day. */
   isStopped: boolean
   /** Wall-clock start of the running block (pause does not shift it); 0 = no block. For the break summary. */
   blockOpenedAt: number
@@ -39,7 +39,7 @@ export type PomoFile = {
   blockSnapshot: Record<string, string[]>
   /** What happened during the block, for the opt-in AI summary (breakSummaryAI). Last 60 entries. */
   blockActivity: string[]
-  /** Epoch ms of Q's last prompt, press or command in any session (Claude's tool calls don't count). */
+  /** Epoch ms of the user's last prompt, press or command in any session (Claude's tool calls don't count). */
   lastActiveAt: number
   /** Epoch ms up to which active time has been added to dayMs (credited once, by any session). */
   creditedUntil: number
@@ -77,7 +77,7 @@ declare module 'claude-code' {
       vaultName: string
       /** Why vaults.json was ignored (shown in the pane); '' when it was used or absent. */
       configError: string
-      /** breakUntil of the break this session already reminded Q of on a prompt. */
+      /** breakUntil of the break this session already reminded the user of on a prompt. */
       toldBreakUntil: number
       /** This session already said that mv onto .pomo.json failed. */
       toldMvFailed: boolean

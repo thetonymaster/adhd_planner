@@ -376,7 +376,7 @@ async function changePomo($: EngineInterface, change: (f: PomoFile) => PomoFile)
 }
 
 /**
- * Activity in this session: written to the shared file at most once a minute. Q's own
+ * Activity in this session: written to the shared file at most once a minute. The user's own
  * actions can start a block; Claude's tool calls (`byClaude`) only keep a running one alive.
  */
 async function markActive($: EngineInterface, byClaude = false): Promise<void> {
@@ -426,7 +426,7 @@ const isPomoAction = (s: string): s is PomoAction => s === 'toggle' || POMO_ACTI
 /**
  * One control of the shared timer, from /pomo or a band button. It does not mark activity:
  * a touch first would start a block and turn `/pomo start` into "already running".
- * Returns what to tell Q.
+ * Returns what to tell the user.
  */
 async function runPomo($: EngineInterface, action: PomoAction): Promise<string> {
   const view = (await read($, task)) ?? (await load($))
@@ -540,7 +540,7 @@ async function noteFromPane($: EngineInterface, slug: string, value: string): Pr
   await addLog($, text)
   if (!settings.notesToClaude) return
   await $.session
-    .append({ message: { type: 'user', content: [{ type: 'text', text: `Q added a note to the active task (${slug}): ${text}` }] } })
+    .append({ message: { type: 'user', content: [{ type: 'text', text: `The user added a note to the active task (${slug}): ${text}` }] } })
     .catch(() => undefined)
 }
 
@@ -670,7 +670,7 @@ export const register: Register = (on, options) => {
     if (!text) return { text: 'Usage: /note <text>' }
     const view = await addLog($, text)
     if (!view) return { text: 'No active task. /tasks:task-start <name>' }
-    return { text: `Logged to ${view.slug}.`, ...told(`Q added a note to the active task (${view.slug}): ${text}`) }
+    return { text: `Logged to ${view.slug}.`, ...told(`The user added a note to the active task (${view.slug}): ${text}`) }
   })
 
   on('command.run', { command: 'done' }, async ($, e) => {
@@ -688,7 +688,7 @@ export const register: Register = (on, options) => {
     const verb = item.isDone ? 'Reopened' : 'Done'
     return {
       text: `${verb}: ${item.text} · ${left} left`,
-      ...told(`Q marked a Next item ${item.isDone ? 'not done' : 'done'} on ${view.slug}: ${item.text}`),
+      ...told(`The user marked a Next item ${item.isDone ? 'not done' : 'done'} on ${view.slug}: ${item.text}`),
     }
   })
 
@@ -698,7 +698,7 @@ export const register: Register = (on, options) => {
     if (!text) return { text: 'Usage: /openloop <text>' }
     const view = await addLoop($, text)
     if (!view) return { text: 'No active task. /tasks:task-start <name>' }
-    return { text: `Open loop added to ${view.slug}.`, ...told(`Q added an open loop to ${view.slug}: ${text}`) }
+    return { text: `Open loop added to ${view.slug}.`, ...told(`The user added an open loop to ${view.slug}: ${text}`) }
   })
 
   on('command.run', { command: 'pomo' }, async ($, e) => {

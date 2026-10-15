@@ -21,6 +21,7 @@ These live alongside `tools/` in the planner folder and are read *and written* b
 scripts — they are your data, not part of the plugin:
 
 - `tools/calendars.json` — timezone + calendar routing map. Edit this first.
+  `work`, `lunch`, `pomodoro` — your day; `plan_day.py` and `plan_week.py` read them (flags override).
 - `habits.json` / `habits-log.json` — tracked habits and their daily marks.
 - `inbox.md` / `inbox-archive.md` — capture inbox and its archive.
 - `tools/out/` — generated PDFs, plans and task files (git-ignored).
@@ -28,8 +29,9 @@ scripts — they are your data, not part of the plugin:
 ## Quick start
 
 ```
-python3 -m pip install reportlab              # needed by the PDF generators
-python3 tools/setup_check.py                  # what's ready, what's missing
-python3 tools/make_insert.py --list           # available blank pages
-python3 tools/make_insert.py priority-matrix  # one A5 insert
+uv venv .venv && uv pip install --python .venv reportlab   # needed by the PDF generators
+# without uv: python3 -m venv .venv && .venv/bin/pip install reportlab; then run the tools with .venv/bin/python3
+.venv/bin/python3 tools/setup_check.py                  # what's ready, what's missing
+.venv/bin/python3 tools/make_insert.py --list           # available blank pages
+.venv/bin/python3 tools/make_insert.py priority-matrix  # one A5 insert
 ```

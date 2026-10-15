@@ -7,11 +7,10 @@ tags: [hub]
 ![[Tasks.base#Active]]
 
 ## Projects
-- [[Northwind]]
 - [[ADHD Planner]]
 
 ## Areas
-- [[Acme SRE]]
+- [[Health]]
 
 ## Start here
 - [[How this vault works]]

@@ -14,7 +14,8 @@ MENU = ("Status", "Install plugins (Claude Code)", "Settings (vault path, permis
 
 def _ctx(args: argparse.Namespace, confirm=None) -> actions.Ctx:
     return actions.Ctx(home=Path.home(), cwd=Path.cwd(), env=os.environ, yes=args.yes, dry_run=args.dry_run,
-                       confirm=confirm or (lambda q: input(f"{q} [y/N] ").strip().lower() == "y"), say=print)
+                       confirm=confirm or (lambda q: input(f"{q} [y/N] ").strip().lower() == "y"), say=print,
+                       checkout=paths.checkout())
 
 
 def _parser() -> argparse.ArgumentParser:

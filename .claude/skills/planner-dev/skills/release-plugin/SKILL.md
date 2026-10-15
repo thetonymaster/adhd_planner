@@ -9,7 +9,7 @@ disable-model-invocation: true
 Work from the repo root. Report each step's outcome as observed; stop at the first failure and show its raw output.
 
 1. **What changed.** `git diff --name-only main...HEAD` plus `git status --short`. Group paths by plugin (`plugins/<name>/…`, and the repo-local `.claude/skills/<name>/…`); note `setup/`, `tests/`, `scripts/`, root `*.html` separately.
-2. **Versions.** For each changed plugin under `plugins/` (repo-local ones aren't installed anywhere, so their version isn't bumped), compare `version` in `plugins/<name>/.claude-plugin/plugin.json` with `git show main:plugins/<name>/.claude-plugin/plugin.json`. If unchanged, propose a bump (patch for fixes/docs, minor for new skills, commands or options) and apply it after Q confirms.
+2. **Versions.** For each changed plugin under `plugins/` (repo-local ones aren't installed anywhere, so their version isn't bumped), compare `version` in `plugins/<name>/.claude-plugin/plugin.json` with `git show main:plugins/<name>/.claude-plugin/plugin.json`. If unchanged, propose a bump (patch for fixes/docs, minor for new skills, commands or options) and apply it after the user confirms.
 3. **Checks.** Run only those covering what changed; print one line each, `VERIFY: Ran <command> — Result: PASS|FAIL|DID NOT RUN`.
 
    | Changed | Command |

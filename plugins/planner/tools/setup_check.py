@@ -19,6 +19,12 @@ CFG = os.path.join(HERE, "calendars.json")
 HABITS = os.path.join(ROOT, "habits.json")
 INBOX = os.path.join(ROOT, "inbox.md")
 
+sys.path.insert(0, HERE)
+
+
+def _hm(m):
+    return f"{m // 60:02d}:{m % 60:02d}"
+
 PASS, WARN, FAIL = "PASS", "WARN", "FAIL"
 MARK = {PASS: "✓", WARN: "⚠", FAIL: "✗"}
 
@@ -37,11 +43,11 @@ def check():
     if importlib.util.find_spec("reportlab"):
         out.append((PASS, "reportlab installed", ""))
     else:
-        out.append((FAIL, "reportlab missing", "pip install reportlab"))
+        out.append((FAIL, "reportlab missing", "uv venv .venv && uv pip install --python .venv reportlab (see tools/README.md)"))
 
     # 3. Scripts present
     needed = ["make_insert.py", "make_daily.py", "plan_day.py", "plan_week.py",
-              "add_event.py", "triage.py", "habits.py"]
+              "add_event.py", "triage.py", "habits.py", "planner_config.py"]
     missing = [f for f in needed if not os.path.exists(os.path.join(HERE, f))]
     # shared drawing module
     if not os.path.exists(os.path.join(HERE, "planner_common.py")):
@@ -68,6 +74,17 @@ def check():
                         "set your IANA zone, e.g. America/New_York"))
         else:
             out.append((PASS, f"timezone = {tz}", ""))
+        try:
+            import planner_config
+            day = planner_config.load(CFG)
+            lunch = "-".join(map(_hm, day["lunch"])) if day["lunch"] else "none"
+            p = day["pomodoro"]
+            out.append((PASS, f"work {'-'.join(map(_hm, day['work']))}, lunch {lunch}, "
+                              f"Pomodoro {p['work']}/{p['break']}", ""))
+        except ImportError:
+            out.append((FAIL, "planner_config.py missing", "re-run planner:setup to copy it"))
+        except planner_config.ConfigError as e:
+            out.append((FAIL, "calendars.json day settings invalid", str(e)))
 
         cals = cfg.get("calendars", {})
         with_id = [k for k, v in cals.items() if v.get("id")]

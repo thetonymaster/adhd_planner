@@ -14,11 +14,54 @@ def test_vault_path_resolution(tmp_path):
     assert paths.vault({"VAULT": "~/notes"}, tmp_path) == tmp_path / "notes"
 
 
-def test_marketplace_source_prefers_checkout(tmp_path):
-    assert paths.marketplace_source(tmp_path) == "thetonymaster/adhd_planner"
-    (tmp_path / ".claude-plugin").mkdir()
-    (tmp_path / ".claude-plugin" / "marketplace.json").write_text('{"name": "adhd-planner"}')
+def make_checkout(root, name="adhd-planner"):
+    (root / ".claude-plugin").mkdir(parents=True)
+    (root / ".claude-plugin" / "marketplace.json").write_text(json.dumps({"name": name}))
+    return root
+
+
+def test_marketplace_source_is_github_without_a_checkout():
+    assert paths.marketplace_source(None) == "thetonymaster/adhd_planner"
+
+
+def test_marketplace_source_is_the_checkout(tmp_path):
     assert paths.marketplace_source(tmp_path) == str(tmp_path)
+
+
+def test_find_checkout_from_direct_url(tmp_path):
+    repo = make_checkout(tmp_path / "repo")
+    url = json.dumps({"url": (repo / "setup").as_uri(), "dir_info": {}})
+    assert paths.find_checkout(url, tmp_path / "cache" / "a" / "planner_setup" / "paths.py") == repo
+
+
+def test_find_checkout_from_a_repo_root_url_with_subdirectory(tmp_path):
+    repo = make_checkout(tmp_path / "repo")
+    url = json.dumps({"url": repo.as_uri(), "dir_info": {}, "subdirectory": "setup"})
+    assert paths.find_checkout(url, tmp_path / "cache" / "a" / "planner_setup" / "paths.py") == repo
+
+
+def test_find_checkout_from_the_source_tree(tmp_path):
+    repo = make_checkout(tmp_path / "repo")
+    assert paths.find_checkout(None, repo / "setup" / "src" / "planner_setup" / "paths.py") == repo
+
+
+def test_find_checkout_ignores_git_installs_and_other_marketplaces(tmp_path):
+    site = tmp_path / "lib" / "python3.12" / "site-packages" / "planner_setup" / "paths.py"
+    git = json.dumps({"url": "https://github.com/thetonymaster/adhd_planner", "vcs_info": {"vcs": "git"}})
+    assert paths.find_checkout(git, site) is None
+    other = make_checkout(tmp_path / "other", name="someone-else")
+    assert paths.find_checkout(json.dumps({"url": (other / "setup").as_uri()}), site) is None
+
+
+def test_install_uses_the_checkout_not_the_cwd(ctx, fake_claude, tmp_path):
+    repo = make_checkout(tmp_path / "repo")
+    assert actions.install(replace(ctx, checkout=repo, cwd=tmp_path / "elsewhere"), ["planner"]) == 0
+    assert ["plugin", "marketplace", "add", str(repo)] in fake_claude.calls()
+
+
+def test_this_checkout_is_found_from_any_cwd(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    assert paths.checkout() == Path(__file__).resolve().parents[2]
 
 
 def test_examples_dir_has_the_starter():
@@ -122,9 +165,9 @@ def test_seed_vault_copies_once(ctx):
 def test_claude_md_never_overwrites(ctx):
     target = ctx.home / ".claude" / "CLAUDE.md"
     assert actions.claude_md(ctx) == 0 and target.read_text().startswith("> Example")
-    target.write_text("Q's own")
+    target.write_text("my own")
     actions.claude_md(ctx)
-    assert target.read_text() == "Q's own"
+    assert target.read_text() == "my own"
     assert "kept your" in text(ctx)
 
 
@@ -177,10 +220,10 @@ def vaults_json(ctx):
 def test_add_vault_creates_the_file_with_the_current_vault_as_default(ctx):
     work = ctx.home / "work-vault"
     (work / "Tasks").mkdir(parents=True)
-    assert actions.add_vault(ctx, "work", work, ["~/acme"]) == 0
+    assert actions.add_vault(ctx, "work", work, ["~/work"]) == 0
     assert json.loads(vaults_json(ctx).read_text()) == {
         "default": "personal",
-        "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work-vault", "folders": ["~/acme"]}},
+        "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work-vault", "folders": ["~/work"]}},
     }
 
 
@@ -217,7 +260,7 @@ def test_the_written_file_parses_with_the_hook_parser(ctx):
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugins" / "tasks" / "hooks"))
     import vaults
-    actions.add_vault(ctx, "work", ctx.home / "w", ["~/acme"])
+    actions.add_vault(ctx, "work", ctx.home / "w", ["~/work"])
     config = vaults.parse(vaults_json(ctx).read_text(), "vaults.json", {}, str(ctx.home))
     assert config.error == ""
     assert [v.name for v in config.vaults] == ["personal", "work"]
@@ -234,15 +277,15 @@ def test_add_vault_seeds_the_vault_path_from_settings(ctx):
 
 
 def test_add_vault_writes_relative_folders_as_absolute(ctx):
-    assert actions.add_vault(replace(ctx, cwd=ctx.home / "code"), "work", ctx.home / "w", ["api", "~/acme/"]) == 0
-    assert json.loads(vaults_json(ctx).read_text())["vaults"]["work"]["folders"] == ["~/code/api", "~/acme"]
+    assert actions.add_vault(replace(ctx, cwd=ctx.home / "code"), "work", ctx.home / "w", ["api", "~/work/"]) == 0
+    assert json.loads(vaults_json(ctx).read_text())["vaults"]["work"]["folders"] == ["~/code/api", "~/work"]
 
 
 def test_add_vault_refuses_a_folder_another_vault_lists_and_changes_nothing(ctx):
     vaults_json(ctx).parent.mkdir(parents=True)
-    before = json.dumps({"default": "home", "vaults": {"home": {"path": "~/vault", "folders": ["~/acme"]}}})
+    before = json.dumps({"default": "home", "vaults": {"home": {"path": "~/vault", "folders": ["~/work"]}}})
     vaults_json(ctx).write_text(before)
-    assert actions.add_vault(ctx, "work", ctx.home / "w", [str(ctx.home / "acme")]) == 1
+    assert actions.add_vault(ctx, "work", ctx.home / "w", [str(ctx.home / "work")]) == 1
     assert vaults_json(ctx).read_text() == before
     assert "already in 'home'" in text(ctx)
 

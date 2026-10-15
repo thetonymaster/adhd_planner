@@ -3,12 +3,12 @@ up: "[[Home]]"
 status: active
 tags: [area]
 ---
-# Acme SRE
+# Health
 
 ## Responsibilities
 
 ## Key notes
-<!-- runbooks, alert rules, architecture notes -->
+<!-- routines, appointments, references -->
 
 ## Meetings
 ```base

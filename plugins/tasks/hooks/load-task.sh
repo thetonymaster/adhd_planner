@@ -18,7 +18,7 @@ echo "Vault: $VAULT"
 slug="$(tr -d '[:space:]' < "$NOTES/.active" 2>/dev/null)"
 # Same rule as vaults.slug_or_empty: anything else could name a file outside Tasks/.
 case "$slug" in ""|-*|*[!a-z0-9-]*) slug="" ;; esac
-[ -n "$slug" ] || { echo "No active task. Ask Q what we're working on, or suggest /tasks:task-start."; exit 0; }
+[ -n "$slug" ] || { echo "No active task. Ask the user what they're working on, or suggest /tasks:task-start."; exit 0; }
 f="$NOTES/$slug.md"
 [ -f "$f" ] || { echo "Active task '$slug' (global (python3 missing)) has no note at $f."; exit 0; }
 echo "Active task: $slug (global (python3 missing)) — full note: $f"

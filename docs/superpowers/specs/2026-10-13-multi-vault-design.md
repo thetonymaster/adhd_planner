@@ -32,7 +32,7 @@ Path: `$ADHD_PLANNER_VAULTS` if set, else `~/.config/adhd-planner/vaults.json`.
   "default": "personal",
   "vaults": {
     "personal": { "path": "~/vault" },
-    "work":     { "path": "~/work-vault", "folders": ["~/acme"] }
+    "work":     { "path": "~/work-vault", "folders": ["~/work"] }
   }
 }
 ```
@@ -89,9 +89,9 @@ Within the chosen vault, the per-vault state is unchanged: `.active`, `.session/
 one line follows it:
 
 ```
-Vault: ~/work-vault
-Vault name: work (folder ~/acme) · others: personal
-Active task: deploy-fix (project: sre-iac) — full note: ~/work-vault/Tasks/deploy-fix.md
+Vault: /Users/you/work-vault
+Vault name: work (folder ~/work) · others: personal
+Active task: deploy-fix (project: sre-iac) — full note: /Users/you/work-vault/Tasks/deploy-fix.md
 ```
 
 `others:` lists the other usable vault names. With no config file the output is

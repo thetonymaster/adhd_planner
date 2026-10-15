@@ -4,9 +4,21 @@ Clean / neutral design language (mirrors the web app: neutral grays, one calm
 slate-indigo accent, dot-grid feel to fit an A5 notebook).
 Pure reportlab, no third-party deps beyond reportlab itself.
 """
-from reportlab.lib.units import mm
-from reportlab.lib.colors import HexColor
-from reportlab.pdfgen import canvas as _canvas
+import sys
+
+try:
+    from reportlab.lib.units import mm
+    from reportlab.lib.colors import HexColor
+    from reportlab.pdfgen import canvas as _canvas
+except ImportError as e:
+    sys.stderr.write(
+        f"reportlab is not installed for {sys.executable} ({e}).\n"
+        "Install it in a virtual environment in the planner folder, then run the tools "
+        "with .venv/bin/python3:\n"
+        "  uv venv .venv && uv pip install --python .venv reportlab\n"
+        "  # without uv:\n"
+        "  python3 -m venv .venv && .venv/bin/pip install reportlab\n")
+    sys.exit(2)
 
 # --- palette (matches styles.css tokens) ---
 INK = HexColor("#1f2430")

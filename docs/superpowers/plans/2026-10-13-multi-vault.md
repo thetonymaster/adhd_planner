@@ -97,12 +97,12 @@ class ConfigTest(unittest.TestCase):
     def test_two_vaults_with_folders(self):
         c = parse({"default": "personal", "vaults": {
             "personal": {"path": "~/vault"},
-            "work": {"path": "~/work-vault/", "folders": ["~/acme"]}}})
+            "work": {"path": "~/work-vault/", "folders": ["~/work"]}}})
         self.assertEqual(c.error, "")
         self.assertFalse(c.implicit)
         self.assertEqual(c.default, "personal")
         self.assertEqual([(v.name, v.path) for v in c.vaults], [("personal", "/home/q/vault"), ("work", "/home/q/work-vault")])
-        self.assertEqual(c.vaults[1].folders[0][0], "~/acme")
+        self.assertEqual(c.vaults[1].folders[0][0], "~/work")
 
     def test_one_vault_needs_no_default(self):
         self.assertEqual(parse({"vaults": {"main": {"path": "/v"}}}).default, "main")
@@ -333,12 +333,12 @@ export const CASES: readonly VaultCase[] = [
    "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}, "work": {"notes": {"deploy": {"repo": "~/code/sre"}}}}, "cwd": "~/code/sre/src",
    "expect": {"vault": "~/work", "slug": "deploy", "reason": "project: sre", "nameLine": "Vault name: work (project: sre) · others: personal"}},
   {"name": "a bound folder picks its vault's .active",
-   "config": {"default": "personal", "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work", "folders": ["~/acme"]}}},
-   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}, "work": {"notes": {"w": {}}, "active": "w"}}, "cwd": "~/acme/new-repo",
-   "expect": {"vault": "~/work", "slug": "w", "reason": "folder ~/acme"}},
+   "config": {"default": "personal", "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work", "folders": ["~/work"]}}},
+   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}, "work": {"notes": {"w": {}}, "active": "w"}}, "cwd": "~/work/new-repo",
+   "expect": {"vault": "~/work", "slug": "w", "reason": "folder ~/work"}},
   {"name": "a repo note beats a folder bound to another vault",
-   "config": {"default": "personal", "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work", "folders": ["~/acme"]}}},
-   "vaults": {"vault": {"notes": {"side": {"repo": "~/acme/side"}}}, "work": {"notes": {"w": {}}, "active": "w"}}, "cwd": "~/acme/side",
+   "config": {"default": "personal", "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work", "folders": ["~/work"]}}},
+   "vaults": {"vault": {"notes": {"side": {"repo": "~/work/side"}}}, "work": {"notes": {"w": {}}, "active": "w"}}, "cwd": "~/work/side",
    "expect": {"vault": "~/vault", "slug": "side", "reason": "project: side"}},
   {"name": "the deepest bound folder wins",
    "config": {"default": "personal", "vaults": {"personal": {"path": "~/vault", "folders": ["~/code"]}, "work": {"path": "~/work", "folders": ["~/code/work"]}}},
@@ -361,9 +361,9 @@ export const CASES: readonly VaultCase[] = [
    "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}, "work": {"notes": {"w": {}}, "session": {"slug": "gone"}}}, "cwd": "~/x",
    "expect": {"vault": "~/vault", "slug": "p", "reason": "default"}},
   {"name": "a bound folder whose vault has no .active: the vault, no task",
-   "config": {"default": "personal", "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work", "folders": ["~/acme"]}}},
-   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}, "work": {"notes": {"w": {}}}}, "cwd": "~/acme/x",
-   "expect": {"vault": "~/work", "slug": "", "reason": "folder ~/acme", "nameLine": "Vault name: work (folder ~/acme) · others: personal"}},
+   "config": {"default": "personal", "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work", "folders": ["~/work"]}}},
+   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}, "work": {"notes": {"w": {}}}}, "cwd": "~/work/x",
+   "expect": {"vault": "~/work", "slug": "", "reason": "folder ~/work", "nameLine": "Vault name: work (folder ~/work) · others: personal"}},
   {"name": "done notes never bind, in any vault",
    "config": {"default": "personal", "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work"}}},
    "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}, "work": {"notes": {"old": {"repo": "~/code/app", "status": "done"}}}}, "cwd": "~/code/app",
@@ -392,8 +392,8 @@ export const CASES: readonly VaultCase[] = [
    "vaults": {"vault": {"notes": {"g": {}}, "active": "g"}}, "cwd": "~/x",
    "expect": {"vault": "~/vault", "slug": "g", "reason": "global", "error": "vault name 'Work' must be kebab-case"}},
   {"name": "a vault with no Tasks/ is skipped",
-   "config": {"default": "personal", "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work", "folders": ["~/acme"]}}},
-   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}}, "cwd": "~/acme/x",
+   "config": {"default": "personal", "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work", "folders": ["~/work"]}}},
+   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}}, "cwd": "~/work/x",
    "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "skipped": "work", "nameLine": "Vault name: personal (default)"}},
   {"name": "the only vault in vaults.json is the default",
    "config": {"vaults": {"main": {"path": "~/vault"}}},
@@ -726,7 +726,7 @@ Expected: all 16 tests OK (15 existing plus `test_every_shared_case`). If an exi
 - [ ] **Step 9: Run the hook by hand once, as Q's session would**
 
 Run: `echo '{"session_id":"x","cwd":"'"$PWD"'"}' | bash plugins/tasks/hooks/load-task.sh`
-Expected: `Now: …`, then `Vault: ~/vault` and `Active task: …`, the same as this session's start. Q has no `vaults.json` yet, so there is no `Vault name:` line.
+Expected: `Now: …`, then `Vault: /Users/you/vault` and `Active task: …`, the same as this session's start. Q has no `vaults.json` yet, so there is no `Vault name:` line.
 
 - [ ] **Step 10: Commit**
 
@@ -1094,7 +1094,7 @@ Append to `plugins/task-track/tests/task-track.test.ts`:
 ```ts
 describe('several vaults', () => {
   const CONFIG = '/home/q/.config/adhd-planner/vaults.json'
-  const TWO = JSON.stringify({ default: 'personal', vaults: { personal: { path: '/v' }, work: { path: '/w', folders: ['~/acme'] } } })
+  const TWO = JSON.stringify({ default: 'personal', vaults: { personal: { path: '/v' }, work: { path: '/w', folders: ['~/work'] } } })
   const WORK = NOTE.replace('# Set up vault', '# Deploy fix')
   const files = () => ({
     [CONFIG]: TWO,
@@ -1107,12 +1107,12 @@ describe('several vaults', () => {
   test('a session in a bound folder shows the work task, prefixed with its vault', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on)
-    fakeVault(on, files(), { root: '/home/q/acme/api' })
+    fakeVault(on, files(), { root: '/home/q/work/api' })
     expect((await run($, 'note', 'x')).text).toBe('Logged to deploy-fix.')
     const band = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
     expect(await band.find({ type: 'Text', text: /▶ work · deploy-fix/ })).toBeDefined()
     const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
-    expect(await pane.find({ type: 'Text', text: /work · folder ~\/acme/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /work · folder ~\/work/ })).toBeDefined()
   })
 
   test('with no vaults.json the band has no vault prefix', async ($, on) => {
@@ -1127,7 +1127,7 @@ describe('several vaults', () => {
   test('each vault keeps its own timer', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: T0 })
-    const written = fakeVault(on, files(), { root: '/home/q/acme/api' })
+    const written = fakeVault(on, files(), { root: '/home/q/work/api' })
     await run($, 'openloop', 'load the task')
     await run($, 'note', 'activity')
     expect(parsePomo(written['/w/Tasks/.pomo.json'] ?? '')?.lastActiveAt).toBe(T0)
@@ -1166,7 +1166,7 @@ describe('several vaults', () => {
   test('a broken vaults.json is named in the pane and the single vault still works', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on)
-    fakeVault(on, { ...files(), [CONFIG]: '{not json' }, { root: '/home/q/acme/api' })
+    fakeVault(on, { ...files(), [CONFIG]: '{not json' }, { root: '/home/q/work/api' })
     expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
     const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
     expect(await pane.find({ type: 'Text', text: /Vault config error: .*vaults\.json: not valid JSON/ })).toBeDefined()
@@ -1396,7 +1396,7 @@ In step 5, append: `` When the vault changed, add `Vault now: <name> (<path>).` 
     "default": "personal",
     "vaults": {
       "personal": { "path": "~/vault" },
-      "work":     { "path": "~/work-vault", "folders": ["~/acme"] }
+      "work":     { "path": "~/work-vault", "folders": ["~/work"] }
     }
   }
   ```
@@ -1451,10 +1451,10 @@ def vaults_json(ctx):
 def test_add_vault_creates_the_file_with_the_current_vault_as_default(ctx):
     work = ctx.home / "work-vault"
     (work / "Tasks").mkdir(parents=True)
-    assert actions.add_vault(ctx, "work", work, ["~/acme"]) == 0
+    assert actions.add_vault(ctx, "work", work, ["~/work"]) == 0
     assert json.loads(vaults_json(ctx).read_text()) == {
         "default": "personal",
-        "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work-vault", "folders": ["~/acme"]}},
+        "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work-vault", "folders": ["~/work"]}},
     }
 
 
@@ -1491,7 +1491,7 @@ def test_the_written_file_parses_with_the_hook_parser(ctx):
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "plugins" / "tasks" / "hooks"))
     import vaults
-    actions.add_vault(ctx, "work", ctx.home / "w", ["~/acme"])
+    actions.add_vault(ctx, "work", ctx.home / "w", ["~/work"])
     config = vaults.parse(vaults_json(ctx).read_text(), "vaults.json", {}, str(ctx.home))
     assert config.error == ""
     assert [v.name for v in config.vaults] == ["personal", "work"]
@@ -1506,9 +1506,9 @@ def test_add_vault_subcommand(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("VAULT", raising=False)
     monkeypatch.delenv("ADHD_PLANNER_VAULTS", raising=False)
-    assert cli.main(["--yes", "add-vault", "work", "--path", str(tmp_path / "w"), "--folder", "~/acme"]) == 0
+    assert cli.main(["--yes", "add-vault", "work", "--path", str(tmp_path / "w"), "--folder", "~/work"]) == 0
     data = json.loads((tmp_path / ".config" / "adhd-planner" / "vaults.json").read_text())
-    assert data["vaults"]["work"] == {"path": "~/w", "folders": ["~/acme"]}
+    assert data["vaults"]["work"] == {"path": "~/w", "folders": ["~/work"]}
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
@@ -1632,7 +1632,7 @@ Write the three result lines into the PR description as `VERIFY: Ran … — Res
 1. `mkdir -p /tmp/mv-smoke/work/Tasks && printf -- '---\nstatus: active\n---\n# Smoke\n\n## Next\n- [ ] it works\n' > /tmp/mv-smoke/work/Tasks/smoke.md && echo smoke > /tmp/mv-smoke/work/Tasks/.active`
 2. `ADHD_PLANNER_VAULTS=/tmp/mv-smoke/vaults.json uv run --project setup planner-setup --yes add-vault work --path /tmp/mv-smoke/work --folder /tmp/mv-smoke/repo`
 3. `mkdir -p /tmp/mv-smoke/repo && cd /tmp/mv-smoke/repo && ADHD_PLANNER_VAULTS=/tmp/mv-smoke/vaults.json claude`. The session start should show `Vault: /tmp/mv-smoke/work`, then `Vault name: work (folder /tmp/mv-smoke/repo) · others: personal`, then `Active task: smoke`, and the band should show `▶ work · smoke`.
-4. In that session: `/tasks:task-switch personal:<a parked slug>`. The reply should end with `Vault now: personal (~/vault)`, and `/tmp/mv-smoke/work/Tasks/.session/` should be empty.
+4. In that session: `/tasks:task-switch personal:<a parked slug>`. The reply should end with `Vault now: personal (/Users/you/vault)`, and `/tmp/mv-smoke/work/Tasks/.session/` should be empty.
 5. Clean up with `rm -r /tmp/mv-smoke` (scratch only; Q confirms first).
 
 - [ ] **Step 3: Hand off**

@@ -12,8 +12,8 @@ Output:
 
 Usage:
   python3 tools/plan_week.py --tasks tasks.json --busy busy-week.json \
-      --week-start 2026-07-06 [--work 09:00-18:00] [--lunch 14:00-15:00] \
-      [--load 0.75] [--include-weekend]
+      --week-start 2026-07-06 [--load 0.75] [--include-weekend]
+  --work / --lunch override calendars.json.
 
 tasks.json: [{"title":"...","minutes":90,"deadline":"2026-07-08","day":"tue"}]
   deadline and day are optional. day is a weekday name/abbrev pinning the task.
@@ -23,11 +23,21 @@ import argparse
 import datetime as dt
 import json
 import os
+import sys
 
 WEEKDAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday",
                  "saturday", "sunday"]
 ABBR = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import planner_config  # noqa: E402
+
+try:
+    CFG = planner_config.load()
+except planner_config.ConfigError as e:
+    print(f"ERROR: {e}", file=sys.stderr)
+    sys.exit(2)
 
 def parse_hm(s):
     h, m = s.split(":")
@@ -151,8 +161,8 @@ def main():
     ap.add_argument("--tasks", required=True)
     ap.add_argument("--busy", default=None, help="calendar list_events JSON for the week")
     ap.add_argument("--week-start", default=None, help="Monday date YYYY-MM-DD (default this week)")
-    ap.add_argument("--work", default="09:00-18:00")
-    ap.add_argument("--lunch", default="14:00-15:00")
+    ap.add_argument("--work", default=None, help="HH:MM-HH:MM (default: calendars.json, else 09:00-18:00)")
+    ap.add_argument("--lunch", default=None, help='HH:MM-HH:MM, or "" for none (default: calendars.json)')
     ap.add_argument("--load", type=float, default=0.75,
                     help="fraction of free time to fill (rest left as slack)")
     ap.add_argument("--include-weekend", action="store_true")
@@ -166,8 +176,8 @@ def main():
     n_days = 7 if args.include_weekend else 5
     day_dates = [(week_start + dt.timedelta(days=i)).isoformat() for i in range(n_days)]
 
-    work_s, work_e = parse_range(args.work)
-    lunch = parse_range(args.lunch) if args.lunch else None
+    work_s, work_e = CFG["work"] if args.work is None else parse_range(args.work)
+    lunch = CFG["lunch"] if args.lunch is None else (parse_range(args.lunch) if args.lunch else None)
     lunch_min = (min(lunch[1], work_e) - max(lunch[0], work_s)) if lunch else 0
     lunch_min = max(0, lunch_min)
     day_window = (work_e - work_s) - lunch_min

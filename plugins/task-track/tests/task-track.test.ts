@@ -441,7 +441,7 @@ describe('commands write to the note without a model turn', () => {
     const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE })
     const out = await run($, 'note', 'CLI enabled, unresolved=0')
     expect(out.text).toBe('Logged to set-up-vault.')
-    expect(out.context?.[0]).toContain('CLI enabled, unresolved=0')
+    expect(out.context?.[0]).toBe('The user added a note to the active task (set-up-vault): CLI enabled, unresolved=0')
     expect(files[PATH]).toContain('- [[2026-10-13]] 09:30 — CLI enabled, unresolved=0')
   })
 
@@ -1234,7 +1234,7 @@ describe('shared vault cases (tests/test_load_task.py runs the same ones)', () =
 
 describe('several vaults', () => {
   const CONFIG = '/home/q/.config/adhd-planner/vaults.json'
-  const TWO = JSON.stringify({ default: 'personal', vaults: { personal: { path: '/v' }, work: { path: '/w', folders: ['~/acme'] } } })
+  const TWO = JSON.stringify({ default: 'personal', vaults: { personal: { path: '/v' }, work: { path: '/w', folders: ['~/work'] } } })
   const WORK = NOTE.replace('# Set up vault', '# Deploy fix')
   const files = () => ({
     [CONFIG]: TWO,
@@ -1247,12 +1247,12 @@ describe('several vaults', () => {
   test('a session in a bound folder shows the work task, prefixed with its vault', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on)
-    fakeVault(on, files(), { root: '/home/q/acme/api' })
+    fakeVault(on, files(), { root: '/home/q/work/api' })
     expect((await run($, 'note', 'x')).text).toBe('Logged to deploy-fix.')
     const band = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
     expect(await band.find({ type: 'Text', text: /▶ work · deploy-fix/ })).toBeDefined()
     const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
-    expect(await pane.find({ type: 'Text', text: /work · folder ~\/acme/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /work · folder ~\/work/ })).toBeDefined()
   })
 
   test('with no vaults.json the band has no vault prefix', async ($, on) => {
@@ -1267,7 +1267,7 @@ describe('several vaults', () => {
   test('each vault keeps its own timer', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: T0 })
-    const written = fakeVault(on, files(), { root: '/home/q/acme/api' })
+    const written = fakeVault(on, files(), { root: '/home/q/work/api' })
     await run($, 'openloop', 'load the task')
     await run($, 'note', 'activity')
     expect(parsePomo(written['/w/Tasks/.pomo.json'] ?? '')?.lastActiveAt).toBe(T0)
@@ -1318,7 +1318,7 @@ describe('several vaults', () => {
   test('a broken vaults.json is named in the pane and the single vault still works', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on)
-    fakeVault(on, { ...files(), [CONFIG]: '{not json' }, { root: '/home/q/acme/api' })
+    fakeVault(on, { ...files(), [CONFIG]: '{not json' }, { root: '/home/q/work/api' })
     expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
     const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
     expect(await pane.find({ type: 'Text', text: /Vault config error: .*vaults\.json: not valid JSON/ })).toBeDefined()
@@ -1328,14 +1328,14 @@ describe('several vaults', () => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q', ADHD_PLANNER_VAULTS: '~/cfg.json' })
     mock.clock(on)
     const { [CONFIG]: two, ...rest } = files()
-    fakeVault(on, { ...rest, '/home/q/cfg.json': two ?? '' }, { root: '/home/q/acme/api' })
+    fakeVault(on, { ...rest, '/home/q/cfg.json': two ?? '' }, { root: '/home/q/work/api' })
     expect((await run($, 'note', 'x')).text).toBe('Logged to deploy-fix.')
   })
 
   test('a relative $ADHD_PLANNER_VAULTS is named and the single vault is used', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q', ADHD_PLANNER_VAULTS: 'cfg.json' })
     mock.clock(on)
-    fakeVault(on, { ...files(), 'cfg.json': TWO }, { root: '/home/q/acme/api' })
+    fakeVault(on, { ...files(), 'cfg.json': TWO }, { root: '/home/q/work/api' })
     expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
     const pane = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track', props: {} as never })
     expect(await pane.find({ type: 'Text', text: /must be an absolute path or start with ~\/, got 'cfg\.json'/ })).toBeDefined()

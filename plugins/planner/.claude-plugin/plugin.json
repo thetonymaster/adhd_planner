@@ -1,16 +1,18 @@
 {
   "name": "planner",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "ADHD-friendly planning: capture and triage a brain dump, break big tasks into startable steps, time-block them around real meetings, print A5 planner pages, and track habits with streaks.",
   "author": {
     "name": "Antonio Cabrera"
   },
+  "homepage": "https://github.com/thetonymaster/adhd_planner",
+  "repository": "https://github.com/thetonymaster/adhd_planner",
+  "license": "MIT",
   "keywords": [
     "a5",
     "adhd",
     "calendar",
     "habits",
-    "planner",
     "obsidian",
     "planner",
     "time-blocking"

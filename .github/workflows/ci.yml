@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Hooks and planner tools (unittest)
+        run: python3 -m unittest discover -s tests -v
+      - name: planner-setup (pytest)
+        working-directory: setup
+        run: uv run --locked pytest
+      - name: Install Claude Code
+        run: npm i -g @anthropic-ai/claude-code@2.1.301 # bump deliberately, after validating locally
+      - name: Validate plugins and marketplace
+        run: |
+          claude plugin validate plugins/planner
+          claude plugin validate plugins/tasks
+          claude plugin validate plugins/task-track
+          claude plugin validate .

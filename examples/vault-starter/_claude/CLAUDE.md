@@ -1,3 +1,4 @@
 # Vault
-This folder is Q's Obsidian vault. Every write follows the obsidian-vault skill below.
-@~/.claude/skills/obsidian-vault/SKILL.md
+This folder is an Obsidian vault. With the `tasks` plugin installed, every write
+follows its `obsidian-vault` skill: folders, templates, `up:` links, and no links
+to notes that don't exist.
