@@ -14,6 +14,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 SKIP = {
     "docs/superpowers/specs/2026-10-15-public-launch-design.md",
     "docs/superpowers/plans/2026-10-15-de-author-public-ready.md",
+    "docs/superpowers/plans/2026-10-15-the-cut.md",
     "tests/test_public_text.py",
 }
 BINARY = (".plugin", ".lock", ".png", ".jpg", ".jpeg", ".pdf", ".zip")
@@ -52,14 +53,15 @@ class PublicTextTest(unittest.TestCase):
     def test_starter_vault_has_no_dead_import(self):
         self.assertNoHits(hits(r"@~/\.claude/skills/", "examples"))
 
+    # Words split in two: the public export's --replace-text would rewrite a literal pattern.
     def test_no_employer_folder(self):
-        self.assertNoHits(hits(r"acme", ".", flags=re.IGNORECASE))
+        self.assertNoHits(hits("acme", ".", flags=re.IGNORECASE))
 
     def test_no_author_home_path(self):
-        self.assertNoHits(hits(r"~", "."))
+        self.assertNoHits(hits("/Users/" "someone", "."))
 
     def test_no_planner_brand_keyword(self):
-        self.assertNoHits(hits(r"planner", ".", flags=re.IGNORECASE))
+        self.assertNoHits(hits("the" "brand", ".", flags=re.IGNORECASE))
 
     BLOCK = re.compile(r"<!-- shared: where-this-runs -->\n(.*?)<!-- /shared: where-this-runs -->", re.DOTALL)
 
