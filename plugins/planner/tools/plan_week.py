@@ -8,7 +8,8 @@ It respects per-task deadlines and optional fixed days.
 
 Output:
   * weekly-plan-<week-start>.md  — day-by-day plan + capacity + overflow
-  * tasks-<YYYY-MM-DD>.json       — one file per planned day, ready for plan_day.py
+  * week-tasks-<YYYY-MM-DD>.json  — one file per planned day, ready for plan_day.py
+                                    (not tasks-<date>.json, which triage.py writes)
 
 Usage:
   python3 tools/plan_week.py --tasks tasks.json --busy busy-week.json \
@@ -75,6 +76,21 @@ def load_busy_by_day(path):
 
 def monday_of(date):
     return date - dt.timedelta(days=date.weekday())
+
+
+def plan_days(today, week_start, include_weekend):
+    """(Monday, ISO dates to plan). No week_start: this week from today on, or
+    next week on a Saturday or Sunday. An explicit week_start plans all of it."""
+    n_days = 7 if include_weekend else 5
+    if week_start is None:
+        week_start = monday_of(today)
+        if today.weekday() >= 5:
+            week_start += dt.timedelta(days=7)
+        first = max(today, week_start)
+    else:
+        first = week_start
+    days = [week_start + dt.timedelta(days=i) for i in range(n_days)]
+    return week_start, [d.isoformat() for d in days if d >= first]
 
 
 def distribute(tasks, day_dates, capacity):
@@ -160,7 +176,8 @@ def main():
     ap = argparse.ArgumentParser(description="Distribute tasks across the week")
     ap.add_argument("--tasks", required=True)
     ap.add_argument("--busy", default=None, help="calendar list_events JSON for the week")
-    ap.add_argument("--week-start", default=None, help="Monday date YYYY-MM-DD (default this week)")
+    ap.add_argument("--week-start", default=None,
+                    help="Monday date YYYY-MM-DD (default: this week from today on; next week on a weekend)")
     ap.add_argument("--work", default=None, help="HH:MM-HH:MM (default: calendars.json, else 09:00-18:00)")
     ap.add_argument("--lunch", default=None, help='HH:MM-HH:MM, or "" for none (default: calendars.json)')
     ap.add_argument("--load", type=float, default=0.75,
@@ -169,12 +186,10 @@ def main():
     ap.add_argument("--out-dir", default=None)
     args = ap.parse_args()
 
-    if args.week_start:
-        week_start = dt.date.fromisoformat(args.week_start)
-    else:
-        week_start = monday_of(dt.date.today())
-    n_days = 7 if args.include_weekend else 5
-    day_dates = [(week_start + dt.timedelta(days=i)).isoformat() for i in range(n_days)]
+    week_start, day_dates = plan_days(
+        dt.date.today(),
+        dt.date.fromisoformat(args.week_start) if args.week_start else None,
+        args.include_weekend)
 
     work_s, work_e = CFG["work"] if args.work is None else parse_range(args.work)
     lunch = CFG["lunch"] if args.lunch is None else (parse_range(args.lunch) if args.lunch else None)
@@ -198,11 +213,15 @@ def main():
     made = []
     for d in day_dates:
         if plan[d]:
-            p = os.path.join(out_dir, f"tasks-{d}.json")
+            p = os.path.join(out_dir, f"week-tasks-{d}.json")
             json.dump([{"title": t["title"], "minutes": int(t.get("minutes", 25))}
                        for t in plan[d]], open(p, "w", encoding="utf-8"),
                       indent=2, ensure_ascii=False)
             made.append(os.path.basename(p))
+        else:  # a re-run: don't leave the previous run's file for a day that now has none
+            stale = os.path.join(out_dir, f"week-tasks-{d}.json")
+            if os.path.exists(stale):
+                os.remove(stale)
 
     print(md)
     print("\n---")

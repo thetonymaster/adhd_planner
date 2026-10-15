@@ -6,7 +6,8 @@ Two phases (classification itself is done by Claude between them):
   parse  — pull the raw items out of inbox.md so Claude can classify them.
   apply  — take Claude's classification decisions and write the sorted outputs
            (Today/Soon/Eventually + priority matrix), a plan-day task list, a
-           readable summary, then archive and clear the inbox.
+           readable summary, then archive the `- ` items and clear them from the
+           inbox (lines that aren't `- ` items are kept).
 
 Deterministic file mechanics live here; the judgment (bucket / quadrant /
 estimate) is supplied in decisions.json.
@@ -25,6 +26,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
@@ -37,23 +39,57 @@ QUAD_LABEL = {"do": "Do first (important & urgent)",
 QUAD_TAG = {"do": "DO", "schedule": "SCHED", "delegate": "DELEG", "delete": "DROP"}
 
 
-def read_items(path):
+# What apply writes as the fresh inbox. Its lines, and the seed inbox.md's
+# shorter second line, are never archived or kept as unparsed text.
+INBOX_TEMPLATE = ("# Capture inbox\n\n"
+                  "Jot anything here through the day — one thought per line, "
+                  "starting with `- `.\nBig or small, tasks or ideas. At the end of the workday the "
+                  "triage skill sorts and clears this.\n\n- \n")
+BOILERPLATE = set(INBOX_TEMPLATE.splitlines()) | {"Big or small, tasks or ideas."}
+BULLET = re.compile(r"\s*-\s+(.*\S)\s*$")
+
+
+def split_inbox(path):
+    """(bullet lines, other lines), both verbatim. Blank lines, the empty `- `
+    placeholder and the template's own lines are neither."""
     if not os.path.exists(path):
-        return []
-    items = []
-    for line in open(path, encoding="utf-8"):
-        m = re.match(r"\s*-\s+(.*\S)\s*$", line)
-        if m:
-            items.append(m.group(1))
-    return items
+        return [], []
+    bullets, unparsed = [], []
+    with open(path, encoding="utf-8") as f:
+        for line in f.read().splitlines():
+            if not line.strip() or line.rstrip() in BOILERPLATE or re.fullmatch(r"\s*-\s*", line):
+                continue
+            (bullets if BULLET.match(line) else unparsed).append(line)
+    return bullets, unparsed
+
+
+def read_items(path):
+    return [BULLET.match(line).group(1) for line in split_inbox(path)[0]]
 
 
 def cmd_parse(args):
     items = read_items(args.inbox)
-    print(json.dumps({"count": len(items), "items": items},
+    unparsed = split_inbox(args.inbox)[1]
+    print(json.dumps({"count": len(items), "items": items, "unparsed": unparsed},
                      indent=2, ensure_ascii=False))
     if not items:
         print("\n(inbox empty — nothing to triage)", file=sys.stderr)
+
+
+def write_atomic(path, text):
+    """Write a fresh temp file beside `path`, then rename it over: a crash mid-write
+    can't truncate `path`, and a leftover or linked temp name is never reused."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), prefix=".inbox-", suffix=".tmp")
+    try:
+        if os.path.exists(path):
+            os.chmod(tmp, os.stat(path).st_mode & 0o7777)  # mkstemp makes 0600; keep the inbox's mode
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 def cmd_apply(args):
@@ -92,9 +128,6 @@ def cmd_apply(args):
         lines += ([f"- {p}" for p in picks] or ["- —"])
         lines.append("")
     summary = "\n".join(lines)
-    summ_path = os.path.join(OUT, f"triage-{date}.md")
-    with open(summ_path, "w", encoding="utf-8") as f:
-        f.write(summary + "\n")
 
     # --- plan-day task list: Today items that are do/schedule ---
     tasks = [{"title": d["item"], "minutes": int(d.get("minutes") or 25)}
@@ -103,26 +136,33 @@ def cmd_apply(args):
     tasks_path = os.path.join(OUT, f"tasks-{date}.json")
     with open(tasks_path, "w", encoding="utf-8") as f:
         json.dump(tasks, f, indent=2, ensure_ascii=False)
+    # The summary goes last: morning-startup trusts tasks-<date>.json only when
+    # triage-<date>.md is at least as new (a later merged pool is newer than both).
+    summ_path = os.path.join(OUT, f"triage-{date}.md")
+    with open(summ_path, "w", encoding="utf-8") as f:
+        f.write(summary + "\n")
 
-    # --- archive + clear inbox ---
-    items = read_items(args.inbox)
+    # --- archive bullets verbatim; keep what isn't a bullet in the fresh inbox ---
+    bullets, unparsed = split_inbox(args.inbox)
     archive = os.path.join(ROOT, "inbox-archive.md")
-    if items:
+    if bullets:
         with open(archive, "a", encoding="utf-8") as f:
             f.write(f"\n## {date}\n")
-            for it in items:
-                f.write(f"- {it}\n")
-    with open(args.inbox, "w", encoding="utf-8") as f:
-        f.write("# Capture inbox\n\n"
-                "Jot anything here through the day — one thought per line, "
-                "starting with `- `.\nBig or small, tasks or ideas. At the end of the workday the "
-                "triage skill sorts and clears this.\n\n- \n")
+            for line in bullets:
+                f.write(line + "\n")
+    write_atomic(args.inbox, INBOX_TEMPLATE + "".join(line + "\n" for line in unparsed))
 
     print(summary)
     print("\n---")
     print(f"Summary  → {summ_path}")
     print(f"Tasks    → {tasks_path}  ({len(tasks)} for plan-day)")
-    print(f"Archived → {len(items)} item(s) to inbox-archive.md; inbox cleared")
+    cleared = "inbox cleared" if not unparsed else "items cleared from inbox"
+    print(f"Archived → {len(bullets)} item(s) to inbox-archive.md; {cleared}")
+    if unparsed:
+        print(f"Kept {len(unparsed)} line(s) in inbox.md that don't start with `- `; "
+              "make them `- ` items to triage them next time:")
+        for line in unparsed:
+            print("  " + line)
 
 
 def cmd_carry(args):

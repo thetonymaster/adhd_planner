@@ -6,7 +6,7 @@ export type Source = 'session' | 'repo' | 'global'
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/
 
 function field(block: string, name: string): string {
-  const m = new RegExp(`^${name}:\\s*"?([^"\\r\\n]*?)"?\\s*$`, 'm').exec(block)
+  const m = new RegExp(`^${name}:[ \\t]*"?([^"\\r\\n]*?)"?\\s*$`, 'm').exec(block)
   return m?.[1] ?? ''
 }
 

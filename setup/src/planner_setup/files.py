@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
+import tempfile
 import time
 from pathlib import Path
 
@@ -44,11 +47,33 @@ def backup(path: Path, backups: Path, *, home: Path) -> Path | None:
     return dest
 
 
+def _umask() -> int:
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
 def write_json(path: Path, data: dict, backups: Path, *, home: Path) -> Path | None:
     saved = backup(path, backups, home=home)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
-    json.loads(tmp.read_text())  # never leave a broken settings file
-    tmp.replace(path)
+    # A symlinked settings.json (dotfiles) stays a link: write the file it points at.
+    target = path.resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # A unique tmp beside the target (mkstemp: O_EXCL, never a link, never another run's file),
+    # given the target's mode before any content lands in it, so a 0600 file is never briefly readable.
+    existing = target.stat().st_mode if target.exists() else None
+    fd, name = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    tmp = Path(name)
+    try:
+        try:
+            os.fchmod(fd, stat.S_IMODE(existing) if existing is not None else 0o666 & ~_umask())
+            body = memoryview((json.dumps(data, indent=2) + "\n").encode())
+            while body:  # os.write may write less than asked
+                body = body[os.write(fd, body):]
+        finally:
+            os.close(fd)
+        json.loads(tmp.read_text())  # never leave a broken settings file
+        tmp.replace(target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # no half-written settings copy left beside the target
+        raise
     return saved

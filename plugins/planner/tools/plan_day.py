@@ -54,30 +54,34 @@ def parse_range(s):
 
 
 def load_busy(path, date_iso):
-    """Extract fixed busy blocks (title, start_min, end_min) for the date."""
+    """Fixed busy blocks [title, start_min, end_min] for the date, clipped to it:
+    a meeting that crosses midnight blocks its part of this day."""
     if not path or not os.path.exists(path):
         return []
     with open(path) as f:
         data = json.load(f)
     blobs = data if isinstance(data, list) else [data]
+    day0 = dt.datetime.fromisoformat(date_iso)
+    day1 = day0 + dt.timedelta(days=1)
     out = []
     for blob in blobs:
         for ev in (blob.get("events", []) if isinstance(blob, dict) else []):
             start, end = ev.get("start", {}), ev.get("end", {})
             if "dateTime" not in start:
                 continue  # skip all-day; they don't block time-of-day
-            if not start["dateTime"].startswith(date_iso):
-                continue
-            s = _clock_min(start["dateTime"])
-            e = _clock_min(end["dateTime"]) if "dateTime" in end else s + 30
-            out.append([ev.get("summary", "(busy)"), s, e])
+            s = _wall(start["dateTime"])
+            e = _wall(end["dateTime"]) if "dateTime" in end else s + dt.timedelta(minutes=30)
+            s, e = max(s, day0), min(e, day1)
+            if e <= s:
+                continue  # another day
+            out.append([ev.get("summary", "(busy)"), (s - day0) // dt.timedelta(minutes=1),
+                        (e - day0) // dt.timedelta(minutes=1)])
     return out
 
 
-def _clock_min(iso):
-    # take the wall-clock HH:MM as written on the calendar
-    t = iso.split("T")[1]
-    return parse_hm(t[:5])
+def _wall(iso):
+    # the wall-clock date and time as written on the calendar (offset ignored)
+    return dt.datetime.fromisoformat(iso[:16])
 
 
 def subtract(intervals, block):
@@ -112,8 +116,9 @@ def schedule(tasks, busy, work, lunch, cfg):
         free = subtract(free, (s, e))
     free.sort()
 
-    # task queue: list of [title, remaining_minutes]
+    # task queue: list of [title, remaining_minutes]; a task with no minutes has nothing to place
     queue = [[t["title"], int(t.get("minutes", cfg["work"]))] for t in tasks]
+    queue = [q for q in queue if q[1] > 0]
     ti = 0
     session_count = 0
     last_title = None
@@ -123,14 +128,12 @@ def schedule(tasks, busy, work, lunch, cfg):
         cursor = fs
         while ti < len(queue):
             room = fe - cursor
-            if room < 5:
+            if room <= 0:
                 break
             title, rem = queue[ti]
             L = min(cfg["work"], room, rem)
             # avoid silly slivers: only place <10 min if it finishes the task
             if L < 10 and L != rem:
-                break
-            if L < 5:
                 break
             cont = (title == last_title)
             blocks.append(("focus", title + (" (cont.)" if cont else ""),

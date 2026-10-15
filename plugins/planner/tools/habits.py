@@ -4,6 +4,7 @@
 Habits are defined in habits.json (repo root). Daily marks are stored in
 habits-log.json as { "YYYY-MM-DD": { "habit-id": true|false } }. A logged day
 records every habit: those you did (true) and, implicitly, the rest as missed.
+Logging the same day again adds to it; nothing done is un-done.
 
 Commands:
   python3 tools/habits.py list
@@ -67,7 +68,9 @@ def cmd_log(args):
         print("Run `habits.py list` to see valid ids.")
         return
     log = load_log()
-    day = {h["id"]: (h["id"] in done) for h in habits}
+    before = log.get(args.date, {})
+    # Merge: a later check-in the same day adds to it; what was done stays done.
+    day = {h["id"]: bool(before.get(h["id"])) or h["id"] in done for h in habits}
     log[args.date] = day
     save_log(log)
     n = sum(day.values())

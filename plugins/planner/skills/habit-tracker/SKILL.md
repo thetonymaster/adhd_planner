@@ -60,9 +60,9 @@ cd "<planner-path>" && python3 tools/habits.py status --days 7                # 
 cd "<planner-path>" && python3 tools/habits.py week --date 2026-07-01         # 7-day grid
 ```
 
-A `log` records the **whole day**: ids you pass are done (✓); every other habit
-is counted as missed (✗) for that date. So log once, at the end of the day, with
-everything you actually did.
+Logging again the same day adds to it: ids you pass are marked done (✓) and the
+rest of that day stays as it was. It can't un-mark a habit; to undo one, edit
+`habits-log.json`.
 
 ## Daily check-in flow
 

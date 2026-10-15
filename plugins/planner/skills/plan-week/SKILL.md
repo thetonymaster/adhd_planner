@@ -51,16 +51,17 @@ for events the user confirmed in this conversation.
   `"deadline": "YYYY-MM-DD"` (won't be placed after that day) and
   `"day": "tue"` (pins it to that weekday). Build this from the user's backlog —
   the Today/Soon items from **capture-triage**, the inbox, or a list they give you.
-- The **week start** (the Monday). Default is the current week.
+- The **week start** (the Monday). Default: this week from today on (next week on a Saturday or Sunday).
 - Working hours and lunch (`work`, `lunch` in `tools/calendars.json`), and a **load
   factor** (default `0.75` — plan only 75% of free time, leaving slack for the
   overruns and surprises ADHD weeks always bring).
 
 ## Steps
 
-1. **Pull the week's meetings.** Google Calendar `list_events` from the Monday
-   00:00 to the following Monday, across the calendars that hold real
-   commitments. Save the raw output to `tools/out/busy-week.json`. All-day events
+1. **Pull the week's meetings.** Google Calendar `list_events` from today 00:00 to
+   the following Monday 00:00 (on a weekend, next Monday to the Monday after),
+   across the calendars that hold real commitments. Save the raw output to
+   `tools/out/busy-week.json`. All-day events
    are ignored for capacity. If no calendar access, skip `--busy` (every day gets
    full working hours).
 
@@ -73,11 +74,12 @@ for events the user confirmed in this conversation.
 
    ```
    cd "<planner-path>" && python3 tools/plan_week.py --tasks tools/out/tasks.json \
-       --busy tools/out/busy-week.json --week-start <YYYY-MM-DD> \
-       --load 0.75
+       --busy tools/out/busy-week.json --load 0.75
    ```
 
    Add `--include-weekend` to use Sat/Sun too.
+   With no `--week-start` it plans this week from today on (next week on a Saturday
+   or Sunday). Pass `--week-start <Monday>` only when the user names another week.
 
 4. **Show the weekly plan** (`tools/out/weekly-plan-<week-start>.md`): each day's
    meetings, free vs. planned capacity, and the tasks assigned to it. Call out
@@ -85,7 +87,7 @@ for events the user confirmed in this conversation.
    extend hours.
 
 5. **Offer the next moves** (don't auto-run):
-   - **Time-block a specific day** — hand that day's `tools/out/tasks-<date>.json`
+   - **Time-block a specific day** — hand that day's `tools/out/week-tasks-<date>.json`
      to **plan-day** for hour-by-hour Pomodoro blocks.
    - **Print the week on paper** — generate the blank Weekly Schedule insert with
      **blank-page** (`weekly-schedule`) to copy the plan into by hand.

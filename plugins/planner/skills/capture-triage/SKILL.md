@@ -85,8 +85,10 @@ for events the user confirmed in this conversation.
    ```
 
    This writes `triage-<date>.md` (summary + matrix), `tasks-<date>.json`
-   (Today's do/schedule items, for plan-day), archives the inbox to
-   `inbox-archive.md`, and clears inbox.md.
+   (Today's do/schedule items, for plan-day), archives the inbox's `- ` items to
+   `inbox-archive.md`, and clears them from inbox.md. Lines that don't start
+   with `- ` (`parse` lists them under `unparsed`) stay in inbox.md: tell the user
+   which ones, so they can turn them into items or delete them.
 
 4. **Show the summary** in chat: the three buckets and the matrix, and call out
    what you dropped and why.

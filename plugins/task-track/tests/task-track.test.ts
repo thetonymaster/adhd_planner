@@ -138,6 +138,12 @@ describe('shared pomodoro', () => {
     expect(unlogged(shared, 'set-up-vault')).toEqual({ ms: 0, blocks: 0 })
   })
 
+  test('markLogged up to what was written leaves later focus unlogged', () => {
+    const f = { ...emptyPomo('2026-10-13'), dayMs: { a: 40 * MIN }, dayBlocks: { a: 2 } }
+    expect(unlogged(markLogged(f, 'a', { ms: 30 * MIN, blocks: 1 }), 'a')).toEqual({ ms: 10 * MIN, blocks: 1 })
+    expect(unlogged(markLogged(f, 'a'), 'a')).toEqual({ ms: 0, blocks: 0 })
+  })
+
   test('a new day hands back the finished totals once and starts clean', () => {
     const yesterday = { ...emptyPomo('2026-10-12'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 47 * MIN }, dayBlocks: { 'set-up-vault': 1 } }
     const rolled = rollDay(yesterday, '2026-10-13')
@@ -948,6 +954,24 @@ describe('focus reaches the notes', () => {
     expect(daily).toContain('## Log\n- 09:40 [[set-up-vault]] focus 30m (1 pomodoro)')
   })
 
+  test('focus whose note write fails stays unlogged for the next try', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 40 * MIN })
+    const DAILY = '/v/Daily/2026-10-13.md'
+    // Registered before fakeVault so it wins, as in the unreadable-daily test above.
+    on('fs.write', { path: DAILY }, ($, e) => ({ deny: `EACCES: ${e.path}` }))
+    const files = fakeVault(on, {
+      '/v/Tasks/.active': 'set-up-vault\n',
+      [PATH]: NOTE,
+      '/v/Tasks/.pomo.json': serializePomo(today(30 * MIN)),
+    })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    await $.session.end(end)
+    expect(files[DAILY]).toBeUndefined()
+    expect(unlogged(parsePomo(files['/v/Tasks/.pomo.json'] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
+  })
+
   test('a daily note that exists but cannot be read is left alone', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: T0 + 40 * MIN })
@@ -1089,6 +1113,8 @@ describe('which task a session shows', () => {
     expect(frontmatter('---\nstatus: parked\n---\nrepo: not frontmatter\n')).toEqual({ repo: '', status: 'parked' })
     expect(frontmatter('# no frontmatter\n')).toEqual({ repo: '', status: '' })
     expect(frontmatter('---\r\nstatus: active\r\nrepo: ~/x\r\n---\r\n# T\r\n')).toEqual({ repo: '~/x', status: 'active' })
+    expect(frontmatter('---\nstatus: active\nrepo:\nstarted: 2026-10-01\n---\n')).toEqual({ repo: '', status: 'active' })
+    expect(frontmatter('---\r\nrepo: \r\nstatus: parked\r\n---\r\n')).toEqual({ repo: '', status: 'parked' })
   })
 
   test('normalize expands ~ and drops a trailing slash', () => {

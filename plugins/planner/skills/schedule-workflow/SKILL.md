@@ -104,7 +104,8 @@ decide whether it does anything useful, and all three fail silently if missed:
 > Run the end-of-workday capture & triage for the ADHD planner. Work in the planner
 > folder at <its absolute path>; every command is `cd "<planner-path>" && …`. Use today's date
 > in the timezone from `tools/calendars.json`. 1) `python3 tools/triage.py parse`; if
-> there are 0 items, note the inbox was empty and stop. 2) Classify each item: bucket
+> there are 0 items, stop: if `unparsed` has lines, say those lines exist and need a
+> `- ` prefix to be triaged; otherwise note the inbox was empty. 2) Classify each item: bucket
 > (today/soon/eventually), quadrant (do/schedule/delegate/delete), minutes (pad ~25%),
 > optional note. It's end of day, so keep "today" light and actively drop low-value
 > items. 3) Write `tools/out/decisions.json`, then `python3 tools/triage.py apply

@@ -467,16 +467,20 @@ async function pressPomo($: EngineInterface, action: PomoAction): Promise<void> 
   $.ui.toast(await runPomo($, action))
 }
 
-/** Writes today's not-yet-logged focus on `slug` to its task Log and the daily note, once across sessions. */
+/**
+ * Writes today's not-yet-logged focus on `slug` to its task Log and the daily note, then marks it logged.
+ * Notes first, as flushDay does: a failed write leaves the time unlogged for the next try instead of losing it.
+ */
 async function flushFocus($: EngineInterface, slug: string, path: string): Promise<void> {
-  let pending = { ms: 0, blocks: 0 }
-  const f = await changePomo($, file => {
-    pending = unlogged(file, slug)
-    return pending.ms >= MIN_LOGGED_MS ? markLogged(file, slug) : file
-  })
-  if (!f || pending.ms < MIN_LOGGED_MS) return
+  const before = await changePomo($, file => file)
+  if (!before) return
+  const pending = unlogged(before, slug)
+  if (pending.ms < MIN_LOGGED_MS) return
   const { date, time } = stamp(new Date(await $.clock.now()))
   await writeFocus($, slug, path, date, time, focusText(pending))
+  const written = { ms: before.dayMs[slug] ?? 0, blocks: before.dayBlocks[slug] ?? 0 }
+  // Only what was written: focus added meanwhile stays unlogged, and a day that rolled over meanwhile is not marked.
+  await changePomo($, file => (file.day === before.day ? markLogged(file, slug, written) : file))
 }
 
 /** Every minute: move the shared clock; the session that announces a block is the one whose write stuck. */

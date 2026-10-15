@@ -50,10 +50,17 @@ for events the user confirmed in this conversation.
    calendars that hold real commitments (the user's primary, plus family/personal
    if relevant). Save to `tools/out/busy.json`.
 
-2. **Gather today's tasks.** In order of preference:
-   - yesterday's `tools/out/tasks-<yesterday>.json` (from capture-triage), and/or
-   - `cd "<planner-path>" && python3 tools/triage.py parse` on `inbox.md` — if there are fresh captures,
-     triage them first (see capture-triage), producing `tools/out/tasks-<today>.json`.
+2. **Gather today's tasks** into one pool:
+   - fresh captures first: `cd "<planner-path>" && python3 tools/triage.py parse` on
+     `inbox.md`; if there are any, triage them (see capture-triage) with
+     `apply --date <today>`, which writes `tools/out/tasks-<today>.json`;
+   - yesterday's `tools/out/tasks-<yesterday>.json`, but only if
+     `tools/out/triage-<yesterday>.md` exists and is at least as new as
+     `tools/out/tasks-<yesterday>.json` (then that file is last night's capture-triage
+     output, not an earlier morning's merged pool);
+   - today's share of the week plan, `tools/out/week-tasks-<today>.json` (from plan-week).
+   Use whichever exist, drop repeated titles, and write the merged pool to
+   `tools/out/tasks-<today>.json` as `[{"title": …, "minutes": …}]`: step 4 reads that file.
    Confirm the **Top 3** for today with the user (or take the top do/schedule items).
 
 3. **Break down the main task** if one is big/vague — run break-down-task to get
@@ -152,9 +159,14 @@ and that it must not wait for input:
 > Run morning startup for the ADHD planner. Work in the planner folder at <its absolute path>;
 > every command is `cd "<planner-path>" && …`. Use today's date in the timezone
 > from `tools/calendars.json`. 1) Google Calendar list_events for today across the
-> calendars in `tools/calendars.json` → `tools/out/busy.json`. 2) Get today's tasks
-> from `tools/out/tasks-<today>.json`, or parse and triage `inbox.md` if there are new
-> captures. 3) Break any big task into subtasks → `tools/out/day-tasks-<today>.json`.
+> calendars in `tools/calendars.json` → `tools/out/busy.json`. 2) Triage `inbox.md` first
+> if it has new captures (`apply --date <today>`), then take `tools/out/tasks-<today>.json`
+> (only if `tools/out/triage-<today>.md` exists and is at least as new as `tools/out/tasks-<today>.json`;
+> otherwise it is an earlier run's merged pool),
+> `tools/out/tasks-<yesterday>.json` (only if `tools/out/triage-<yesterday>.md` exists and is
+> at least as new as `tools/out/tasks-<yesterday>.json`) and `tools/out/week-tasks-<today>.json`, whichever
+> exist, drop repeated titles, and write the merged pool to `tools/out/tasks-<today>.json`.
+> 3) Break any big task into subtasks → `tools/out/day-tasks-<today>.json`.
 > 4) `cd "<planner-path>" && python3 tools/plan_day.py --tasks tools/out/tasks-<today>.json --busy
 > tools/out/busy.json --date <today>`.
 > 5) `cd "<planner-path>" && python3 tools/make_daily.py --date <today> --events tools/out/busy.json --tasks

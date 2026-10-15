@@ -150,7 +150,7 @@ class Pick:
 
 
 def _field(block: str, name: str) -> str:
-    m = re.search(rf'^{name}:\s*"?([^"\n]*?)"?\s*$', block, re.M)
+    m = re.search(rf'^{name}:[ \t]*"?([^"\n]*?)"?\s*$', block, re.M)
     return m.group(1) if m else ""
 
 

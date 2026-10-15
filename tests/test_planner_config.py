@@ -161,6 +161,19 @@ class ScriptTest(unittest.TestCase):
         out = self.run_tool("tools/plan_week.py", "--tasks", "tasks.json", "--week-start", "2026-10-12", "--load", "1")
         self.assertIn("_Free 2h · planning up to 2h", out.stdout)
 
+    def test_plan_week_writes_week_tasks_files(self):
+        self.run_tool("tools/plan_week.py", "--tasks", "tasks.json", "--week-start", "2026-10-12", "--load", "1")
+        names = sorted(p.name for p in (self.tools / "out").glob("*.json"))
+        self.assertEqual(names, ["week-tasks-2026-10-12.json"])
+
+    def test_plan_week_rerun_removes_stale_day_files(self):
+        out = self.tools / "out"
+        out.mkdir()
+        (out / "week-tasks-2026-10-13.json").write_text("[]")
+        self.run_tool("tools/plan_week.py", "--tasks", "tasks.json", "--week-start", "2026-10-12", "--load", "1")
+        self.assertFalse((out / "week-tasks-2026-10-13.json").exists())
+        self.assertTrue((out / "week-tasks-2026-10-12.json").exists())
+
     def test_setup_check_reports_the_day(self):
         self.calendars({"timezone": "Europe/Madrid", "work": "10:00-12:00", "lunch": None})
         out = self.run_tool("tools/setup_check.py", check=False)

@@ -79,5 +79,25 @@ class ConfigTest(unittest.TestCase):
         self.assertIn("$ADHD_PLANNER_VAULTS must be an absolute path or start with ~/, got 'v.json'", c.error)
 
 
+class FrontmatterTest(unittest.TestCase):
+    def test_an_empty_field_does_not_read_the_next_line(self):
+        block = "status: active\nrepo:\nstarted: 2026-10-01"
+        self.assertEqual(vaults._field(block, "repo"), "")
+        self.assertEqual(vaults._field(block, "status"), "active")
+
+    def test_an_empty_repo_note_binds_no_folder(self):
+        with tempfile.TemporaryDirectory() as root:
+            tasks = pathlib.Path(root) / "Tasks"
+            tasks.mkdir()
+            (tasks / "t.md").write_text("---\nstatus: active\nrepo: \nstarted: ~/code\n---\n# T\n")
+            state, skipped = vaults.read_state(vaults.Vault("v", root), "")
+            self.assertEqual(skipped, [])
+            self.assertEqual([(n.slug, n.repo, n.status) for n in state.notes], [("t", "", "active")])
+
+    def test_quotes_and_crlf_still_read(self):
+        self.assertEqual(vaults._field('repo: "~/x"', "repo"), "~/x")
+        self.assertEqual(vaults._field("repo:\t~/x\r", "repo"), "~/x")
+
+
 if __name__ == "__main__":
     unittest.main()

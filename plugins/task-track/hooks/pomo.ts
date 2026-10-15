@@ -283,7 +283,7 @@ export function unlogged(f: PomoFile, slug: string): { ms: number; blocks: numbe
   return { ms: (f.dayMs[slug] ?? 0) - logged.ms, blocks: (f.dayBlocks[slug] ?? 0) - logged.blocks }
 }
 
-/** Marks all of today's focus on `slug` as written, so no session writes it twice. */
-export function markLogged(f: PomoFile, slug: string): PomoFile {
-  return { ...f, logged: { ...f.logged, [slug]: { ms: f.dayMs[slug] ?? 0, blocks: f.dayBlocks[slug] ?? 0 } } }
+/** Marks today's focus on `slug` as written, up to `upTo` (default: all of it), so no session writes it twice. */
+export function markLogged(f: PomoFile, slug: string, upTo = { ms: f.dayMs[slug] ?? 0, blocks: f.dayBlocks[slug] ?? 0 }): PomoFile {
+  return { ...f, logged: { ...f.logged, [slug]: upTo } }
 }
