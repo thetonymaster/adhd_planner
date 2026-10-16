@@ -57,8 +57,6 @@ Cowork, vault paths, several vaults and permissions: [docs/setup.md](docs/setup.
 | `setup/` | `planner-setup`, the installer (uv project) |
 | `examples/` | Starter vault, example `CLAUDE.md` and settings |
 | `docs/` | Setup guide; specs and plans under `docs/superpowers/` |
-| `*.html`, `app.js`, `styles.css` | The original fillable planner pages (open `index.html`) |
-| `tools/`, `habits*.json`, `inbox.md` | The author's own running planner folder |
 
 ## Disclaimer
 

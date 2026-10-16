@@ -12,7 +12,7 @@ trap 'rm -rf "$work"' EXIT
 claude plugin validate "$src"
 python3 -m unittest discover -s "$repo/tests"
 
-(cd "$src" && find . -type f ! -name '.DS_Store' | sed 's|^\./||' | sort > "$work/tree.txt")
+(cd "$src" && find . -type f ! -name '.DS_Store' ! -path '*/__pycache__/*' ! -name '*.pyc' | sed 's|^\./||' | sort > "$work/tree.txt")
 (cd "$src" && zip -q -X "$work/planner.plugin" -@ < "$work/tree.txt")
 unzip -tq "$work/planner.plugin"
 unzip -Z1 "$work/planner.plugin" | sort | diff -u "$work/tree.txt" - \

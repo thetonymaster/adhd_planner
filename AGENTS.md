@@ -4,7 +4,7 @@ Guidance for coding agents working in this repository. `CLAUDE.md` imports this 
 
 ## Checks
 
-Five suites; run the ones covering what you touched.
+Four suites; run the ones covering what you touched.
 
 | Covers | Command |
 |---|---|
@@ -12,26 +12,22 @@ Five suites; run the ones covering what you touched.
 | `setup/` (`planner-setup` CLI) | `cd setup && uv run pytest` |
 | `plugins/task-track` (TypeScript mod) | `cd plugins/task-track && claude plugin test .` |
 | `.claude/skills/planner-dev` (repo dev tools) | `cd .claude/skills/planner-dev && claude plugin test .` |
-| root HTML pages + the linter | `node --test scripts/*.test.mjs` and `node scripts/lint-pages.mjs *.html` |
 | any plugin's manifest/skills/hooks | `claude plugin validate plugins/<name>` |
 
 Single test: `python3 -m unittest tests.test_vaults.<Class>.<method>`, `cd setup && uv run pytest tests/test_cli.py -k <name>`.
 
-CI (`.github/workflows/ci.yml`) runs the Python suite, the `setup` pytest and `uv build`, the page linter and `claude plugin validate` for the three plugins and the marketplace on every PR; the task-track and planner-dev `claude plugin test` suites run locally only.
+CI (`.github/workflows/ci.yml`) runs the Python suite, the `setup` pytest, `uv build` and `claude plugin validate` for the three plugins and the marketplace on every PR; the task-track and planner-dev `claude plugin test` suites run locally only.
 
 `/planner-dev:release-plugin` runs the right subset before a PR. Build the Cowork upload file: `bash scripts/build-plugin.sh` → `planner.plugin` (validates, runs `tests/`, zips `plugins/planner`). `planner.plugin` is committed; never edit it by hand, rebuild it when `plugins/planner` changes.
 
 ## Layout
 
-The repo is two things at once:
+The repo is a **plugin marketplace** (`.claude-plugin/marketplace.json`, name `adhd-planner`) with three plugins under `plugins/`:
+- `planner` — 12 skills plus a **seed copy** of the Python tools (`plugins/planner/tools/`). Works in Claude Code and Cowork.
+- `tasks` — Obsidian task-note hooks (`SessionStart` → `load-task.sh` injects the active note's Goal/Next/Open loops; `PermissionRequest` → `vault-allow.py` auto-approves file tools inside the vault) and the task-start/park/switch/note skills. Claude Code and Cowork.
+- `task-track` — a Claude Code–only mod (`hooks/register.tsx`): task band, `/task` pane, `/note` `/done` `/openloop` `/pomo` without a model turn, shared Pomodoro in `vault/Tasks/.pomo.json`. Tests import from `claude-code/testing`. For live development set `CLAUDE_CODE_PLUGIN_DIRS=plugins/task-track`.
 
-1. **A plugin marketplace** (`.claude-plugin/marketplace.json`, name `adhd-planner`) with three plugins under `plugins/`:
-   - `planner` — 12 skills plus a **seed copy** of the Python tools (`plugins/planner/tools/`). Works in Claude Code and Cowork.
-   - `tasks` — Obsidian task-note hooks (`SessionStart` → `load-task.sh` injects the active note's Goal/Next/Open loops; `PermissionRequest` → `vault-allow.py` auto-approves file tools inside the vault) and the task-start/park/switch/note skills. Claude Code and Cowork.
-   - `task-track` — a Claude Code–only mod (`hooks/register.tsx`): task band, `/task` pane, `/note` `/done` `/openloop` `/pomo` without a model turn, shared Pomodoro in `vault/Tasks/.pomo.json`. Tests import from `claude-code/testing`. For live development set `CLAUDE_CODE_PLUGIN_DIRS=plugins/task-track`.
-2. **The author's own planner folder** (repo root): the original HTML/JS paper-planner pages (`*.html`, `app.js`, `styles.css`, linted by `scripts/lint-pages.mjs`), the running `tools/*.py`, and live data (`habits.json`, `habits-log.json`, `inbox.md`, `tools/calendars.json` — personal; only `tools/calendars.json` is git-ignored).
-
-Why the tools exist twice: an installed plugin is read-only, but the scripts write their data files. So the plugin ships know-how and a seed `tools/`; `/planner:setup` copies it into the user's planner folder, and skills run `python3 tools/…` there. A change to a tool usually belongs in `plugins/planner/tools/` (what users get); the root `tools/` is one user's running copy.
+Why the tools exist twice: an installed plugin is read-only, but the scripts write their data files. So the plugin ships know-how and a seed `tools/`; `/planner:setup` copies it into the user's planner folder, and skills run `python3 tools/…` there. A change to a tool usually belongs in `plugins/planner/tools/` (what users get).
 
 `setup/` is the `planner-setup` installer (uv project, `questionary`): installs the plugins, writes `pluginConfigs` vault paths and permissions, seeds a vault from `examples/vault-starter/`. It packages `../examples` and `../docs/setup.md` into the wheel.
 

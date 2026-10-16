@@ -20,7 +20,7 @@ except ImportError as e:
         "  python3 -m venv .venv && .venv/bin/pip install reportlab\n")
     sys.exit(2)
 
-# --- palette (matches styles.css tokens) ---
+# --- palette ---
 INK = HexColor("#1f2430")
 MUTED = HexColor("#6b7280")
 LINE = HexColor("#d7dae0")
