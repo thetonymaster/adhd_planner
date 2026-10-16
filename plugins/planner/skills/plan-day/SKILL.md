@@ -150,6 +150,10 @@ without mentioning it: the planner works without it.
   it as the minutes and drop it from the title. When an item goes into the
   planner, title it `<vault>:<slug>: <item>` (`<slug>: <item>` with one vault)
   so later steps can tell which task note, in which vault, it came from.
+- **Where the label shows.** Keep it in `tasks-<date>.json` and the plan. On the
+  printed page (`day-tasks-<date>.json`) the title is the `<item>` alone, so it
+  fits the line. In a vault's daily note a line reads `<slug>: <item>`, and
+  `## Plan` holds only that vault's focus blocks, no breaks or lunch.
 
 In this skill:
 
