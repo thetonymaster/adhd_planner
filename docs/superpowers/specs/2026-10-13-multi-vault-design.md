@@ -126,8 +126,12 @@ paths span two vaults gets no output (normal prompt).
 
 **`obsidian-vault` and planner skills** (break-down-task, eod-shutdown, morning-startup,
 plan-day, plan-week, capture-triage, setup): "find it once" becomes the `Vault:` line →
-`vaults.json` default → today's chain. They read and write only the current vault; inbox
-triage stays per vault. No cross-vault features.
+`vaults.json` default → today's chain. ~~They read and write only the current vault; inbox
+triage stays per vault. No cross-vault features.~~ Amended 2026-10-16: with 2+ registered
+vaults, the six day-planning skills (morning-startup, plan-day, plan-week, eod-shutdown,
+capture-triage, break-down-task) read active tasks and inboxes from every usable vault,
+title items `<vault>:<slug>: <item>`, and write each item back to its own vault (its task
+note, its daily note); items from no vault go to the current vault.
 
 **`planner_setup`** gets one optional step, "add another vault": name, path, folders →
 create or merge `vaults.json` (existing entries kept; first vault becomes `default` if
