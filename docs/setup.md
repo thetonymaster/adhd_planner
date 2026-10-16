@@ -110,7 +110,7 @@ One vault needs nothing here. For more, list them in `~/.config/adhd-planner/vau
 }
 ```
 
-Each session gets one vault: the one `/tasks:task-switch` last chose for it, else the vault holding a task whose `repo:` contains the folder, else the vault whose `folders` holds it, else `default`. Each vault keeps its own active task and timer. `/tasks:task-switch work:<slug>` moves a session to another vault. A broken file is named at session start and ignored (the single-vault settings apply).
+Each session gets one vault: the one `/tasks:task-switch` last chose for it, else the vault holding a task whose `repo:` contains the folder, else the vault whose `folders` holds it, else `default`. Each vault keeps its own active task and timer. `/tasks:task-switch work:<slug>` moves a session to another vault. A broken file is named at session start and ignored (the single-vault settings apply). The day-planning skills (`morning-startup`, `plan-day`, `plan-week`, `eod-shutdown`, `capture-triage`, `break-down-task`) look across every registered vault: they pull each vault's active task and inbox, label items `<vault>:<slug>`, and write each item back to its own vault's task and daily notes.
 
 ## What each plugin needs
 

@@ -118,11 +118,21 @@ If the user's Obsidian vault is reachable, use it alongside the planner files.
 If it isn't, or the run is unattended (a scheduled firing), skip this section
 without mentioning it: the planner works without it.
 
-- **Find it once:** the session-start `Vault:` line, else a connected folder named `vault` (`$HOME/mnt/vault` in the
-  device shell), else the `default` vault's `path` in `~/.config/adhd-planner/vaults.json`, else `$VAULT`, else `~/vault`, whichever the shell can see. Only that one vault is read or written, even when several are registered. It
-  counts only if it has `Tasks/` and `Daily/`. Use the path you found on every
-  command: `cd "<vault-path>" && …`, written absolute or with `$HOME`, never `~`
-  (a quoted `~` is not expanded).
+- **Find the vaults once.** If `$ADHD_PLANNER_VAULTS`, else
+  `~/.config/adhd-planner/vaults.json`, loads and registers two or more vaults,
+  every registered vault whose `path` (expand `~`) has `Tasks/` and `Daily/` is
+  in play, and the *current vault* is the one on the session-start `Vault:`
+  line, else `default`. Otherwise there is one vault: the `Vault:` line, else a
+  connected folder named `vault` (`$HOME/mnt/vault` in the device shell), else
+  `$VAULT`, else `~/vault`, whichever the shell can see; it counts only if it
+  has `Tasks/` and `Daily/`. Each command works in one vault,
+  `cd "<vault-path>" && …`, written absolute or with `$HOME`, never `~` (a
+  quoted `~` is not expanded); never one Glob or Grep across two vaults.
+- **Writes follow the item.** A line about a task note's item goes to that
+  vault: its task note, its daily note. Anything that came from no vault
+  (calendar, the planner's `inbox.md`) goes to the current vault. Touch a
+  vault's daily note only when it gets a line, and never write a `[[link]]` to a
+  note in another vault.
 - **Date:** the daily note's date is the device's local date
   (`date +%F` in the device shell), the same one the hooks use.
 - **Rules:** follow the `obsidian-vault` skill when it's available. Either way:
@@ -133,19 +143,21 @@ without mentioning it: the planner works without it.
   `Templates/Daily.md`, replacing `{{date}}` and `{{title}}` with the date. If
   a section named below is missing, create it just above `## Log` (at the end
   if there's no `## Log`).
-- **Task notes** are `Tasks/<slug>.md`; `Tasks/.active` holds the active slug.
+- **Task notes** are `Tasks/<slug>.md`. Each vault's `Tasks/.active` holds its
+  active slug; in the current vault the session-start `Active task:` line wins.
   Open Next items are the unchecked `- [ ]` lines with text under `## Next`
   (skip empty placeholders). A trailing `(~N min)` is the item's estimate: take
   it as the minutes and drop it from the title. When an item goes into the
-  planner, title it `<slug>: <item>` so later steps can tell it came from a
-  task note.
+  planner, title it `<vault>:<slug>: <item>` (`<slug>: <item>` with one vault)
+  so later steps can tell which task note, in which vault, it came from.
 
 In this skill:
 
-- **Inputs:** when no task list is given, offer the open Next items of the
-  active task as the task list.
-- **After step 3:** write the timed checklist under `## Plan` in the target
-  date's daily note, creating that section above `## Brain dump` if needed.
+- **Inputs:** when no task list is given, offer the open Next items of every
+  vault's active task as the task list.
+- **After step 3:** in each vault's daily note for the target date, write the
+  blocks of the timed checklist that belong to that vault under `## Plan`,
+  creating that section above `## Brain dump` if needed.
   `## Plan` is generated, so replace its contents on a re-run; leave every other
   section alone.
 
