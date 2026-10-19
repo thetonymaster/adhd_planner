@@ -29,7 +29,7 @@ uvx --from ./setup planner-setup
 
 Every item is also a `planner-setup` subcommand: `status`, `install [--plugins …]`,
 `settings [--vault PATH] [--permissions]`, `vault [--vault PATH]`,
-`add-vault NAME --path PATH [--folder DIR]…`, `timezone ZONE`, `claude-md`, `cowork`.
+`add-vault NAME --path PATH [--folder DIR]…`, `timezone ZONE [--existing-name NAME]`, `claude-md`, `cowork`.
 `--dry-run` (show what would change) and `--yes` (skip the confirmation) go **before**
 the subcommand: `planner-setup --dry-run install`, `planner-setup --yes settings --vault ~/vault`.
 Anything it changes is backed up under `~/.claude/backups/<timestamp>/` first.
@@ -115,7 +115,13 @@ Each session gets one vault: the one `/tasks:task-switch` last chose for it, els
 
 ## Timezone
 
-Times in your notes (the `Now:` line, focus and Log lines, which daily note today is) follow the machine's clock. If that clock is wrong for you, for example a WSL machine left on UTC, set your zone once per machine with `planner-setup timezone America/Mexico_City`, or add `"timezone"` to `vaults.json` by hand:
+Times in your notes (the `Now:` line, focus and Log lines, which daily note today is) follow the machine's clock. If that clock is wrong for you, for example a WSL machine left on UTC, set your zone once per machine (`planner-setup` isn't installed; `uvx` runs it, as in the menu above):
+
+```bash
+uvx --from "git+https://github.com/thetonymaster/adhd_planner#subdirectory=setup" planner-setup timezone America/Mexico_City
+```
+
+With no `vaults.json` yet, this creates one holding this machine's vault as `personal`; pass `--existing-name NAME` (e.g. `--existing-name work`) to name it. Or add `"timezone"` to `vaults.json` by hand:
 
 ```json
 { "timezone": "America/Mexico_City", "default": "personal", "vaults": { "personal": { "path": "~/vault" } } }
