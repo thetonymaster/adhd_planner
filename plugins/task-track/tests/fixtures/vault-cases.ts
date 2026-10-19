@@ -127,5 +127,9 @@ export const CASES: readonly VaultCase[] = [
   {"name": "a timezone alias is kept as written",
    "config": {"timezone": "Asia/Calcutta", "default": "personal", "vaults": {"personal": {"path": "~/vault"}}},
    "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}}, "cwd": "~/x",
-   "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "timezone": "Asia/Calcutta"}}
+   "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "timezone": "Asia/Calcutta"}},
+  {"name": "a UTC offset is not an IANA zone (newer JS engines take it, zoneinfo does not)",
+   "config": {"timezone": "-06:00", "default": "personal", "vaults": {"personal": {"path": "~/vault"}}},
+   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}}, "cwd": "~/x",
+   "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "timezone": "", "warning": "timezone '-06:00' is not an IANA zone"}}
 ]

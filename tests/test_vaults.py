@@ -109,3 +109,4 @@ class ZoneTest(unittest.TestCase):
         self.assertEqual(vaults.zone_for(config, {"TZ": "Europe/Madrid"}), "Europe/Madrid")
         self.assertEqual(vaults.zone_for(config, {"TZ": "europe/madrid"}), "")
         self.assertEqual(vaults.zone_for(config, {"TZ": "Not/AZone"}), "")
+        self.assertEqual(vaults.zone_for(config, {"TZ": "+05:30"}), "")

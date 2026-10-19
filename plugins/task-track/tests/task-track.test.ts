@@ -1577,6 +1577,7 @@ describe('timezone: stamps follow vaults.json, else $TZ, else the runtime clock'
     expect(zoneFor(config(''), 'Europe/Madrid')).toBe('Europe/Madrid')
     expect(zoneFor(config(''), 'Not/AZone')).toBe('')
     expect(zoneFor(config(''), 'europe/madrid')).toBe('')
+    expect(zoneFor(config(''), '+05:30')).toBe('')
     expect(zoneFor(config(''), '')).toBe('')
   })
 
