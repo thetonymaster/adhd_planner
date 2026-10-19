@@ -69,3 +69,12 @@ def test_timezone_subcommand(tmp_path, monkeypatch):
     assert cli.main(["--yes", "timezone", "America/Mexico_City"]) == 0
     data = json.loads((tmp_path / ".config" / "adhd-planner" / "vaults.json").read_text())
     assert data["timezone"] == "America/Mexico_City"
+
+
+def test_timezone_subcommand_names_the_vault_it_creates(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("VAULT", raising=False)
+    monkeypatch.delenv("ADHD_PLANNER_VAULTS", raising=False)
+    assert cli.main(["--yes", "timezone", "America/Mexico_City", "--existing-name", "vail"]) == 0
+    data = json.loads((tmp_path / ".config" / "adhd-planner" / "vaults.json").read_text())
+    assert data["default"] == "vail" and list(data["vaults"]) == ["vail"]
