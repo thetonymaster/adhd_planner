@@ -38,6 +38,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--existing-name", default="personal", help="name for today's vault when the file is created")
     p = sub.add_parser("timezone", help="stamp times in this IANA zone (vaults.json), e.g. America/Mexico_City")
     p.add_argument("zone")
+    p.add_argument("--existing-name", default="personal", help="name for today's vault when the file is created")
     sub.add_parser("claude-md")
     sub.add_parser("cowork")
     return ap
@@ -103,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
         "vault": lambda: actions.seed_vault(ctx, vault),
         "add-vault": lambda: actions.add_vault(ctx, args.name, Path(os.path.expanduser(str(args.path))).absolute(),
                                                args.folder, args.existing_name),
-        "timezone": lambda: actions.set_timezone(ctx, args.zone),
+        "timezone": lambda: actions.set_timezone(ctx, args.zone, args.existing_name),
         "claude-md": lambda: actions.claude_md(ctx),
         "cowork": lambda: actions.cowork(ctx),
     }[args.cmd]()

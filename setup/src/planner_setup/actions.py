@@ -210,6 +210,9 @@ def set_timezone(ctx: Ctx, zone: str, existing_name: str = "personal") -> int:
     if zone not in zoneinfo.available_timezones():
         ctx.say(f"{zone!r} is not an IANA zone (e.g. America/Mexico_City); nothing was changed.")
         return 2
+    if not VAULT_NAME.match(existing_name):
+        ctx.say(f"Vault name {existing_name!r} must be kebab-case (a-z, 0-9, -); nothing was changed.")
+        return 2
     target = paths.vaults_file(ctx.env, ctx.home)
     if not target.is_absolute():
         ctx.say(f"$ADHD_PLANNER_VAULTS must be an absolute path or start with ~/, got {str(target)!r}; nothing was changed.")
