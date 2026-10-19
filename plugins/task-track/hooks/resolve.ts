@@ -58,7 +58,8 @@ export function pickTask(input: {
 // ── several vaults: mirrors plugins/tasks/hooks/vaults.py; both run tests/fixtures/vault-cases.ts ──
 
 export type VaultSpec = { name: string; path: string; folders: readonly { written: string; root: string }[] }
-export type VaultConfig = { default: string; vaults: readonly VaultSpec[]; isImplicit: boolean; error: string }
+/** timezone: IANA zone for stamps ('' = the runtime's local zone); warning: why vaults.json's timezone was ignored. */
+export type VaultConfig = { default: string; vaults: readonly VaultSpec[]; isImplicit: boolean; error: string; timezone: string; warning: string }
 export type VaultState = { vault: VaultSpec; candidates: readonly Candidate[]; override: string; overrideMtimeMs: number; global: string }
 export type VaultPick = { vault: VaultSpec; slug: string; reason: string }
 
@@ -77,7 +78,7 @@ export function taskNotePath(root: string, slug: string): string {
 
 /** No vaults.json, or a broken one: the single vault from the plugin option, $VAULT or ~/vault. */
 export function implicitVault(fallback: string, home: string, error = ''): VaultConfig {
-  return { default: 'default', vaults: [{ name: 'default', path: normalize(fallback, home), folders: [] }], isImplicit: true, error }
+  return { default: 'default', vaults: [{ name: 'default', path: normalize(fallback, home), folders: [] }], isImplicit: true, error, timezone: '', warning: '' }
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -93,7 +94,36 @@ export function parseVaults(text: string, where: string, fallback: string, home:
     return implicitVault(fallback, home, `${where}: not valid JSON (${err instanceof Error ? err.message : String(err)})`)
   }
   const parsed = vaultsFrom(data, home)
-  return typeof parsed === 'string' ? implicitVault(fallback, home, `${where}: ${parsed}`) : parsed
+  if (typeof parsed === 'string') return implicitVault(fallback, home, `${where}: ${parsed}`)
+  const zone = zoneFrom(isRecord(data) ? data.timezone : undefined)
+  return { ...parsed, timezone: zone.timezone, warning: zone.warning ? `${where}: ${zone.warning}` : '' }
+}
+
+/** True when the runtime knows `name` as a time zone. */
+export function isZone(name: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: name })
+    return true
+  } catch (err) {
+    if (err instanceof RangeError) return false
+    throw err
+  }
+}
+
+/** The zone stamps use: vaults.json's, else a valid $TZ, else '' (the runtime's local zone). */
+export function zoneFor(config: VaultConfig, envTZ: string): string {
+  if (config.timezone) return config.timezone
+  return envTZ && isZone(envTZ) ? envTZ : ''
+}
+
+/** vaults.json `timezone` → the zone, or '' and why it was ignored (same words as vaults.py). A bad zone must not cost the vaults. */
+function zoneFrom(raw: unknown): { timezone: string; warning: string } {
+  if (raw === undefined || raw === null || raw === '') return { timezone: '', warning: '' }
+  if (typeof raw !== 'string') {
+    return { timezone: '', warning: `"timezone" must be a string like 'America/Mexico_City', got ${JSON.stringify(raw)}; using $TZ or the system clock` }
+  }
+  if (!isZone(raw.trim())) return { timezone: '', warning: `timezone '${raw}' is not an IANA zone; using $TZ or the system clock` }
+  return { timezone: raw.trim(), warning: '' }
 }
 
 /** The config, or what is wrong with it (same words as vaults.py). */
@@ -128,7 +158,7 @@ function vaultsFrom(data: unknown, home: string): VaultConfig | string {
   const chosen = data.default ?? (names.length === 1 ? names[0] : undefined)
   if (chosen === undefined) return `"default" is required with ${names.length} vaults`
   if (typeof chosen !== 'string' || !names.includes(chosen)) return `"default" is '${String(chosen)}', not one of: ${names.join(', ')}`
-  return { default: chosen, vaults, isImplicit: false, error: '' }
+  return { default: chosen, vaults, isImplicit: false, error: '', timezone: '', warning: '' }
 }
 
 /** The default vault; parseVaults and implicitVault guarantee it exists. */

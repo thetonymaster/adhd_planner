@@ -26,7 +26,7 @@ import {
   unlogged,
 } from './pomo'
 import type { DayTotals, PomoConfig, PomoEvent, Transition } from './pomo'
-import { defaultVault, frontmatter, implicitVault, isSlug, normalize, parseVaults, pickVault, taskNotePath } from './resolve'
+import { defaultVault, frontmatter, implicitVault, isSlug, normalize, parseVaults, pickVault, taskNotePath, zoneFor } from './resolve'
 import { blockSummary, checkedTitles, SUMMARY_SYSTEM, summaryPrompt } from './summary'
 import type { NoteRead } from './summary'
 import type { Candidate, VaultConfig, VaultSpec, VaultState } from './resolve'
@@ -66,6 +66,8 @@ let settings: Settings = {
 }
 /** The vault this session resolved to on its last load; '' until the first load. */
 let vault = ''
+/** The zone stamps use (zoneFor); '' = the runtime's local zone. Set by load() with the vault. */
+let zone = ''
 let editsSinceLog = 0
 let logSize = -1
 let isStaleNudged = false
@@ -101,6 +103,12 @@ async function vaultConfig($: EngineInterface, home: string): Promise<VaultConfi
 async function currentVault($: EngineInterface): Promise<string> {
   if (!vault) await load($)
   return vault
+}
+
+/** The zone stamps use, resolved with the vault: load() sets both. */
+async function currentZone($: EngineInterface): Promise<string> {
+  await currentVault($)
+  return zone
 }
 
 /** One vault's notes and pointer files; null when it has no Tasks/ (not mounted, not a vault). */
@@ -167,9 +175,10 @@ async function load($: EngineInterface): Promise<TaskView | null> {
   const isVaultChange = vault !== '' && root !== vault
   if (prev && isVaultChange) await flushFocus($, prev.slug, prev.path)
   vault = root
+  zone = zoneFor(config, (await $.env.get('TZ')) ?? '')
   await update($, source, () => picked?.reason ?? 'global')
   await update($, vaultName, () => (config.vaults.length > 1 && picked ? picked.vault.name : ''))
-  await update($, configError, () => [config.error, ...unreadable].filter(Boolean).join('; '))
+  await update($, configError, () => [config.error, config.warning, ...unreadable].filter(Boolean).join('; '))
   await refreshPomo($)
   const slug = picked?.slug ?? ''
   if (!slug) {
@@ -219,7 +228,7 @@ async function edit($: EngineInterface, change: (text: string) => string): Promi
 }
 
 async function addLog($: EngineInterface, text: string): Promise<TaskView | null> {
-  const { date, time } = stamp(new Date(await $.clock.now()))
+  const { date, time } = stamp(new Date(await $.clock.now()), await currentZone($))
   return edit($, t => insertInSection(t, 'Log', `- [[${date}]] ${time} — ${text}`))
 }
 
@@ -238,7 +247,7 @@ async function pomoPath($: EngineInterface): Promise<string> {
 }
 
 async function today($: EngineInterface): Promise<string> {
-  return stamp(new Date(await $.clock.now())).date
+  return stamp(new Date(await $.clock.now()), await currentZone($)).date
 }
 
 /**
@@ -476,7 +485,7 @@ async function flushFocus($: EngineInterface, slug: string, path: string): Promi
   if (!before) return
   const pending = unlogged(before, slug)
   if (pending.ms < MIN_LOGGED_MS) return
-  const { date, time } = stamp(new Date(await $.clock.now()))
+  const { date, time } = stamp(new Date(await $.clock.now()), await currentZone($))
   await writeFocus($, slug, path, date, time, focusText(pending))
   const written = { ms: before.dayMs[slug] ?? 0, blocks: before.dayBlocks[slug] ?? 0 }
   // Only what was written: focus added meanwhile stays unlogged, and a day that rolled over meanwhile is not marked.
@@ -514,7 +523,7 @@ async function tick($: EngineInterface): Promise<void> {
   const header = event.isLong
     ? `${event.blocks} pomodoros on ${event.slug}. Long break: ${event.minutes} min.`
     : `Pomodoro ${event.blocks} done on ${event.slug}. Break: ${event.minutes} min.`
-  const summary = blockSummary(notes, event.snapshot, event.openedAt)
+  const summary = blockSummary(notes, event.snapshot, event.openedAt, await currentZone($))
   const text = `${header}\n${summary}`
   $.ui.toast(text)
   void $.ui.notify(text, { title: 'task-track' })
@@ -790,7 +799,7 @@ export const register: Register = (on, options) => {
     const loopsOpen = await read($, isLoopsOpen)
     const logOpen = await read($, isLogOpen)
     const loops = loopsOpen ? view.openLoops : view.openLoops.slice(0, 2)
-    const today = stamp(new Date(now)).date
+    const today = stamp(new Date(now), zone).date
     const log = logOrder(view.log).slice(0, logOpen ? view.log.length : 3)
     const label = (text: string, count?: string) => (
       <Box marginTop={1}>

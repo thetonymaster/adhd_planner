@@ -133,8 +133,9 @@ without mentioning it: the planner works without it.
   (calendar, the planner's `inbox.md`) goes to the current vault. Touch a
   vault's daily note only when it gets a line, and never write a `[[link]]` to a
   note in another vault.
-- **Date:** the daily note's date is the device's local date
-  (`date +%F` in the device shell), the same one the hooks use.
+- **Date and time:** take them from the latest `Now:` line, which the hooks
+  print in `vaults.json`'s `timezone`; with no `Now:` line, `date +%F` and
+  `date +%H:%M` in the device shell.
 - **Rules:** follow the `obsidian-vault` skill when it's available. Either way:
   write only in the sections named below, add lines at the end of a section,
   never delete lines in `## Log` or `## Open loops` (strike through instead),

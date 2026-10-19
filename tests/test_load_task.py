@@ -4,11 +4,14 @@ import os
 import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 
 HOOK = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "tasks" / "hooks" / "load-task.sh"
+sys.path.insert(0, str(HOOK.parent))
+import vaults  # noqa: E402
 NOTE = "---\nstatus: {status}\n{repo}---\n# {slug}\n\n## Goal\ngoal {slug}\n\n## Next\n- [ ] step {slug}\n\n## Log\n"
 
 
@@ -267,6 +270,13 @@ class SharedVaultCasesTest(unittest.TestCase):
             self.assertIn(want["error"], out)
         else:
             self.assertNotIn("Vault config error", out)
+        if "warning" in want:
+            self.assertIn("Vault config warning: ", out)
+            self.assertIn(want["warning"], out)
+        else:
+            self.assertNotIn("Vault config warning", out)
+        config = vaults.load_config({"HOME": str(home)}, str(home))
+        self.assertEqual(config.timezone, want.get("timezone", ""))
         if "skipped" in want:
             self.assertIn(f"(skipped vault {want['skipped']}: no Tasks/ at ", out)
         if want["vault"] is None:

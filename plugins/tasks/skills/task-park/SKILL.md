@@ -8,7 +8,7 @@ The vault root is the path on the session-start `Vault:` line; without that line
 1. Pick the task, first match wins: (a) the task this session last started or switched to with `/tasks:task-start` or `/tasks:task-switch`, at `<its vault>/Tasks/<slug>.md`; (b) else the session-start `Active task:` line's `full note:` path; (c) else `~/vault/Tasks/.active`. The `Active task:` line is written once at session start, so after a mid-session switch it still names the old task: (a) comes first. Open that note. None active → say so, stop.
 2. Rewrite `## Next` with the 1–3 concrete next actions as `- [ ]` with time estimates. Someone with no memory of this session must be able to start from line 1.
 3. Add new questions to `## Open loops`; strike through resolved ones with the answer.
-4. Append one line to `## Log`: `- [[YYYY-MM-DD]] HH:MM — <what got done, what was learned>`.
+4. Append one line to `## Log`: `- [[YYYY-MM-DD]] HH:MM — <what got done, what was learned>`, date and time from the latest `Now:` line (it follows `vaults.json`'s `timezone`; `date` only when there is none).
 5. If the user is switching or stopping for the day, set `status: parked` (or `done` if finished). Keep `.active` unless switching.
 6. Durable lessons (not task state) → auto memory, not the note.
 7. Verify per obsidian-vault. Reply: `Parked <slug>. Next: <first action>. Run /clear when ready.`

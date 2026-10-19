@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import zoneinfo
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -200,6 +201,33 @@ def add_vault(ctx: Ctx, name: str, path: Path, folders: Sequence[str], existing_
         return 1
     files.write_json(target, merged, files.backup_dir(ctx.home), home=ctx.home)
     ctx.say(f"Wrote {target}. New sessions see vault {name!r}; /tasks:task-switch {name}:<slug> moves a session there.")
+    return 0
+
+
+def set_timezone(ctx: Ctx, zone: str, existing_name: str = "personal") -> int:
+    """Sets vaults.json's `timezone`, which the hooks and task-track stamp times in. No file yet: today's vault goes in."""
+    try:
+        zoneinfo.ZoneInfo(zone)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+        ctx.say(f"{zone!r} is not an IANA zone (e.g. America/Mexico_City); nothing was changed.")
+        return 2
+    target = paths.vaults_file(ctx.env, ctx.home)
+    if not target.is_absolute():
+        ctx.say(f"$ADHD_PLANNER_VAULTS must be an absolute path or start with ~/, got {str(target)!r}; nothing was changed.")
+        return 2
+    current = files.load_json(target)
+    if not current.get("vaults"):
+        seed, _ = _current_vault(ctx, files.load_json(ctx.settings_path))
+        current = {**current, "default": existing_name,
+                   "vaults": {existing_name: {"path": paths.tilde(_absolute(ctx, str(seed)), ctx.home)}}}
+    merged = {**current, "timezone": zone}
+    ctx.say(("Would write " if ctx.dry_run else "Will write ") + f"{target}:\n{json.dumps(merged, indent=2)}")
+    if ctx.dry_run:
+        return 0
+    if not (ctx.yes or ctx.confirm("Write it?")):
+        return 1
+    files.write_json(target, merged, files.backup_dir(ctx.home), home=ctx.home)
+    ctx.say(f"Wrote {target}. New sessions stamp times in {zone}.")
     return 0
 
 

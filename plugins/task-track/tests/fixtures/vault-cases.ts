@@ -103,5 +103,21 @@ export const CASES: readonly VaultCase[] = [
    "expect": {"vault": "~/vault", "slug": "g", "reason": "global"}},
   {"name": "a note whose name is not a slug never binds by repo",
    "config": null, "vaults": {"vault": {"notes": {"My Task": {"repo": "~/code/app"}, "g": {}}, "active": "g"}}, "cwd": "~/code/app",
-   "expect": {"vault": "~/vault", "slug": "g", "reason": "global"}}
+   "expect": {"vault": "~/vault", "slug": "g", "reason": "global"}},
+  {"name": "a timezone in vaults.json is read",
+   "config": {"timezone": "Asia/Tokyo", "default": "personal", "vaults": {"personal": {"path": "~/vault"}}},
+   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}}, "cwd": "~/x",
+   "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "timezone": "Asia/Tokyo"}},
+  {"name": "a timezone with a region and an underscore is read",
+   "config": {"timezone": "America/Mexico_City", "default": "personal", "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work"}}},
+   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}, "work": {"notes": {"w": {}}}}, "cwd": "~/x",
+   "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "timezone": "America/Mexico_City"}},
+  {"name": "an unknown timezone is named and the vaults are still used",
+   "config": {"timezone": "Mars/Base", "default": "personal", "vaults": {"personal": {"path": "~/vault"}, "work": {"path": "~/work"}}},
+   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}, "work": {"notes": {"w": {}}}}, "cwd": "~/x",
+   "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "timezone": "", "warning": "timezone 'Mars/Base' is not an IANA zone"}},
+  {"name": "a timezone that is not a string is named and the vaults are still used",
+   "config": {"timezone": 9, "default": "personal", "vaults": {"personal": {"path": "~/vault"}}},
+   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}}, "cwd": "~/x",
+   "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "timezone": "", "warning": "\"timezone\" must be a string"}}
 ]

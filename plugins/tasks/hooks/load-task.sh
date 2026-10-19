@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # tasks plugin SessionStart hook: inject time + this session's vault, task and its Next/Open loops.
-# session_task.py picks the vault and task (vaults.json, see vaults.py). Without python3: the single
-# vault from the vaultPath option / $VAULT / ~/vault, and its Tasks/.active.
-echo "Now: $(date '+%a %Y-%m-%d %H:%M')"
+# session_task.py prints `Now:` in the vaults.json timezone and picks the vault and task (see vaults.py).
+# Without python3: `Now:` from date (which honours $TZ), and the single vault from the vaultPath
+# option / $VAULT / ~/vault, and its Tasks/.active.
 # The hook's JSON arrives on stdin; run by hand in a terminal there is none, so don't wait for it.
 input=""
 [ -t 0 ] || input=$(cat)
 if command -v python3 >/dev/null; then
   HOOK_INPUT="$input" exec python3 "$(dirname "$0")/session_task.py"
 fi
+echo "Now: $(date '+%a %Y-%m-%d %H:%M')"
 VAULT="${CLAUDE_PLUGIN_OPTION_VAULTPATH:-${VAULT:-$HOME/vault}}"
 case "$VAULT" in "~") VAULT=$HOME ;; "~/"*) VAULT="$HOME/${VAULT#\~/}" ;; esac
 NOTES="$VAULT/Tasks"
