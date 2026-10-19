@@ -99,11 +99,15 @@ export function parseVaults(text: string, where: string, fallback: string, home:
   return { ...parsed, timezone: zone.timezone, warning: zone.warning ? `${where}: ${zone.warning}` : '' }
 }
 
-/** True when the runtime knows `name` as a time zone. */
+/**
+ * True when the runtime knows `name` as a time zone, spelled exactly. Intl matches names case-insensitively,
+ * but zoneinfo on Linux does not: 'asia/tokyo' must fail here as it does in vaults.py. An alias such as
+ * Asia/Calcutta resolves to another name entirely and is kept.
+ */
 export function isZone(name: string): boolean {
   try {
-    new Intl.DateTimeFormat('en-US', { timeZone: name })
-    return true
+    const resolved = new Intl.DateTimeFormat('en-US', { timeZone: name }).resolvedOptions().timeZone
+    return resolved === name || resolved.toLowerCase() !== name.toLowerCase()
   } catch (err) {
     if (err instanceof RangeError) return false
     throw err

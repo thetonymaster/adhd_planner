@@ -119,5 +119,13 @@ export const CASES: readonly VaultCase[] = [
   {"name": "a timezone that is not a string is named and the vaults are still used",
    "config": {"timezone": 9, "default": "personal", "vaults": {"personal": {"path": "~/vault"}}},
    "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}}, "cwd": "~/x",
-   "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "timezone": "", "warning": "\"timezone\" must be a string"}}
+   "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "timezone": "", "warning": "\"timezone\" must be a string"}},
+  {"name": "a timezone in the wrong case is named like an unknown one (zone names are case-sensitive on Linux)",
+   "config": {"timezone": "asia/tokyo", "default": "personal", "vaults": {"personal": {"path": "~/vault"}}},
+   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}}, "cwd": "~/x",
+   "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "timezone": "", "warning": "timezone 'asia/tokyo' is not an IANA zone"}},
+  {"name": "a timezone alias is kept as written",
+   "config": {"timezone": "Asia/Calcutta", "default": "personal", "vaults": {"personal": {"path": "~/vault"}}},
+   "vaults": {"vault": {"notes": {"p": {}}, "active": "p"}}, "cwd": "~/x",
+   "expect": {"vault": "~/vault", "slug": "p", "reason": "default", "timezone": "Asia/Calcutta"}}
 ]

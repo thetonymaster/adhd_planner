@@ -86,11 +86,33 @@ def _zone(raw: object) -> tuple[str, str]:
         return "", ""
     if not isinstance(raw, str):
         return "", f"\"timezone\" must be a string like 'America/Mexico_City', got {raw!r}; using $TZ or the system clock"
-    try:
-        zoneinfo.ZoneInfo(raw.strip())
-    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+    if not is_zone(raw.strip()):
         return "", f"timezone '{raw}' is not an IANA zone; using $TZ or the system clock"
     return raw.strip(), ""
+
+
+def is_zone(name: str) -> bool:
+    """True for an IANA zone spelled exactly. ZoneInfo alone would take 'asia/tokyo' on macOS (its disk ignores
+    case) and refuse it on Linux; resolve.ts isZone refuses it everywhere, and so does this."""
+    try:
+        zoneinfo.ZoneInfo(name)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+        return False
+    for root in zoneinfo.TZPATH:
+        here, exact = root, True
+        for part in name.split("/"):
+            try:
+                if part not in os.listdir(here):
+                    exact = False
+                    break
+            except OSError:
+                exact = False
+                break
+            here = os.path.join(here, part)
+        if exact:
+            return True
+    # Not on the system tz path (zones from the tzdata package): the exact-case set, slower but rarely reached.
+    return name in zoneinfo.available_timezones()
 
 
 def _config(data: object, home: str) -> Config:
@@ -135,10 +157,7 @@ def zone_for(config: Config, env: Mapping[str, str]) -> str:
     if config.timezone:
         return config.timezone
     raw = env.get("TZ", "")
-    try:
-        return raw if raw and zoneinfo.ZoneInfo(raw) else ""
-    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
-        return ""
+    return raw if raw and is_zone(raw) else ""
 
 
 def now(zone: str) -> datetime.datetime:

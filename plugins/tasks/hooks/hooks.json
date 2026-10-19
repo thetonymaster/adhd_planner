@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v python3 >/dev/null; then python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/now.py\"; else date '+Now: %H:%M'; fi",
+            "command": "if command -v python3 >/dev/null; then python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/now.py\"; else date '+Now: %a %Y-%m-%d %H:%M'; fi",
             "timeout": 5
           }
         ]

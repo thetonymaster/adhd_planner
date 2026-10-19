@@ -14,6 +14,8 @@ import zoneinfo
 
 HOOKS = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "tasks" / "hooks"
 LOAD_TASK = HOOKS / "load-task.sh"
+# Both hooks print the date too: skills take today from the latest `Now:` line, which may come after midnight.
+FULL = "%a %Y-%m-%d %H:%M"
 
 
 def prompt_command() -> str:
@@ -60,13 +62,13 @@ class NowLineTest(unittest.TestCase):
 
     def test_prompt_hook_uses_the_vaults_json_zone_over_tz(self):
         self.write_config(timezone="Asia/Tokyo")
-        self.assert_now(lambda: self.run_prompt_hook(self.env(TZ="UTC")), "Asia/Tokyo", "%H:%M")
+        self.assert_now(lambda: self.run_prompt_hook(self.env(TZ="UTC")), "Asia/Tokyo", FULL)
 
     def test_without_a_zone_both_follow_tz(self):
         self.write_config()
         env = self.env(TZ="Pacific/Kiritimati")
         self.assert_now(lambda: self.run_session_start(env), "Pacific/Kiritimati", "%a %Y-%m-%d %H:%M")
-        self.assert_now(lambda: self.run_prompt_hook(env), "Pacific/Kiritimati", "%H:%M")
+        self.assert_now(lambda: self.run_prompt_hook(env), "Pacific/Kiritimati", FULL)
 
     def test_session_start_prints_now_once(self):
         self.write_config(timezone="Asia/Tokyo")
@@ -81,7 +83,7 @@ class NowLineTest(unittest.TestCase):
         self.write_config(timezone="Asia/Tokyo")
         env = self.env(PATH=str(bin_dir), TZ="Pacific/Kiritimati")
         self.assert_now(lambda: self.run_session_start(env), "Pacific/Kiritimati", "%a %Y-%m-%d %H:%M")
-        self.assert_now(lambda: self.run_prompt_hook(env), "Pacific/Kiritimati", "%H:%M")
+        self.assert_now(lambda: self.run_prompt_hook(env), "Pacific/Kiritimati", FULL)
 
 
 if __name__ == "__main__":
