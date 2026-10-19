@@ -330,6 +330,12 @@ def test_timezone_refuses_an_unknown_zone_and_changes_nothing(ctx):
     assert "'Mars/Base' is not an IANA zone" in text(ctx)
 
 
+def test_timezone_refuses_a_bad_vault_name_and_changes_nothing(ctx):
+    assert actions.set_timezone(ctx, "Asia/Tokyo", "My Vault") == 2
+    assert not vaults_json(ctx).exists()
+    assert "'My Vault' must be kebab-case" in text(ctx)
+
+
 def test_timezone_dry_run_writes_nothing(ctx):
     assert actions.set_timezone(replace(ctx, dry_run=True), "Asia/Tokyo") == 0
     assert not vaults_json(ctx).exists()
