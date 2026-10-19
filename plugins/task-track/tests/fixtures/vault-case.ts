@@ -8,6 +8,7 @@ export type VaultCase = {
   /** Folders under home that exist with a Tasks/ inside, keyed like "vault" or "work". Session id is always s1. */
   vaults: Record<string, VaultDir>
   cwd: string
-  /** vault null: nothing usable. nameLine and skipped are checked by Python only (the mod prints neither). */
-  expect: { vault: string | null; slug?: string; reason?: string; error?: string; skipped?: string; nameLine?: string }
+  /** vault null: nothing usable. nameLine and skipped are checked by Python only (the mod prints neither).
+   *  timezone: the zone read from vaults.json ('' when absent or rejected); warning: why it was rejected. */
+  expect: { vault: string | null; slug?: string; reason?: string; error?: string; skipped?: string; nameLine?: string; timezone?: string; warning?: string }
 }

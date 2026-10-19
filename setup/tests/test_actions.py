@@ -308,3 +308,43 @@ def test_add_vault_sets_the_default_when_a_one_vault_file_has_none(ctx):
     vaults_json(ctx).write_text(json.dumps({"vaults": {"home": {"path": "~/vault"}}}))
     assert actions.add_vault(ctx, "work", ctx.home / "w", []) == 0
     assert json.loads(vaults_json(ctx).read_text())["default"] == "home"
+
+
+def test_timezone_writes_the_field_and_keeps_every_vault(ctx):
+    vaults_json(ctx).parent.mkdir(parents=True)
+    vaults_json(ctx).write_text(json.dumps({"default": "home", "vaults": {"home": {"path": "~/vault"}, "side": {"path": "/s"}}}))
+    assert actions.set_timezone(ctx, "America/Mexico_City") == 0
+    assert json.loads(vaults_json(ctx).read_text()) == {
+        "default": "home", "vaults": {"home": {"path": "~/vault"}, "side": {"path": "/s"}}, "timezone": "America/Mexico_City"}
+
+
+def test_timezone_creates_the_file_with_the_current_vault(ctx):
+    assert actions.set_timezone(ctx, "Asia/Tokyo") == 0
+    assert json.loads(vaults_json(ctx).read_text()) == {
+        "default": "personal", "vaults": {"personal": {"path": "~/vault"}}, "timezone": "Asia/Tokyo"}
+
+
+def test_timezone_refuses_an_unknown_zone_and_changes_nothing(ctx):
+    assert actions.set_timezone(ctx, "Mars/Base") == 2
+    assert not vaults_json(ctx).exists()
+    assert "'Mars/Base' is not an IANA zone" in text(ctx)
+
+
+def test_timezone_dry_run_writes_nothing(ctx):
+    assert actions.set_timezone(replace(ctx, dry_run=True), "Asia/Tokyo") == 0
+    assert not vaults_json(ctx).exists()
+    assert "Would write" in text(ctx)
+
+
+def test_add_vault_keeps_the_timezone(ctx):
+    assert actions.set_timezone(ctx, "Asia/Tokyo") == 0
+    assert actions.add_vault(ctx, "work", ctx.home / "w", []) == 0
+    assert json.loads(vaults_json(ctx).read_text())["timezone"] == "Asia/Tokyo"
+
+
+def test_timezone_refuses_what_the_hooks_refuse_and_changes_nothing(ctx):
+    # macOS ZoneInfo takes 'asia/tokyo' (its disk ignores case); vaults.py and resolve.ts do not, nor an offset.
+    for zone in ("asia/tokyo", "-06:00"):
+        assert actions.set_timezone(ctx, zone) == 2
+        assert f"{zone!r} is not an IANA zone" in text(ctx)
+    assert not vaults_json(ctx).exists()

@@ -2,11 +2,11 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
-import { codeSpans, insertInSection, logEntry, logOrder, parseNote, splitEstimate, toggleNext } from '../hooks/note'
+import { codeSpans, insertInSection, logEntry, logOrder, parseNote, splitEstimate, stamp, toggleNext } from '../hooks/note'
 import { advance, blockMinutes, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
-import { frontmatter, implicitVault, isSlug, normalize, parseVaults, pickTask, pickVault, taskNotePath } from '../hooks/resolve'
+import { frontmatter, implicitVault, isSlug, normalize, parseVaults, pickTask, pickVault, taskNotePath, zoneFor } from '../hooks/resolve'
 import type { Candidate, VaultState } from '../hooks/resolve'
 import { CASES } from './fixtures/vault-cases'
 import type { VaultCase } from './fixtures/vault-case'
@@ -750,7 +750,7 @@ describe('break summary', () => {
 
   test('lists items checked during the block, not before it', () => {
     const text = note('- [x] Old one\n- [x] Rewrite plan tasks 1–6 (~2 h)\n- [ ] Later', '')
-    expect(blockSummary([{ slug: 'a', text }], { a: ['Old one'] }, OPENED)).toBe('✓ Rewrite plan tasks 1–6')
+    expect(blockSummary([{ slug: 'a', text }], { a: ['Old one'] }, OPENED, '')).toBe('✓ Rewrite plan tasks 1–6')
   })
 
   test('a task switched to mid-block is compared with its snapshot at the switch', () => {
@@ -767,8 +767,8 @@ describe('break summary', () => {
       '- [ ] x',
       '- [[2026-10-13]] 08:59 — before\n- [[2026-10-13]] 09:00 — D1 targeted plan ok\n- [[2026-10-13]] 09:20 — focus 25m (1 pomodoro)\n- [[2026-10-13]] 09:21 — key v1 added',
     )
-    expect(logSince(text, OPENED)).toEqual(['D1 targeted plan ok', 'key v1 added'])
-    expect(blockSummary([{ slug: 'a', text }], { a: [] }, OPENED)).toBe('📝 2 notes: "D1 targeted plan ok", "key v1 added"')
+    expect(logSince(text, OPENED, '')).toEqual(['D1 targeted plan ok', 'key v1 added'])
+    expect(blockSummary([{ slug: 'a', text }], { a: [] }, OPENED, '')).toBe('📝 2 notes: "D1 targeted plan ok", "key v1 added"')
   })
 
   test('resume keeps the block\'s wall-clock start, so a pause drops no Log lines', () => {
@@ -781,21 +781,21 @@ describe('break summary', () => {
   })
 
   test('nothing checked or logged is a nudge; long lists are cut', () => {
-    expect(blockSummary([{ slug: 'a', text: note('- [ ] x', '') }], { a: [] }, OPENED)).toBe('Nothing checked or logged this block.')
+    expect(blockSummary([{ slug: 'a', text: note('- [ ] x', '') }], { a: [] }, OPENED, '')).toBe('Nothing checked or logged this block.')
     const many = note(['one', 'two', 'three', 'four', 'a title that is far longer than forty characters in total'].map(t => `- [x] ${t}`).join('\n'), '')
-    expect(blockSummary([{ slug: 'a', text: many }], { a: [] }, OPENED)).toBe('✓ one · ✓ two · ✓ three +2 more')
+    expect(blockSummary([{ slug: 'a', text: many }], { a: [] }, OPENED, '')).toBe('✓ one · ✓ two · ✓ three +2 more')
     const long = note('- [x] a title that is far longer than forty characters in total', '')
-    expect(blockSummary([{ slug: 'a', text: long }], { a: [] }, OPENED)).toBe('✓ a title that is far longer than forty c…')
+    expect(blockSummary([{ slug: 'a', text: long }], { a: [] }, OPENED, '')).toBe('✓ a title that is far longer than forty c…')
   })
 
   test('an unreadable note is named; the others still count', () => {
     const text = note('- [x] done', '')
-    expect(blockSummary([{ slug: 'a', text }, { slug: 'b', error: 'ENOENT' }], { a: [], b: [] }, OPENED)).toBe("✓ done (couldn't read b)")
+    expect(blockSummary([{ slug: 'a', text }, { slug: 'b', error: 'ENOENT' }], { a: [], b: [] }, OPENED, '')).toBe("✓ done (couldn't read b)")
   })
 
   test('a file from before snapshots lists only Log lines', () => {
     const text = note('- [x] done long ago', '- [[2026-10-13]] 09:05 — fresh')
-    expect(blockSummary([{ slug: 'a', text }], {}, OPENED)).toBe('📝 1 note: "fresh"')
+    expect(blockSummary([{ slug: 'a', text }], {}, OPENED, '')).toBe('📝 1 note: "fresh"')
   })
 
   test('checkedTitles drops estimates and backticks', () => {
@@ -1246,6 +1246,9 @@ describe('shared vault cases (tests/test_load_task.py runs the same ones)', () =
       const args = input(k)
       if (k.expect.error) expect(args.config.error).toContain(k.expect.error)
       else expect(args.config.error).toBe('')
+      expect(args.config.timezone).toBe(k.expect.timezone ?? '')
+      if (k.expect.warning) expect(args.config.warning).toContain(k.expect.warning)
+      else expect(args.config.warning).toBe('')
       const picked = pickVault(args)
       if (k.expect.vault === null) {
         expect(picked).toBeNull()
@@ -1550,5 +1553,52 @@ describe('a non-slug in .pomo.json', () => {
     expect(Object.keys(files).filter(k => k.startsWith('/v/Daily/'))).toEqual([])
     expect(files['/v/Tasks/good-slug.md']).toBe(NOTE)
     expect(logs.some(l => l.includes("names '2026-99-99', which is not a date"))).toBe(true)
+  })
+})
+
+describe('timezone: stamps follow vaults.json, else $TZ, else the runtime clock', () => {
+  // 2026-10-16 23:30 UTC: 08:30 the next day in Tokyo, 17:30 in Mexico City.
+  const INSTANT = Date.UTC(2026, 9, 16, 23, 30)
+  const CONFIG = '/home/q/.config/adhd-planner/vaults.json'
+  const withZone = (timezone: string) => JSON.stringify({ timezone, default: 'personal', vaults: { personal: { path: '/v' } } })
+
+  test('stamp formats the instant in the given zone', () => {
+    expect(stamp(new Date(INSTANT), 'Asia/Tokyo')).toEqual({ date: '2026-10-17', time: '08:30' })
+    expect(stamp(new Date(INSTANT), 'America/Mexico_City')).toEqual({ date: '2026-10-16', time: '17:30' })
+  })
+
+  test('stamp writes the first hour after midnight as 00, not 24', () => {
+    expect(stamp(new Date(Date.UTC(2026, 9, 16, 6, 5)), 'America/Mexico_City')).toEqual({ date: '2026-10-16', time: '00:05' })
+  })
+
+  test('zoneFor: vaults.json first, then a valid $TZ, else the runtime clock', () => {
+    const config = (timezone: string) => ({ ...implicitVault('~/vault', '/home/q'), timezone })
+    expect(zoneFor(config('Asia/Tokyo'), 'Europe/Madrid')).toBe('Asia/Tokyo')
+    expect(zoneFor(config(''), 'Europe/Madrid')).toBe('Europe/Madrid')
+    expect(zoneFor(config(''), 'Not/AZone')).toBe('')
+    expect(zoneFor(config(''), 'europe/madrid')).toBe('')
+    expect(zoneFor(config(''), '+05:30')).toBe('')
+    expect(zoneFor(config(''), '')).toBe('')
+  })
+
+  test('logSince compares Log stamps in the same zone', () => {
+    const text = '# t\n\n## Log\n- [[2026-10-17]] 08:20 — before\n- [[2026-10-17]] 08:40 — after\n'
+    expect(logSince(text, INSTANT, 'Asia/Tokyo')).toEqual(['after'])
+  })
+
+  test('/note stamps the Log line in the vaults.json zone', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q', TZ: 'Europe/Madrid' })
+    mock.clock(on, { now: INSTANT })
+    const files = fakeVault(on, { [CONFIG]: withZone('Asia/Tokyo'), '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE })
+    await run($, 'note', 'zoned')
+    expect(files[PATH]).toContain('- [[2026-10-17]] 08:30 — zoned')
+  })
+
+  test('/note falls back to $TZ when vaults.json names no zone', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q', TZ: 'America/Mexico_City' })
+    mock.clock(on, { now: INSTANT })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE })
+    await run($, 'note', 'from TZ')
+    expect(files[PATH]).toContain('- [[2026-10-16]] 17:30 — from TZ')
   })
 })

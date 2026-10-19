@@ -23,12 +23,13 @@ uvx --from ./setup planner-setup
 - **Settings**: writes `vaultPath` for `tasks` and `task-track`; optionally allows `Bash(obsidian:*)`.
 - **Vault starter**: creates a starter vault, only if the path doesn't exist.
 - **Add another vault**: registers a second vault in `~/.config/adhd-planner/vaults.json` (see Several vaults).
+- **Timezone**: sets the zone times are stamped in (see Timezone).
 - **Example CLAUDE.md**: copies `examples/CLAUDE.md` only if you have no `~/.claude/CLAUDE.md`.
 - **Cowork steps**: prints the section below.
 
 Every item is also a `planner-setup` subcommand: `status`, `install [--plugins …]`,
 `settings [--vault PATH] [--permissions]`, `vault [--vault PATH]`,
-`add-vault NAME --path PATH [--folder DIR]…`, `claude-md`, `cowork`.
+`add-vault NAME --path PATH [--folder DIR]…`, `timezone ZONE`, `claude-md`, `cowork`.
 `--dry-run` (show what would change) and `--yes` (skip the confirmation) go **before**
 the subcommand: `planner-setup --dry-run install`, `planner-setup --yes settings --vault ~/vault`.
 Anything it changes is backed up under `~/.claude/backups/<timestamp>/` first.
@@ -111,6 +112,16 @@ One vault needs nothing here. For more, list them in `~/.config/adhd-planner/vau
 ```
 
 Each session gets one vault: the one `/tasks:task-switch` last chose for it, else the vault holding a task whose `repo:` contains the folder, else the vault whose `folders` holds it, else `default`. Each vault keeps its own active task and timer. `/tasks:task-switch work:<slug>` moves a session to another vault. A broken file is named at session start and ignored (the single-vault settings apply). The day-planning skills (`morning-startup`, `plan-day`, `plan-week`, `eod-shutdown`, `capture-triage`, `break-down-task`) look across every registered vault: they pull each vault's active task and inbox, label items `<vault>:<slug>`, and write each item back to its own vault's task and daily notes.
+
+## Timezone
+
+Times in your notes (the `Now:` line, focus and Log lines, which daily note today is) follow the machine's clock. If that clock is wrong for you, for example a WSL machine left on UTC, set your zone once per machine with `planner-setup timezone America/Mexico_City`, or add `"timezone"` to `vaults.json` by hand:
+
+```json
+{ "timezone": "America/Mexico_City", "default": "personal", "vaults": { "personal": { "path": "~/vault" } } }
+```
+
+Order: `vaults.json`'s `timezone`, else `$TZ`, else the system clock. A name that isn't an IANA zone is reported at session start (`Vault config warning:`) and ignored; your vaults keep working. Lines already written are not changed.
 
 ## What each plugin needs
 

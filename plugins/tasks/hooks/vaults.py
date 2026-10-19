@@ -6,10 +6,13 @@ Mirrors plugins/task-track/hooks/resolve.ts; both run plugins/task-track/tests/f
 """
 from __future__ import annotations
 
+import dataclasses
+import datetime
 import json
 import os
 import pathlib
 import re
+import zoneinfo
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -35,6 +38,8 @@ class Config:
     vaults: tuple[Vault, ...]
     implicit: bool  # no usable vaults.json: the single vault from the option / $VAULT / ~/vault
     error: str = ""  # why vaults.json was ignored; '' when it was used or absent
+    timezone: str = ""  # IANA zone for stamps; '' = $TZ, else the system clock
+    warning: str = ""  # why `timezone` was ignored; the vaults are still used
 
 
 def expand(path: str, home: str) -> str:
@@ -68,9 +73,46 @@ def parse(text: str, where: str, env: Mapping[str, str], home: str) -> Config:
     except ValueError as e:
         return implicit(env, home, f"{where}: not valid JSON ({e})")
     try:
-        return _config(data, home)
+        config = _config(data, home)
     except ValueError as e:
         return implicit(env, home, f"{where}: {e}")
+    zone, warning = _zone(data.get("timezone"))
+    return dataclasses.replace(config, timezone=zone, warning=f"{where}: {warning}" if warning else "")
+
+
+def _zone(raw: object) -> tuple[str, str]:
+    """vaults.json `timezone` → (zone, '') or ('', why it was ignored). A bad zone must not cost the vaults."""
+    if raw is None or raw == "":
+        return "", ""
+    if not isinstance(raw, str):
+        return "", f"\"timezone\" must be a string like 'America/Mexico_City', got {raw!r}; using $TZ or the system clock"
+    if not is_zone(raw.strip()):
+        return "", f"timezone '{raw}' is not an IANA zone; using $TZ or the system clock"
+    return raw.strip(), ""
+
+
+def is_zone(name: str) -> bool:
+    """True for an IANA zone spelled exactly. ZoneInfo alone would take 'asia/tokyo' on macOS (its disk ignores
+    case) and refuse it on Linux; resolve.ts isZone refuses it everywhere, and so does this."""
+    try:
+        zoneinfo.ZoneInfo(name)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+        return False
+    for root in zoneinfo.TZPATH:
+        here, exact = root, True
+        for part in name.split("/"):
+            try:
+                if part not in os.listdir(here):
+                    exact = False
+                    break
+            except OSError:
+                exact = False
+                break
+            here = os.path.join(here, part)
+        if exact:
+            return True
+    # Not on the system tz path (zones from the tzdata package): the exact-case set, slower but rarely reached.
+    return name in zoneinfo.available_timezones()
 
 
 def _config(data: object, home: str) -> Config:
@@ -108,6 +150,19 @@ def _config(data: object, home: str) -> Config:
     if default not in names:
         raise ValueError(f"\"default\" is '{default}', not one of: {', '.join(names)}")
     return Config(default, tuple(found), False)
+
+
+def zone_for(config: Config, env: Mapping[str, str]) -> str:
+    """The zone stamps use: vaults.json's, else a valid $TZ, else '' (the system clock). Mirrors resolve.ts zoneFor."""
+    if config.timezone:
+        return config.timezone
+    raw = env.get("TZ", "")
+    return raw if raw and is_zone(raw) else ""
+
+
+def now(zone: str) -> datetime.datetime:
+    """The current time in `zone`; '' = the system clock."""
+    return datetime.datetime.now(zoneinfo.ZoneInfo(zone)) if zone else datetime.datetime.now().astimezone()
 
 
 def load_config(env: Mapping[str, str], home: str) -> Config:

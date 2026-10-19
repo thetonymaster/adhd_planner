@@ -101,3 +101,12 @@ class FrontmatterTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZoneTest(unittest.TestCase):
+    def test_zone_for_rejects_a_tz_in_the_wrong_case(self):
+        config = vaults.implicit({}, "/home/q")
+        self.assertEqual(vaults.zone_for(config, {"TZ": "Europe/Madrid"}), "Europe/Madrid")
+        self.assertEqual(vaults.zone_for(config, {"TZ": "europe/madrid"}), "")
+        self.assertEqual(vaults.zone_for(config, {"TZ": "Not/AZone"}), "")
+        self.assertEqual(vaults.zone_for(config, {"TZ": "+05:30"}), "")

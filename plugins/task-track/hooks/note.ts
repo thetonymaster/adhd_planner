@@ -91,12 +91,23 @@ export function elapsed(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
 }
 
-export function stamp(d: Date): { date: string; time: string } {
-  const p = (n: number) => String(n).padStart(2, '0')
-  return {
-    date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`,
-    time: `${p(d.getHours())}:${p(d.getMinutes())}`,
+/** `d` as a daily-note date and HH:MM in `timeZone` (an IANA name; '' = the runtime's local zone). */
+export function stamp(d: Date, timeZone: string): { date: string; time: string } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timeZone || undefined,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(d)
+  const part = (type: Intl.DateTimeFormatPartTypes): string => {
+    const value = parts.find(x => x.type === type)?.value
+    if (value === undefined) throw new Error(`stamp: Intl gave no ${type} for ${d.toISOString()} in '${timeZone}'`)
+    return value
   }
+  return { date: `${part('year')}-${part('month')}-${part('day')}`, time: `${part('hour')}:${part('minute')}` }
 }
 
 export function truncate(text: string, max: number): string {

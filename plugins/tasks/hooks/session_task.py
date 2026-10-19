@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""tasks plugin SessionStart resolver, run by load-task.sh after it prints `Now:`.
+"""tasks plugin SessionStart resolver, run by load-task.sh.
 
-Prints the session's vault, its task and that task's Goal / Next / Open loops. Prints nothing
+Prints `Now:` in the vaults.json timezone (vaults.zone_for), then the session's vault, its task and that task's Goal / Next / Open loops. Prints nothing
 when no vault is usable. Never fails session start: a resolver error is named, and the default
 vault's .active is used.
 """
@@ -70,6 +70,8 @@ def main() -> list[str]:
     out = []
     if config.error:
         out.append(f"Vault config error: {config.error}; using {config.vaults[0].path}")
+    if config.warning:
+        out.append(f"Vault config warning: {config.warning}")
     usable = [v for v in config.vaults if (pathlib.Path(v.path) / "Tasks").is_dir()]
     if not config.implicit:
         out += [f"(skipped vault {v.name}: no Tasks/ at {v.path})" for v in config.vaults if v not in usable]
@@ -112,7 +114,14 @@ def main() -> list[str]:
         return out + [f"(could not read {note}: {type(e).__name__}: {e})"]
 
 
+def now_line() -> str:
+    """`Now:` in the vaults.json timezone, else $TZ, else the system clock. Printed before main() so a crash keeps it."""
+    config = vaults.load_config(os.environ, os.path.expanduser("~"))
+    return vaults.now(vaults.zone_for(config, os.environ)).strftime("Now: %a %Y-%m-%d %H:%M")
+
+
 if __name__ == "__main__":
+    print(now_line(), flush=True)
     try:
         lines = main()
     except Exception as e:  # last resort: the time is already printed, say why nothing else is

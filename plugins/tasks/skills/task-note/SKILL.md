@@ -31,7 +31,7 @@ None has `Tasks/` → say "No vault found (looked in: <each place checked>)" and
 |---|---|
 | show / what's next | Print `## Goal`, open `## Next` items numbered, `## Open loops`. Skip lines struck through with `~~`. |
 | list open tasks | Every `Tasks/*.md` whose `status` is not `done`, in every vault `vaults.json` registers that has `Tasks/` (or the one vault): `<vault>:slug — status — first open Next item` (plain `slug` with one vault). |
-| add a note | Append to `## Log`: `- [[YYYY-MM-DD]] HH:MM — <text>` (local date and time). |
+| add a note | Append to `## Log`: `- [[YYYY-MM-DD]] HH:MM — <text>`, date and time from the latest `Now:` line (`date` only when there is none). |
 | check / uncheck item | `- [ ]` ↔ `- [x]` on the item the user means (number from "show", or text match). Ambiguous → ask. |
 | add an open loop | Append `- <text>` to `## Open loops`. |
 
