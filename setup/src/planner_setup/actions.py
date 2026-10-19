@@ -206,9 +206,8 @@ def add_vault(ctx: Ctx, name: str, path: Path, folders: Sequence[str], existing_
 
 def set_timezone(ctx: Ctx, zone: str, existing_name: str = "personal") -> int:
     """Sets vaults.json's `timezone`, which the hooks and task-track stamp times in. No file yet: today's vault goes in."""
-    try:
-        zoneinfo.ZoneInfo(zone)
-    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+    # The exact-name set, as the hooks check it: ZoneInfo alone takes 'asia/tokyo' on macOS, whose disk ignores case.
+    if zone not in zoneinfo.available_timezones():
         ctx.say(f"{zone!r} is not an IANA zone (e.g. America/Mexico_City); nothing was changed.")
         return 2
     target = paths.vaults_file(ctx.env, ctx.home)

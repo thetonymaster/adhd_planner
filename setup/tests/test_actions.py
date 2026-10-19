@@ -340,3 +340,11 @@ def test_add_vault_keeps_the_timezone(ctx):
     assert actions.set_timezone(ctx, "Asia/Tokyo") == 0
     assert actions.add_vault(ctx, "work", ctx.home / "w", []) == 0
     assert json.loads(vaults_json(ctx).read_text())["timezone"] == "Asia/Tokyo"
+
+
+def test_timezone_refuses_what_the_hooks_refuse_and_changes_nothing(ctx):
+    # macOS ZoneInfo takes 'asia/tokyo' (its disk ignores case); vaults.py and resolve.ts do not, nor an offset.
+    for zone in ("asia/tokyo", "-06:00"):
+        assert actions.set_timezone(ctx, zone) == 2
+        assert f"{zone!r} is not an IANA zone" in text(ctx)
+    assert not vaults_json(ctx).exists()
