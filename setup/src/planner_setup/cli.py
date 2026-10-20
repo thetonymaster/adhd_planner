@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import actions, paths, settings
+from . import actions, files, paths, settings
 
 MENU = ("Status", "Install plugins (Claude Code)", "Settings (vault path, permissions)",
         "Vault starter", "Add another vault", "Timezone", "Example CLAUDE.md", "Cowork steps", "Quit")
@@ -44,6 +44,13 @@ def _parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _existing_name(ctx: actions.Ctx, questionary) -> str:
+    """The name for today's vault when vaults.json is about to be created (the menu's --existing-name); unused otherwise."""
+    if files.load_json(paths.vaults_file(ctx.env, ctx.home)).get("vaults"):  # the same test add_vault / set_timezone seed on
+        return "personal"
+    return (questionary.text("Name for this machine's vault (kebab-case)", default="personal").ask() or "").strip()
+
+
 def _menu(args: argparse.Namespace) -> int:
     import questionary  # only the menu needs it
 
@@ -74,12 +81,16 @@ def _menu(args: argparse.Namespace) -> int:
             where = questionary.path("Vault path", only_directories=True).ask()
             folders = questionary.text("Folders whose sessions use it (comma-separated, optional)").ask() or ""
             if name and where:
-                actions.add_vault(ctx, name.strip(), Path(os.path.expanduser(where)).absolute(),
-                                  [f.strip() for f in folders.split(",") if f.strip()])
+                existing = _existing_name(ctx, questionary)
+                if existing:
+                    actions.add_vault(ctx, name.strip(), Path(os.path.expanduser(where)).absolute(),
+                                      [f.strip() for f in folders.split(",") if f.strip()], existing)
         elif choice == "Timezone":
             zone = questionary.text("IANA zone (e.g. America/Mexico_City)").ask()
             if zone:
-                actions.set_timezone(ctx, zone.strip())
+                existing = _existing_name(ctx, questionary)
+                if existing:
+                    actions.set_timezone(ctx, zone.strip(), existing)
         elif choice == "Example CLAUDE.md":
             actions.claude_md(ctx)
         elif choice == "Cowork steps":
