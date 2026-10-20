@@ -131,31 +131,36 @@ def test_menu_add_vault_names_the_vault_it_creates(tmp_path, monkeypatch):
     assert data["default"] == "vail" and set(data["vaults"]) == {"vail", "work"}
 
 
-def test_menu_does_not_ask_the_name_once_vaults_json_exists(tmp_path, monkeypatch):
+def _entry_answers(entry, tmp_path):
+    """The menu answers that run `entry` once and quit, before any vault-name prompt."""
+    if entry == "Timezone":
+        return {"planner-setup": ["Timezone", "Quit"], "IANA zone (e.g. America/Mexico_City)": ["America/Mexico_City"]}
+    return {"planner-setup": ["Add another vault", "Quit"], "Name (kebab-case, e.g. work)": ["work"],
+            "Vault path": [str(tmp_path / "w")], "Folders whose sessions use it (comma-separated, optional)": [""]}
+
+
+@pytest.mark.parametrize("entry", ["Timezone", "Add another vault"])
+def test_menu_does_not_ask_the_name_once_vaults_json_exists(tmp_path, monkeypatch, entry):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("VAULT", raising=False)
     monkeypatch.delenv("ADHD_PLANNER_VAULTS", raising=False)
     registry = tmp_path / ".config" / "adhd-planner" / "vaults.json"
     registry.parent.mkdir(parents=True)
     registry.write_text(json.dumps({"default": "vail", "vaults": {"vail": {"path": "~/v"}}}))
-    fake = _run_menu(monkeypatch, {
-        "planner-setup": ["Timezone", "Quit"],
-        "IANA zone (e.g. America/Mexico_City)": ["America/Mexico_City"],
-    })
+    fake = _run_menu(monkeypatch, _entry_answers(entry, tmp_path))
     assert "Name for this machine's vault (kebab-case)" not in fake.asked
-    assert json.loads(registry.read_text())["timezone"] == "America/Mexico_City"
+    data = json.loads(registry.read_text())
+    assert data["default"] == "vail" and "personal" not in data["vaults"]
 
 
-def test_menu_asks_the_name_when_vaults_json_has_no_vaults(tmp_path, monkeypatch):
+@pytest.mark.parametrize("entry", ["Timezone", "Add another vault"])
+def test_menu_asks_the_name_when_vaults_json_has_no_vaults(tmp_path, monkeypatch, entry):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("VAULT", raising=False)
     monkeypatch.delenv("ADHD_PLANNER_VAULTS", raising=False)
     registry = tmp_path / ".config" / "adhd-planner" / "vaults.json"
     registry.parent.mkdir(parents=True)
     registry.write_text("{}")
-    _run_menu(monkeypatch, {
-        "planner-setup": ["Timezone", "Quit"],
-        "IANA zone (e.g. America/Mexico_City)": ["America/Mexico_City"],
-        "Name for this machine's vault (kebab-case)": ["vail"],
-    })
-    assert list(json.loads(registry.read_text())["vaults"]) == ["vail"]
+    _run_menu(monkeypatch, {**_entry_answers(entry, tmp_path), "Name for this machine's vault (kebab-case)": ["vail"]})
+    data = json.loads(registry.read_text())
+    assert data["default"] == "vail" and "vail" in data["vaults"]
