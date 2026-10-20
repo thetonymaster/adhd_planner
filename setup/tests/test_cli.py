@@ -90,7 +90,7 @@ class _Scripted:
     def _prompt(self, message, *_, **__):
         self.asked.append(message)
         answer = self.answers[message].pop(0)
-        return type("Q", (), {"ask": lambda _self: answer})()
+        return type("Answer", (), {"ask": lambda _self: answer})()
 
     select = text = path = confirm = checkbox = _prompt
 
