@@ -24,7 +24,7 @@ CI (`.github/workflows/ci.yml`) runs the Python suite, the `setup` pytest, `uv b
 
 The repo is a **plugin marketplace** (`.claude-plugin/marketplace.json`, name `adhd-planner`) with three plugins under `plugins/`:
 - `planner` — 12 skills plus a **seed copy** of the Python tools (`plugins/planner/tools/`). Works in Claude Code and Cowork.
-- `tasks` — Obsidian task-note hooks (`SessionStart` → `load-task.sh` injects the active note's Goal/Next/Open loops; `PermissionRequest` → `vault-allow.py` auto-approves file tools inside the vault) and the task-start/park/switch/note skills. Claude Code and Cowork.
+- `tasks` — Obsidian task-note hooks (`SessionStart` → `load-task.sh` injects the active note's Goal/Next/Open loops; `PermissionRequest` → `vault-allow.py` auto-approves file tools inside the vault) and the task-start/park/switch/note/list skills. Claude Code and Cowork.
 - `task-track` — a Claude Code–only mod (`hooks/register.tsx`): task band, `/task` pane, `/note` `/done` `/openloop` `/pomo` without a model turn, shared Pomodoro in `vault/Tasks/.pomo.json`. Tests import from `claude-code/testing`. For live development set `CLAUDE_CODE_PLUGIN_DIRS=plugins/task-track`.
 
 Why the tools exist twice: an installed plugin is read-only, but the scripts write their data files. So the plugin ships know-how and a seed `tools/`; `/planner:setup` copies it into the user's planner folder, and skills run `python3 tools/…` there. A change to a tool usually belongs in `plugins/planner/tools/` (what users get).
