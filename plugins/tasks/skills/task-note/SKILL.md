@@ -1,11 +1,12 @@
 ---
 name: task-note
 description: >
-  Read or update an existing Obsidian task note: show a task, list open tasks,
+  Read or update an existing Obsidian task note: show a task, list all open tasks,
   add a Log note, check or uncheck a Next item, add an Open loop. For "add a
   note to [task]", "what's next on [task]", and in Cowork wherever /note, /done
-  or /openloop would be used in Claude Code. Not habits (habit-tracker) or
-  saving session state (task-park); suggest /tasks:task-start for a new task.
+  or /openloop would be used in Claude Code. Not one project's tasks
+  (task-list), habits (habit-tracker) or saving state (task-park); new task:
+  /tasks:task-start.
 ---
 
 Works in Claude Code and Cowork. Edits notes that already exist; it never creates,
