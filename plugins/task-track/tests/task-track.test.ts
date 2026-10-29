@@ -1649,3 +1649,118 @@ describe('project list', () => {
     expect(heading('no heading')).toBe('')
   })
 })
+
+describe('project tasks pane', () => {
+  const PROJ = 'task-track-project'
+  const note = (title: string, status: string, repo = '~/w') => `---\nstatus: ${status}\nrepo: "${repo}"\n---\n# ${title}\n\n## Next\n- [ ] step\n`
+  const repoFiles = (parked = 2): Record<string, string> => {
+    const files: Record<string, string> = {
+      '/v/Tasks/.active': 'audit-calls\n',
+      '/v/Tasks/audit-calls.md': note('Audit unbilled calls', 'active'),
+      '/v/Tasks/old-thing.md': note('Shipped already', 'done'),
+      '/v/Tasks/elsewhere.md': note('Other repo task', 'parked', '~/other'),
+    }
+    for (let i = 0; i < parked; i++) files[`/v/Tasks/parked-${i}.md`] = note(`Parked number ${i}`, 'parked')
+    return files
+  }
+  /** Answers ui.open as a surface that places the pane would, noting each id opened. */
+  const answerOpen = (on: On, opened: string[] = []) => {
+    on('ui.open', ($, e) => {
+      opened.push(e.id)
+      return { value: { isPlaced: true as const } }
+    })
+    return opened
+  }
+  const mountPane = ($: Engine, surface: 'terminal' | 'desktop' = 'terminal', bodyColumns = 60) =>
+    $.ui.mount({ plugin: 'task-track', surface, component: 'Pane', requestId: PROJ, props: { bodyColumns } as never })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`${surface}: lists this repo's active and parked tasks by title, session task marked, no button`, async ($, on) => {
+      mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+      mock.clock(on)
+      answerOpen(on)
+      fakeVault(on, repoFiles(), { root: '/home/q/w' })
+      const out = await run($, 'project-tasks', '')
+      expect(out.text).toBe('Project tasks: w')
+      const pane = await mountPane($, surface)
+      expect(await pane.find({ type: 'Text', text: /ACTIVE \(1\)/ })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /PARKED \(2\)/ })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /▸ Audit unbilled calls/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'proj-audit-calls' })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'proj-parked-0' })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'proj-new' })).toBeDefined()
+      expect(JSON.stringify(await pane.drawn())).not.toMatch(/Shipped already|Other repo task/)
+    })
+  }
+
+  test('caps parked at 5; more expands, survives a reload, and Show less folds it', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    fakeVault(on, repoFiles(7), { root: '/home/q/w' })
+    await run($, 'project-tasks', '')
+    const pane = await mountPane($)
+    const parkedButtons = async () => (JSON.stringify(await pane.drawn()).match(/"key":"proj-parked-\d+","label"/g) ?? []).length
+    expect(await parkedButtons()).toBe(5)
+    expect(JSON.stringify(await pane.drawn())).toMatch(/… 2 more/)
+    await pane.press({ key: 'proj-more' })
+    await run($, 'project-tasks', '')
+    expect(await parkedButtons()).toBe(7)
+    expect(JSON.stringify(await pane.drawn())).toMatch(/Show less/)
+    await pane.press({ key: 'proj-more' })
+    expect(await parkedButtons()).toBe(5)
+  })
+
+  test('a long title is cut to the pane width', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    const files = repoFiles(0)
+    files['/v/Tasks/long-one.md'] = note(`Fix \`code\` and [[links]] ${'x'.repeat(80)}`, 'parked')
+    fakeVault(on, files, { root: '/home/q/w' })
+    await run($, 'project-tasks', '')
+    const pane = await mountPane($, 'terminal', 40)
+    const button = await pane.find({ type: 'Button', key: 'proj-long-one' })
+    const label = String(button?.props.label)
+    expect(label.length).toBeLessThanOrEqual(40)
+    expect(label.endsWith('…')).toBe(true)
+  })
+
+  // The repo match never picks a done note, so only a session override can make one current.
+  test('a done session task is just absent: no marked row', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    const files = repoFiles()
+    files['/v/Tasks/.session/sess-test'] = 'old-thing\n'
+    files['/v/Tasks/audit-calls.md'] = note('Audit unbilled calls', 'parked')
+    fakeVault(on, files, { root: '/home/q/w' })
+    await run($, 'project-tasks', '')
+    const pane = await mountPane($)
+    expect(JSON.stringify(await pane.drawn())).not.toMatch(/▸/)
+    expect(await pane.find({ type: 'Text', text: /PARKED \(3\)/ })).toBeDefined()
+  })
+
+  test('a folder with no task notes says so and still offers New task', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    fakeVault(on, repoFiles(), { root: '/tmp/x' })
+    const out = await run($, 'project-tasks', '')
+    expect(out.text).toBe('No tasks for x in v.')
+    const pane = await mountPane($)
+    expect(await pane.find({ type: 'Text', text: 'No tasks for x in v.' })).toBeDefined()
+    expect(await pane.find({ type: 'Button', key: 'proj-new' })).toBeDefined()
+  })
+
+  test('the band has a Tasks button that opens the pane', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    const opened = answerOpen(on)
+    fakeVault(on, repoFiles(), { root: '/home/q/w' })
+    await run($, 'note', 'x')
+    const band = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+    await band.press({ key: 'project' })
+    expect(opened).toContain(PROJ)
+  })
+})

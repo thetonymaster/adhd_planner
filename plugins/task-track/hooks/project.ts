@@ -24,7 +24,7 @@ export function projectTasks(candidates: readonly Candidate[], dir: string, home
   if (!deepest) return { repo: '', tasks: [] }
   const tasks: ProjectTask[] = bound
     .filter(x => x.root === deepest)
-    .map(({ c }) => ({ slug: c.slug, title: c.title || c.slug, status: c.status === 'active' ? 'active' : 'parked', mtimeMs: c.mtimeMs }))
+    .map(({ c }): ProjectTask => ({ slug: c.slug, title: c.title || c.slug, status: c.status === 'active' ? 'active' : 'parked', mtimeMs: c.mtimeMs }))
     .sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active') || b.mtimeMs - a.mtimeMs)
   return { repo: deepest.slice(deepest.lastIndexOf('/') + 1), tasks }
 }

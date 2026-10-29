@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import type { PomoFile, TaskView } from '../types'
+import type { PomoFile, ProjectList, TaskView } from '../types'
 import { codeSpans, elapsed, firstOpen, heading, insertInSection, logEntry, logOrder, parseNote, progress, splitEstimate, stamp, toggleNext, truncate } from './note'
 import {
   advance,
@@ -27,6 +27,7 @@ import {
 } from './pomo'
 import type { DayTotals, PomoConfig, PomoEvent, Transition } from './pomo'
 import { defaultVault, frontmatter, implicitVault, isSlug, normalize, parseVaults, pickVault, taskNotePath, zoneFor } from './resolve'
+import { PARKED_CAP, projectTasks, visibleParked } from './project'
 import { blockSummary, checkedTitles, SUMMARY_SYSTEM, summaryPrompt } from './summary'
 import type { NoteRead } from './summary'
 import type { Candidate, VaultConfig, VaultSpec, VaultState } from './resolve'
@@ -42,8 +43,11 @@ const vaultName = atom({ plugin: 'task-track', key: 'vaultName' } as const, '')
 const configError = atom({ plugin: 'task-track', key: 'configError' } as const, '')
 const toldBreakUntil = atom({ plugin: 'task-track', key: 'toldBreakUntil' } as const, 0)
 const toldMvFailed = atom({ plugin: 'task-track', key: 'toldMvFailed' } as const, false)
+const projectList = atom({ plugin: 'task-track', key: 'projectList' } as const, { repo: '', tasks: [] } as ProjectList)
+const isProjectMoreOpen = atom({ plugin: 'task-track', key: 'isProjectMoreOpen' } as const, false)
 
 const PANE = 'task-track'
+const PROJECT_PANE = 'task-track-project'
 const POLL_MS = 15_000
 const TICK_MS = 60_000
 /** Less focus than this waits for the next flush instead of writing a line of its own. */
@@ -175,6 +179,7 @@ async function load($: EngineInterface): Promise<TaskView | null> {
   const isVaultChange = vault !== '' && root !== vault
   if (prev && isVaultChange) await flushFocus($, prev.slug, prev.path)
   vault = root
+  await update($, projectList, () => projectTasks(states.find(s => s.vault.path === root)?.candidates ?? [], dir, home))
   zone = zoneFor(config, (await $.env.get('TZ')) ?? '')
   await update($, source, () => picked?.reason ?? 'global')
   await update($, vaultName, () => (config.vaults.length > 1 && picked ? picked.vault.name : ''))
@@ -546,6 +551,22 @@ async function openPane($: EngineInterface): Promise<void> {
   await $.ui.open({ id: PANE, title: view ? `Task · ${prefix ? `${prefix} · ` : ''}${view.slug}` : 'Task', focus: true })
 }
 
+/** The last segment of a path, for naming a folder or vault. */
+function basename(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1)
+}
+
+/** What the project-tasks pane and its command say when no note names this folder. */
+async function noProjectLine($: EngineInterface): Promise<string> {
+  return `No tasks for ${basename(await $.session.root())} in ${basename(await currentVault($))}.`
+}
+
+async function openProjectPane($: EngineInterface): Promise<void> {
+  const { repo } = await read($, projectList)
+  const prefix = await read($, vaultName)
+  await $.ui.open({ id: PROJECT_PANE, title: `Tasks · ${prefix ? `${prefix} · ` : ''}${repo || basename(await $.session.root())}`, focus: true })
+}
+
 async function noteFromPane($: EngineInterface, slug: string, value: string): Promise<void> {
   const text = value.trim()
   if (!text) return
@@ -586,6 +607,7 @@ const COMMANDS = [
   { name: 'note', description: 'Add a line to the active task Log (no model turn)', argumentHint: '<text>', immediate: true },
   { name: 'done', description: 'Check off a Next item (default: the first open one)', argumentHint: '[n]', immediate: true },
   { name: 'openloop', description: 'Add an Open loop to the active task', argumentHint: '<text>', immediate: true },
+  { name: 'project-tasks', description: "Show this repo's active and parked tasks; a click fills the switch command", immediate: true },
   { name: 'pomo', description: 'Pomodoro: /pomo pauses or resumes; /pomo start|pause|resume|stop', argumentHint: '[start|pause|resume|stop]', immediate: true },
 ] as const
 
@@ -677,6 +699,14 @@ export const register: Register = (on, options) => {
     return { text: view ? `Task pane: ${view.slug}` : (await read($, problem)) || 'No active task. /tasks:task-start <name>' }
   })
 
+  on('command.run', { command: 'project-tasks' }, async ($, e) => {
+    await markActive($)
+    await load($)
+    await openProjectPane($)
+    const { repo } = await read($, projectList)
+    return { text: repo ? `Project tasks: ${repo}` : await noProjectLine($) }
+  })
+
   on('command.run', { command: 'note' }, async ($, e) => {
     await markActive($)
     const text = e.args.trim()
@@ -758,6 +788,7 @@ export const register: Register = (on, options) => {
           <Box flexShrink={0} gap={1}>
             {open && <Button key="done" label="Done" onPress={() => pressDoneFirst($)} />}
             <Button key="pane" label="Task" onPress={() => openPane($)} />
+            <Button key="project" label="Tasks" onPress={() => openProjectPane($)} />
             <Button key="hide" label="Hide" onPress={() => hideBand($)} />
           </Box>
         </Box>
@@ -903,6 +934,46 @@ export const register: Register = (on, options) => {
         <Box gap={1}>
           <Button key="park" label="Park (/tasks:task-park)" onPress={() => park($)} />
           <Button key="obsidian" label="Open in Obsidian" onPress={() => openInObsidian($, view.path)} />
+        </Box>
+      </Box>
+    )
+  })
+
+  // ── project-tasks pane: this repo's tasks; a press fills the chat box ───────
+
+  on('ui.render', { component: 'Pane', requestId: PROJECT_PANE }, async ($, e) => {
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const { repo, tasks } = await read($, projectList)
+    const current = (await read($, task))?.slug
+    const prefix = await read($, vaultName)
+    const isOpen = await read($, isProjectMoreOpen)
+    const width = Math.max(20, e.props.bodyColumns)
+    const active = tasks.filter(t => t.status === 'active')
+    const parked = visibleParked(tasks.filter(t => t.status === 'parked'), isOpen)
+    const allParked = parked.shown.length + parked.hidden
+    // Title cut by hand: a Button draws its label whole, so a long one would wrap.
+    const row = (t: ProjectList['tasks'][number]) =>
+      t.slug === current ? (
+        <Text key={`proj-${t.slug}`} bold color="suggestion" wrap="truncate-end">▸ {t.title}</Text>
+      ) : (
+        <Box key={`proj-${t.slug}`}>
+          <Text>  </Text>
+          <Button key={`proj-${t.slug}`} plain label={truncate(t.title, width - 2)} onPress={() => undefined} />
+        </Box>
+      )
+    return (
+      <Box flexDirection="column" width={width}>
+        <Text bold color="claude" wrap="truncate-end">Tasks · {prefix ? `${prefix} · ` : ''}{repo || basename(await $.session.root())}</Text>
+        {repo ? null : <Text>{await noProjectLine($)}</Text>}
+        {active.length > 0 ? <Text bold color="success">ACTIVE ({active.length})</Text> : null}
+        {active.map(row)}
+        {allParked > 0 ? <Text bold color="warning">PARKED ({allParked})</Text> : null}
+        {parked.shown.map(row)}
+        {allParked > PARKED_CAP ? (
+          <Button key="proj-more" plain dimColor label={isOpen ? 'Show less' : `… ${parked.hidden} more`} onPress={() => update($, isProjectMoreOpen, v => !v)} />
+        ) : null}
+        <Box marginTop={1}>
+          <Button key="proj-new" label="+ New task" onPress={() => undefined} />
         </Box>
       </Box>
     )

@@ -87,6 +87,10 @@ declare module 'claude-code' {
       toldBreakUntil: number
       /** This session already said that mv onto .pomo.json failed. */
       toldMvFailed: boolean
+      /** This session's repo and its non-done tasks, for the project-tasks pane; refreshed on every load. */
+      projectList: ProjectList
+      /** The project-tasks pane lists every parked task, not the first five. */
+      isProjectMoreOpen: boolean
     }
   }
 }
