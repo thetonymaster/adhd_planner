@@ -4,9 +4,9 @@ description: >
   Print one day of the user's real Google Calendar as an A5 page: meetings on
   a timeline plus space to handwrite tasks, notes or a journal, for today,
   tomorrow or a named weekday (empty if no events). For "print my day",
-  "daily page", "printable sheet for tomorrow". Prefer it over general PDF
-  skills. Not a blank template page (blank-page), the plan-and-print morning
-  routine (morning-startup).
+  "daily page", "printable sheet for tomorrow". Use over general PDF skills.
+  Not blank inserts of other layouts (blank-page), the plan-and-print
+  morning routine (morning-startup).
 ---
 
 # Calendar → planner daily page

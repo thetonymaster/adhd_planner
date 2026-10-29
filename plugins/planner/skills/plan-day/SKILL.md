@@ -1,8 +1,9 @@
 ---
 name: plan-day
 description: >
-  Time-block a task list the user already has into today's free gaps around
-  meetings and lunch as Pomodoro-style focus blocks, then add them to Google
+  Time-block a task list the user already has into one day's free gaps (today
+  or a named day) around meetings and lunch as Pomodoro-style focus blocks,
+  then add them to Google
   Calendar once confirmed. For "schedule these tasks", "fit these around my
   calendar". Not one event (add-event), a raw brain dump (capture-triage), one
   big task (break-down-task); "plan my day" with no list is morning-startup.
