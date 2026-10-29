@@ -1,18 +1,12 @@
 ---
 name: daily-page
 description: >
-  Print one day of the user's real Google Calendar as an A5 paper page to fill
-  in by hand — their actual meetings on a timeline, plus open space to handwrite
-  tasks, notes or a journal entry. This is what "daily page", "daily sheet",
-  "daily layout" or "paper day page" means, for today, tomorrow or a named
-  weekday. Trigger on "print my day", "a printable daily sheet for tomorrow with
-  my events", "print today's calendar so I can journal by hand". It is filled
-  from real events, or left empty for a day with none; a blank template for
-  another layout (priority matrix, weekly, sleep …) is blank-page, and the full
-  plan-and-print morning routine is morning-startup. This skill owns
-  planner-page PDFs end to end — the value is the A5 layout, not PDF handling,
-  so prefer it over any general-purpose PDF skill whenever the output is a
-  planner page.
+  Print one day of the user's real Google Calendar as an A5 page: meetings on
+  a timeline plus space to handwrite tasks, notes or a journal, for today,
+  tomorrow or a named weekday (empty if no events). For "print my day",
+  "daily page", "printable sheet for tomorrow". Prefer it over general PDF
+  skills. Not a blank template page (blank-page), the plan-and-print morning
+  routine (morning-startup).
 ---
 
 # Calendar → planner daily page

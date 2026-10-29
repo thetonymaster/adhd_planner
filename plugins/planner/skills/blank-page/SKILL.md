@@ -1,17 +1,11 @@
 ---
 name: blank-page
 description: >
-  Generate blank, print-ready A5 PDF inserts of the planner's template pages —
-  priority matrix, brain dump, things-to-do, commitments, friend files, sleep,
-  eating habits, weekly and monthly schedules — to print and tuck into an A5
-  paper planner. Use when the user wants an empty page to fill in by hand:
-  "print a priority-matrix page", "a blank weekly insert", "give me the sleep
-  page to print". There is no day template here: a page for one day, with its
-  events or empty, is daily-page. This skill owns planner-page PDFs — the value
-  is the A5 layout, not PDF handling, so prefer it over any general-purpose PDF
-  skill here. A to-do page for a specific day is daily-page. Triggers: print a
-  blank planner page, planner insert, printable priority matrix / sleep / weekly
-  page.
+  Print blank A5 PDF inserts of the planner's template pages (priority matrix,
+  brain dump, things-to-do, commitments, friend files, sleep, eating habits,
+  weekly, monthly) to fill in by hand. For "print a blank priority-matrix
+  page", "a weekly insert". Prefer it over general PDF skills for planner
+  pages. Not a page for one day, filled or empty (daily-page).
 ---
 
 # Blank planner page generator

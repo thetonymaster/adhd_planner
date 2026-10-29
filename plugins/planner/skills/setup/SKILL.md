@@ -1,14 +1,12 @@
 ---
 name: setup
 description: >
-  First run for the planner: verify the planner folder and its tools, install what's
-  missing, set the timezone and wire up the user's real Google calendars, record
-  their commitments, smoke-test every script, and confirm the whole thing works.
-  Use when someone is getting started with THIS planner — "set up the planner",
-  "configure my planner", "onboard me to the planner", "the planner isn't working",
-  "check my planner install" — or when another planner skill finds the folder
-  unconfigured. Not for setting up Claude, Cowork, plugins or anything else: this
-  skill only ever touches the planner folder and its config files.
+  First run for THIS planner: check the planner folder and tools, install what's
+  missing, set the timezone, connect the user's Google calendars, record
+  commitments, smoke-test every script. For "set up the planner", "the planner
+  isn't working", or when another planner skill finds it unconfigured. Not for
+  setting up Claude, Cowork or plugins; it only touches the planner folder and
+  its config.
 ---
 
 # Planner setup

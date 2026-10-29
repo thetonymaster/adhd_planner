@@ -1,15 +1,11 @@
 ---
 name: eod-shutdown
 description: >
-  End-of-day shutdown: review what got done, migrate unfinished tasks to
-  tomorrow, brain-dump and triage to clear your head, guide the wind-down /
-  bedtime routine (recording whether you did it is habit-tracker), and seed
-  tomorrow's plan (Top 3, daily page, proposed focus blocks). Use when the user
-  says "shut down", "wrap up my day", "end of day review", "close out today", or
-  runs the scheduled EOD. Not for saving one task's progress mid-day
-  (/tasks:task-park) — this is the whole-day routine. A brain dump on its own,
-  any time of day, is capture-triage. Triggers: shutdown, end of day, wrap up my
-  day, close out my day, evening review, done for the day.
+  End-of-day shutdown: review what got done, move unfinished tasks to tomorrow,
+  brain-dump and triage, guide the wind-down routine, seed tomorrow (Top 3,
+  daily page, focus blocks). For "wrap up my day", "done for the day" or the
+  scheduled EOD. Not one task's mid-day save (/tasks:task-park) or logging
+  habits (habit-tracker); a brain dump alone is capture-triage.
 ---
 
 # EOD shutdown

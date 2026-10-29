@@ -1,15 +1,11 @@
 ---
 name: plan-week
 description: >
-  Spread a backlog of tasks across the coming week's days by each day's free
-  capacity around real meetings, respecting deadlines and pinned days and
-  leaving slack so the week stays realistic. Produces a day-by-day plan plus a
-  ready-to-schedule task list for each day. Use when the user is looking at the
-  week rather than one day: "plan my week", "what should I work on which day",
-  "map out this week", "spread these tasks across the week", "sunday planning",
-  "weekly review of my tasks". Not for reviewing habit streaks (habit-tracker).
-  For one day's hour-by-hour time-blocking use plan-day; for today's full
-  morning routine use morning-startup.
+  Spread a backlog of tasks across the coming week by each day's free capacity
+  around meetings, respecting deadlines and pinned days and leaving slack; gives
+  a day-by-day plan and task list. For "plan my week", "what do I work on which
+  day", sunday planning. Not habit streaks (habit-tracker); one day's
+  time-blocking is plan-day, today's full routine morning-startup.
 ---
 
 # Plan the week
