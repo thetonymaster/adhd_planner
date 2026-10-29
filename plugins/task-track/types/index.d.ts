@@ -1,5 +1,11 @@
 export type NextItem = { text: string; isDone: boolean }
 
+/** One task of the session's repo, as the project-tasks pane lists it. */
+export type ProjectTask = { slug: string; title: string; status: 'active' | 'parked'; mtimeMs: number }
+
+/** The session's repo (last path segment; '' when no note names it) and its non-done tasks. */
+export type ProjectList = { repo: string; tasks: ProjectTask[] }
+
 export type TaskView = {
   slug: string
   path: string

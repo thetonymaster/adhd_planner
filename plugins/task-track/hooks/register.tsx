@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import type { PomoFile, TaskView } from '../types'
-import { codeSpans, elapsed, firstOpen, insertInSection, logEntry, logOrder, parseNote, progress, splitEstimate, stamp, toggleNext, truncate } from './note'
+import { codeSpans, elapsed, firstOpen, heading, insertInSection, logEntry, logOrder, parseNote, progress, splitEstimate, stamp, toggleNext, truncate } from './note'
 import {
   advance,
   isRunning,
@@ -142,7 +142,7 @@ async function candidates($: EngineInterface, root: string): Promise<Candidate[]
       })
       if (text === undefined) continue
       const fm = frontmatter(text)
-      c = { slug, repo: fm.repo, status: fm.status, mtimeMs: entry.mtimeMs }
+      c = { slug, repo: fm.repo, status: fm.status, mtimeMs: entry.mtimeMs, title: heading(text) }
       noteCache.set(path, c)
     }
     out.push(c)

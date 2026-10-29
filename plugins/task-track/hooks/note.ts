@@ -19,9 +19,14 @@ function sectionLines(lines: readonly string[], name: string): string[] {
   return range ? lines.slice(range[0] + 1, range[1]) : []
 }
 
+/** The first `# ` line, trimmed; '' when the note has none. */
+export function heading(text: string): string {
+  return text.split('\n').find(l => l.startsWith('# '))?.slice(2).trim() ?? ''
+}
+
 export function parseNote(slug: string, path: string, text: string, mtimeMs: number): TaskView {
   const lines = text.split('\n')
-  const title = lines.find(l => l.startsWith('# '))?.slice(2).trim() || slug
+  const title = heading(text) || slug
   const up = /^up:\s*"?\[\[([^\]|]+)/m.exec(text)?.[1] ?? ''
   const goal = sectionLines(lines, 'Goal').map(l => l.trim()).filter(Boolean).join(' ')
   const next: NextItem[] = sectionLines(lines, 'Next').flatMap(l => {

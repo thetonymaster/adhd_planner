@@ -2,12 +2,13 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
-import { codeSpans, insertInSection, logEntry, logOrder, parseNote, splitEstimate, stamp, toggleNext } from '../hooks/note'
+import { codeSpans, heading, insertInSection, logEntry, logOrder, parseNote, splitEstimate, stamp, toggleNext } from '../hooks/note'
 import { advance, blockMinutes, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
 import { frontmatter, implicitVault, isSlug, normalize, parseVaults, pickTask, pickVault, taskNotePath, zoneFor } from '../hooks/resolve'
 import type { Candidate, VaultState } from '../hooks/resolve'
+import { projectTasks, visibleParked } from '../hooks/project'
 import { CASES } from './fixtures/vault-cases'
 import type { VaultCase } from './fixtures/vault-case'
 
@@ -1600,5 +1601,51 @@ describe('timezone: stamps follow vaults.json, else $TZ, else the runtime clock'
     const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE })
     await run($, 'note', 'from TZ')
     expect(files[PATH]).toContain('- [[2026-10-16]] 17:30 — from TZ')
+  })
+})
+
+describe('project list', () => {
+  const c = (slug: string, repo: string, status: string, mtimeMs: number, title?: string): Candidate => ({ slug, repo, status, mtimeMs, title })
+
+  test("lists this repo's non-done notes, active first, newest first, titles with slug fallback", () => {
+    const list = projectTasks(
+      [
+        c('a', '~/w', 'parked', 1, 'Old parked'),
+        c('b', '~/w/', 'active', 2, 'Active one'),
+        c('d', '~/w', 'done', 9, 'Done'),
+        c('e', '~/other', 'active', 9),
+        c('f', '~/w', '', 5),
+        c('g', '', 'active', 9),
+      ],
+      '/home/q/w/lib',
+      '/home/q',
+    )
+    expect(list.repo).toBe('w')
+    expect(list.tasks.map(t => [t.slug, t.title, t.status])).toEqual([
+      ['b', 'Active one', 'active'],
+      ['f', 'f', 'parked'],
+      ['a', 'Old parked', 'parked'],
+    ])
+  })
+
+  test('only the deepest matching root counts', () => {
+    const list = projectTasks([c('outer', '~/p', 'active', 1), c('inner', '~/p/w', 'parked', 1)], '/home/q/p/w', '/home/q')
+    expect(list.repo).toBe('w')
+    expect(list.tasks.map(t => t.slug)).toEqual(['inner'])
+  })
+
+  test('no match gives an empty repo and list', () => {
+    expect(projectTasks([c('x', '~/w', 'active', 1)], '/tmp', '/home/q')).toEqual({ repo: '', tasks: [] })
+  })
+
+  test('visibleParked caps at 5 unless open', () => {
+    const seven = Array.from({ length: 7 }, (_, i) => ({ slug: `p${i}`, title: `p${i}`, status: 'parked' as const, mtimeMs: 7 - i }))
+    expect(visibleParked(seven, false)).toEqual({ shown: seven.slice(0, 5), hidden: 2 })
+    expect(visibleParked(seven, true)).toEqual({ shown: seven, hidden: 0 })
+  })
+
+  test('heading reads the first # line', () => {
+    expect(heading('---\nx: 1\n---\n# Decide: encrypt google_tokens\n## Goal')).toBe('Decide: encrypt google_tokens')
+    expect(heading('no heading')).toBe('')
   })
 })
