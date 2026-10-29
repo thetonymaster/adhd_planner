@@ -5,12 +5,13 @@ description: >
   add a Log note, check or uncheck a Next item, add an Open loop. For "add a
   note to [task]", "what's next on [task]", and in Cowork wherever /note, /done
   or /openloop would be used in Claude Code. Not one project's tasks
-  (task-list), habits (habit-tracker) or saving state (task-park); new task:
-  /tasks:task-start.
+  (task-list), habits (habit-tracker), saving state (task-park) or closing the
+  whole task (task-finish); new task: create-task (backlog) or
+  /tasks:task-start (start now).
 ---
 
 Works in Claude Code and Cowork. Edits notes that already exist; it never creates,
-renames, moves or deletes a note (that is `/tasks:task-start`, and the user's job in Obsidian).
+renames, moves or deletes a note (creating is create-task or `/tasks:task-start`; renaming and moving are the user's job in Obsidian).
 
 ## Find the vault
 

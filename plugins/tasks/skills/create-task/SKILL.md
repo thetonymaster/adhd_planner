@@ -1,6 +1,6 @@
 ---
 name: create-task
-description: Create one or many task notes in ~/vault/Tasks as backlog (parked), e.g. a batch from a plan or review, without starting any. For "add a task for X", "make tasks from this plan". Not start working on it (task-start) or edit an existing task (task-note).
+description: Create one or many task notes in ~/vault/Tasks as backlog (parked), e.g. a batch from a plan or review, without starting any. For "add a task for X", "make tasks from this plan". Not start working on it now (task-start, or task-switch for an existing note), edit an existing task (task-note), split one task into steps (break-down-task) or sort a brain dump (capture-triage).
 ---
 
 Create: $ARGUMENTS

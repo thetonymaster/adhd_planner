@@ -1,6 +1,6 @@
 ---
 name: task-start
-description: Start a new task note in ~/vault/Tasks and make it the active task. Use when the user runs /tasks:task-start <slug> or "start a task for X".
+description: Start working on a task now: create its note and make it the active task. Use when the user runs /tasks:task-start <slug> or "start a task for X". Not a backlog or batch of tasks to do later (create-task), and not an existing one (task-switch).
 disable-model-invocation: true
 ---
 

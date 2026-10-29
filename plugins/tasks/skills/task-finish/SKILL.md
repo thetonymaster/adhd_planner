@@ -1,6 +1,6 @@
 ---
 name: task-finish
-description: Finish, close or complete a whole task note (status done, finished date, closing Log line). For /tasks:task-finish, "this task is done", "close out X". Not check off a Next item (task-note or /done), or pause it (task-park).
+description: Finish, close or complete a whole task note (status done, finished date, closing Log line). For /tasks:task-finish, "this task is done", "close out X". Not check off a Next item (task-note or /done), pause it (task-park), or the whole day (eod-shutdown).
 ---
 
 Finish: $ARGUMENTS
@@ -9,7 +9,7 @@ The vault root is the path on the session-start `Vault:` line; without that line
 
 1. Pick the task. Named → `<vault>:<slug>` reads `~/vault` below as that vault's `path`; else match the file stem in `Tasks/`, else `aliases` (several match → list them and ask). Not named → first match wins: (a) the task this session last started or switched to with `/tasks:task-start` or `/tasks:task-switch`; (b) else the session-start `Active task:` line's `full note:` path; (c) else `~/vault/Tasks/.active`. None → say so, stop. Already `status: done` → say so, stop.
 2. Ask the user in ONE message for the outcome: what shipped, links (PR, doc), what was dropped. Skip what the user already said.
-3. In the note's frontmatter set `status: done` and `finished: <today>` (the date on the latest `Now:` line; add the `finished:` line after `started:` when missing). Leave `## Next` and `## Open loops` as they are; never delete lines.
+3. In the note's frontmatter set `status: done` and `finished: <today>`, written as `finished: YYYY-MM-DD` (today's date from the latest `Now:` line; the board hides values it cannot parse; add the `finished:` line after `started:` when missing). Leave `## Next` and `## Open loops` as they are; never delete lines.
 4. Append one line to `## Log`: `- [[YYYY-MM-DD]] HH:MM — finished: <outcome>`, date and time from the latest `Now:` line (`date` only when there is none).
 5. Unbind it everywhere, so no session keeps showing a done task: delete every `~/vault/Tasks/.session/*` file whose content is the slug (any session's, not only this one), and empty `~/vault/Tasks/.active` when it holds the slug.
 6. Append `- [[<slug>]] finished` under `## Log` in today's daily note (create from `Templates/Daily.md` if missing).

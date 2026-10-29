@@ -143,8 +143,8 @@ In this skill:
   leaving its heading, its empty `- ` placeholder and anything added since you
   read it.
 - **Big items:** an item that's really a multi-step project gets the suggestion
-  "make it a task note" (suggest the user run `/tasks:task-start <name>` when the tasks plugin is installed)
-  instead of a single estimate. For an item from another vault's inbox, suggest `/tasks:task-start <vault>:<name>`.
+  "make it a task note" (when the tasks plugin is installed, suggest `/tasks:create-task <name>` for the backlog or suggest `/tasks:task-start <name>` to start now)
+  instead of a single estimate. For an item from another vault's inbox, suggest `/tasks:create-task <vault>:<name>` or suggest `/tasks:task-start <vault>:<name>`.
 - **Log it:** add one line to the current vault's daily note for today under
   `## Log`:
   `- HH:MM triage: <n> today, <n> soon, <n> dropped`.

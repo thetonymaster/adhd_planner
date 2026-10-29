@@ -5,8 +5,8 @@ description: >
   templates, frontmatter, wikilinks that keep the graph accurate, Obsidian CLI
   checks after writing. Use before creating, editing, linking, moving or
   renaming any vault note (daily, project, area, people, meeting). Task notes:
-  create-task makes them, task-note edits one, task-park saves its
-  state.
+  create-task makes them, task-start starts one, task-note edits one,
+  task-park saves its state, task-finish closes one.
 ---
 
 # Obsidian vault (~/vault)
