@@ -5,7 +5,7 @@ description: >
   schedule / hand off / drop, with time estimates. For "sort my inbox",
   "triage", "clear my head". Not one task (break-down-task), the week
   (plan-week), the day (plan-day, morning-startup), end of day (eod-shutdown),
-  printing (blank-page).
+  a blank page to print (blank-page).
 ---
 
 # Capture & triage
