@@ -3,8 +3,9 @@ name: capture-triage
 description: >
   Triage a brain dump or inbox: sort mixed to-dos and thoughts into do now /
   schedule / hand off / drop, with time estimates. For "sort my inbox",
-  "triage", "clear my head". Not one task (break-down-task), the week
-  (plan-week), the day (plan-day, morning-startup), end of day (eod-shutdown),
+  "triage", "clear my head", except as part of an end-of-day shutdown
+  (eod-shutdown, which runs this triage itself). Not one task
+  (break-down-task), the week (plan-week), the day (plan-day, morning-startup),
   a blank page to print (blank-page).
 ---
 
