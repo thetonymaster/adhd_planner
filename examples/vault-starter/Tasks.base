@@ -14,6 +14,9 @@ views:
       - file.name
       - up
       - started
+    sort:
+      - property: started
+        direction: DESC
   - type: table
     name: Parked
     filters:
@@ -32,3 +35,31 @@ views:
       - file.name
       - up
       - started
+  - type: kanban-view
+    name: Board
+    filters:
+      or:
+        - status != "done"
+        - finished >= today() - "6 days"
+    groupByProperty: note.status
+    columnOrders:
+      note.status:
+        - parked
+        - active
+        - done
+    order:
+      - up
+      - started
+  - type: table
+    name: Done (7 days)
+    filters:
+      and:
+        - status == "done"
+        - finished >= today() - "6 days"
+    order:
+      - file.name
+      - up
+      - finished
+    sort:
+      - property: finished
+        direction: DESC
