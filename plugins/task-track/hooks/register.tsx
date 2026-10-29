@@ -567,6 +567,29 @@ async function openProjectPane($: EngineInterface): Promise<void> {
   await $.ui.open({ id: PROJECT_PANE, title: `Tasks · ${prefix ? `${prefix} · ` : ''}${repo || basename(await $.session.root())}`, focus: true })
 }
 
+const FILL_REFUSED: Record<'dialog' | 'no_composer', string> = {
+  dialog: 'Close the dialog, then click again.',
+  no_composer: 'No chat box in this session.',
+}
+
+/**
+ * Puts `text` in the chat box for the person to send, then closes the project pane so their Enter
+ * reaches the box (a pane Button press keeps the keys). Never submits; never overwrites a draft.
+ */
+async function fillFromPane($: EngineInterface, text: string): Promise<void> {
+  await markActive($)
+  if ((await $.prompt.read()).text.trim()) {
+    $.ui.toast('Chat box has a draft: clear it, then click again.')
+    return
+  }
+  const filled = await $.prompt.fill({ text, mode: 'replace' })
+  if (!filled.isFilled) {
+    $.ui.toast(filled.refusal ? FILL_REFUSED[filled.refusal] : "Couldn't fill the chat box.")
+    return
+  }
+  await $.ui.close({ id: PROJECT_PANE })
+}
+
 async function noteFromPane($: EngineInterface, slug: string, value: string): Promise<void> {
   const text = value.trim()
   if (!text) return
@@ -947,6 +970,8 @@ export const register: Register = (on, options) => {
     const current = (await read($, task))?.slug
     const prefix = await read($, vaultName)
     const isOpen = await read($, isProjectMoreOpen)
+    // With several vaults a bare slug makes the skills look in the session-start vault first.
+    const vaultPrefix = prefix ? `${prefix}:` : ''
     const width = Math.max(20, e.props.bodyColumns)
     const active = tasks.filter(t => t.status === 'active')
     const parked = visibleParked(tasks.filter(t => t.status === 'parked'), isOpen)
@@ -958,7 +983,7 @@ export const register: Register = (on, options) => {
       ) : (
         <Box key={`proj-${t.slug}`}>
           <Text>  </Text>
-          <Button key={`proj-${t.slug}`} plain label={truncate(t.title, width - 2)} onPress={() => undefined} />
+          <Button key={`proj-${t.slug}`} plain label={truncate(t.title, width - 2)} onPress={() => fillFromPane($, `/tasks:task-switch ${vaultPrefix}${t.slug}`)} />
         </Box>
       )
     return (
@@ -973,7 +998,7 @@ export const register: Register = (on, options) => {
           <Button key="proj-more" plain dimColor label={isOpen ? 'Show less' : `… ${parked.hidden} more`} onPress={() => update($, isProjectMoreOpen, v => !v)} />
         ) : null}
         <Box marginTop={1}>
-          <Button key="proj-new" label="+ New task" onPress={() => undefined} />
+          <Button key="proj-new" label="+ New task" onPress={() => fillFromPane($, `/tasks:task-start ${vaultPrefix}`)} />
         </Box>
       </Box>
     )

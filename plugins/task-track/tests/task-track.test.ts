@@ -1763,4 +1763,90 @@ describe('project tasks pane', () => {
     await band.press({ key: 'project' })
     expect(opened).toContain(PROJ)
   })
+
+  /** Answers the chat box, fills, closes, toasts and submits beneath the plugin, recording each. */
+  const box = (on: On, draft: string, filled: { isFilled: true } | { isFilled: false; refusal?: 'dialog' | 'no_composer' } = { isFilled: true }) => {
+    const seen = { fills: [] as { text: string; mode?: string }[], closed: [] as string[], toasts: [] as string[], submits: [] as string[] }
+    on('prompt.read', () => ({ value: { text: draft, cursor: 0 } }))
+    on('prompt.fill', ($, e) => {
+      seen.fills.push({ text: e.text, mode: e.mode })
+      return filled.isFilled ? { isFilled: true, text: e.text, cursor: e.text.length } : { ...filled, text: draft, cursor: 0 }
+    })
+    on('ui.close', ($, e) => {
+      seen.closed.push(e.id)
+      return { value: undefined }
+    })
+    on('ui.toast', ($, e) => {
+      seen.toasts.push(e.text)
+      return { value: undefined }
+    })
+    on('prompt.submit', ($, e) => {
+      seen.submits.push(e.text)
+      return { text: e.text }
+    })
+    return seen
+  }
+  const openWith = async ($: Engine, on: On, files: Record<string, string>) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    fakeVault(on, files, { root: '/home/q/w' })
+    await run($, 'project-tasks', '')
+    return mountPane($)
+  }
+
+  test('a row press with an empty chat box fills the switch command and closes the pane, never submits', async ($, on) => {
+    const seen = box(on, '')
+    const pane = await openWith($, on, repoFiles())
+    await pane.press({ key: 'proj-parked-0' })
+    expect(seen.fills).toEqual([{ text: '/tasks:task-switch parked-0', mode: 'replace' }])
+    expect(seen.closed).toEqual([PROJ])
+    expect(seen.submits).toEqual([])
+    expect(seen.toasts).toEqual([])
+  })
+
+  test('a whitespace-only draft counts as empty', async ($, on) => {
+    const seen = box(on, '   \n')
+    const pane = await openWith($, on, repoFiles())
+    await pane.press({ key: 'proj-parked-1' })
+    expect(seen.fills).toEqual([{ text: '/tasks:task-switch parked-1', mode: 'replace' }])
+    expect(seen.closed).toEqual([PROJ])
+  })
+
+  test('a typed draft is left alone: no fill, no close, a toast says why', async ($, on) => {
+    const seen = box(on, 'half typed')
+    const pane = await openWith($, on, repoFiles())
+    await pane.press({ key: 'proj-parked-0' })
+    expect(seen.fills).toEqual([])
+    expect(seen.closed).toEqual([])
+    expect(seen.toasts).toEqual(['Chat box has a draft: clear it, then click again.'])
+  })
+
+  test('New task fills the start command with the cursor after it', async ($, on) => {
+    const seen = box(on, '')
+    const pane = await openWith($, on, repoFiles())
+    await pane.press({ key: 'proj-new' })
+    expect(seen.fills).toEqual([{ text: '/tasks:task-start ', mode: 'replace' }])
+    expect(seen.closed).toEqual([PROJ])
+  })
+
+  // A hook's refusal carries no cause (only the engine's own names `dialog` or `no_composer`), so a
+  // test reaches only the unknown-cause toast.
+  test('a refused fill keeps the pane open and toasts', async ($, on) => {
+    const seen = box(on, '', { isFilled: false })
+    const pane = await openWith($, on, repoFiles())
+    await pane.press({ key: 'proj-parked-0' })
+    expect(seen.closed).toEqual([])
+    expect(seen.toasts).toEqual(["Couldn't fill the chat box."])
+  })
+
+  test('with several vaults the fills name the vault', async ($, on) => {
+    const seen = box(on, '')
+    const files = repoFiles()
+    files['/home/q/.config/adhd-planner/vaults.json'] = JSON.stringify({ default: 'personal', vaults: { personal: { path: '/v' }, work: { path: '/w' } } })
+    const pane = await openWith($, on, files)
+    await pane.press({ key: 'proj-parked-0' })
+    await pane.press({ key: 'proj-new' })
+    expect(seen.fills.map(f => f.text)).toEqual(['/tasks:task-switch personal:parked-0', '/tasks:task-start personal:'])
+  })
 })
