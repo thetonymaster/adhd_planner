@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import sys
 import tempfile
 from collections.abc import Mapping
@@ -43,8 +44,9 @@ def park(text: str, stamp: str) -> str | None:
 def write_atomic(path: pathlib.Path, text: str) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
+        shutil.copymode(path, tmp)  # mkstemp makes 0600; keep the note's own mode
         os.replace(tmp, path)
     except BaseException:
         os.unlink(tmp)
@@ -52,14 +54,23 @@ def write_atomic(path: pathlib.Path, text: str) -> None:
 
 
 def main(stdin: str, env: Mapping[str, str], home: str) -> int:
+    """Always 0: a hook must never block session end."""
+    try:
+        _park_session(stdin, env, home)
+    except Exception as e:  # noqa: BLE001 - reported, never raised
+        print(f"park_on_end: unexpected error: {type(e).__name__}: {e}", file=sys.stderr)
+    return 0
+
+
+def _park_session(stdin: str, env: Mapping[str, str], home: str) -> None:
     try:
         data = json.loads(stdin or "{}")
     except ValueError as e:
         print(f"park_on_end: parse hook input: {e}", file=sys.stderr)
-        return 0
+        return
     sid = str(data.get("session_id") or "") if isinstance(data, dict) else ""
     if not SESSION_ID.match(sid):
-        return 0
+        return
     config = vaults.load_config(env, home)
     stamp = vaults.now(vaults.zone_for(config, env)).strftime("[[%Y-%m-%d]] %H:%M")
     for vault in config.vaults:
@@ -77,14 +88,13 @@ def main(stdin: str, env: Mapping[str, str], home: str) -> int:
             continue
         try:
             write_atomic(note, parked)
-        except OSError as e:
+        except (OSError, ValueError) as e:
             print(f"park_on_end: write note: {note}: {e}", file=sys.stderr)
-    return 0
 
 
 def _read(path: pathlib.Path) -> str:
     try:
-        return path.read_text()
+        return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
         print(f"park_on_end: read note: {path}: {e}", file=sys.stderr)
         return ""

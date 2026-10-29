@@ -8,6 +8,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HOOKS = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "tasks" / "hooks"
 sys.path.insert(0, str(HOOKS))
@@ -88,6 +89,34 @@ class MainTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn(f"park_on_end: read note: {self.v1}/Tasks/gone.md", err)
         self.assertEqual(list((self.v1 / "Tasks").glob("*.md")), [])
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores directory permissions")
+    def test_unwritable_tasks_dir_returns_0_leaves_note_and_names_path(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_text(NOTE.format(status="active"))
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        os.chmod(self.v1 / "Tasks", 0o500)
+        self.addCleanup(os.chmod, self.v1 / "Tasks", 0o700)
+        rc, err = self.run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn(f"park_on_end: write note: {p}", err)
+        self.assertEqual(p.read_text(), NOTE.format(status="active"))
+
+    def test_note_mode_is_preserved(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_text(NOTE.format(status="active"))
+        os.chmod(p, 0o644)
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        self.assertEqual(self.run_main(), (0, ""))
+        self.assertIn("status: parked", p.read_text())
+        self.assertEqual(p.stat().st_mode & 0o777, 0o644)
+
+    def test_unexpected_error_returns_0_with_stderr_line(self):
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        with mock.patch.object(park_on_end.vaults, "now", side_effect=RuntimeError("boom")):
+            rc, err = self.run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn("park_on_end: unexpected error: RuntimeError: boom", err)
 
     def test_bad_stdin_and_hostile_session_id_return_0(self):
         for stdin in ("", "not json", "[]", json.dumps({"session_id": "../x"})):
