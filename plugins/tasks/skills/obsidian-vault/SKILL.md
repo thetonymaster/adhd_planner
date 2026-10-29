@@ -5,8 +5,8 @@ description: >
   templates, frontmatter, wikilinks that keep the graph accurate, Obsidian CLI
   checks after writing. Use before creating, editing, linking, moving or
   renaming any vault note (daily, project, area, people, meeting). Task notes:
-  task-note edits one, task-park saves its state; suggest /tasks:task-start for
-  a new one.
+  create-task makes them, task-note edits one, task-park saves its
+  state.
 ---
 
 # Obsidian vault (~/vault)
@@ -27,10 +27,11 @@ Claude writes is an edge the user will see. Wrong links = wrong graph.
 | `Areas/` | Hub per ongoing responsibility with no end (Health, Finances) | `Templates/Project.md` |
 | `Notes/` | Evergreen knowledge: concepts, runbooks, decisions, references | `Templates/Note.md` |
 | `People/` | One note per person the user works with | `Templates/Person.md` |
-| `Meetings/` | One note per meeting, created by the Meetings Plus plugin from the calendar. Set `up:` to the project/area it served; action items that are real work become task notes (suggest `/tasks:task-start`). | `Templates/Meeting.md` |
+| `Meetings/` | One note per meeting, created by the Meetings Plus plugin from the calendar. Set `up:` to the project/area it served; action items that are real work become task notes (create-task). | `Templates/Meeting.md` |
 | `Attachments/` | Images, PDFs | — |
 
 Create notes from the template file: copy its content, then fill the fields.
+Task notes are made by `create-task` (backlog, `status: parked`); to start working on one now, suggest `/tasks:task-start`.
 Don't invent new top-level folders; ask the user.
 
 ## Link rules

@@ -1,6 +1,6 @@
 {
   "name": "tasks",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Obsidian task notes: start, park and switch tasks, see the active task's Next at session start, and add notes or check items from Code or Cowork.",
   "author": { "name": "Antonio Cabrera" },
   "homepage": "https://github.com/thetonymaster/adhd_planner",

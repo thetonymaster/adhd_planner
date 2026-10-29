@@ -3,3 +3,4 @@ tools/calendars.json
 .DS_Store
 .claude/settings.local.json
 .claude/skills/*/.claude-plugin/types/
+.superpowers/brainstorm/

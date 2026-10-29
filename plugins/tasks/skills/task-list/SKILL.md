@@ -5,7 +5,7 @@ description: >
   Areas/ hub their up: links to). For "tasks on [project]", "what's open in [project]",
   "list [project] tasks". Not one task's detail or Next items, or every open
   task across projects (task-note); to schedule them, plan-week; new task:
-  /tasks:task-start.
+  create-task.
 ---
 
 Works in Claude Code and Cowork. Read-only: it lists tasks and does nothing else. It never
@@ -39,7 +39,7 @@ A task belongs to the project when its frontmatter `up:` links to the hub (`[[Na
 `[[Name|alias]]` or `[[Projects/Name]]`). Skip notes whose `status` is `done` unless the user
 asks for done or all tasks.
 
-Print one line per task, `active` first, then the rest by `started` (newest first):
+Print one line per task, by `started` (newest first):
 
 `slug — status — first open Next item`
 

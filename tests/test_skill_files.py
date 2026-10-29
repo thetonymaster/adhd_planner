@@ -5,7 +5,9 @@ import pathlib
 import re
 import unittest
 
-SKILLS = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "planner" / "skills"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SKILLS = ROOT / "plugins" / "planner" / "skills"
+TASK_SKILLS = ROOT / "plugins" / "tasks" / "skills"
 
 
 def skill(name):
@@ -58,6 +60,38 @@ class HabitTrackerTest(unittest.TestCase):
         self.assertNotIn("So log once", text)
         self.assertNotIn("records the **whole day**", text)
         self.assertIn("can't un-mark", text)
+
+
+def task_skill(name):
+    return (TASK_SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
+
+
+class TaskLifecycleTest(unittest.TestCase):
+    def test_template_defaults_to_parked_with_finished_field(self):
+        text = (ROOT / "examples" / "vault-starter" / "Templates" / "Task.md").read_text(encoding="utf-8")
+        self.assertIn("status: parked", text)
+        self.assertNotIn("status: active", text)
+        self.assertRegex(text, r"(?m)^started:.*\nfinished:")
+
+    def test_task_start_sets_active_explicitly(self):
+        self.assertIn("status: active", task_skill("task-start"))
+
+    def test_task_park_always_parks(self):
+        text = flat(task_skill("task-park"))
+        self.assertIn("status: parked", text)
+        self.assertNotIn("If the user is switching or stopping", text)
+        self.assertNotIn("or `done` if finished", text)
+        self.assertIn("/tasks:task-finish", text)
+
+    def test_create_task_never_binds_the_session(self):
+        text = flat(task_skill("create-task"))
+        self.assertIn("status: parked", text)
+        self.assertIn("Never writes `Tasks/.active` or `Tasks/.session/`", text)
+
+    def test_task_finish_sets_done_and_finished_and_clears_sessions(self):
+        text = flat(task_skill("task-finish"))
+        for phrase in ("status: done", "finished: <today>", "Tasks/.session/", "Tasks/.active", "finished: <outcome>"):
+            self.assertIn(phrase, text)
 
 
 if __name__ == "__main__":

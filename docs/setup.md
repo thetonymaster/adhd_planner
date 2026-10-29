@@ -5,7 +5,7 @@ This repo is one plugin marketplace, `adhd-planner`, with three plugins:
 | Plugin | What | Runs in |
 |---|---|---|
 | `planner` | 12 planning skills: triage, breakdown, time-blocking, A5 pages, habits | Claude Code, Cowork |
-| `tasks` | Obsidian task notes: `task-start`/`task-park`/`task-switch`/`task-note`/`task-list`, session-start context, vault access | Claude Code, Cowork |
+| `tasks` | Obsidian task notes: `create-task`/`task-start`/`task-park`/`task-switch`/`task-finish`/`task-note`/`task-list`, session-start context, vault access | Claude Code, Cowork |
 | `task-track` | Task band, pane, shared Pomodoro, `/note` `/done` `/openloop` (a mod) | Claude Code only |
 
 > A productivity tool, not medical advice; not affiliated with any planner brand.
@@ -90,7 +90,7 @@ Plugins cannot set permissions, so these stay in your own settings
 4. Try: "add a note to <task>: test".
 
 In Cowork, `tasks` gives you `task-note` (show a task, add a Log line, check a Next item,
-add an Open loop), `task-list` (one project's tasks) and the start/park/switch skills. Its hooks print only the time when no
+add an Open loop), `task-list` (one project's tasks), `create-task` (backlog tasks, one or a batch), `task-finish` (close a task) and the start/park/switch skills. Its hooks print only the time when no
 vault is found, so they never break a session.
 
 **Cowork fallback.** If Cowork can't add the marketplace, build the
