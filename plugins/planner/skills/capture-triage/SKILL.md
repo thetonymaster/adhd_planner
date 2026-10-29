@@ -1,20 +1,12 @@
 ---
 name: capture-triage
 description: >
-  Use whenever someone dumps out many mixed, unsorted items — to-dos, thoughts,
-  worries, reminders, swirling in their head or jotted on a list — and wants
-  help deciding what actually matters and what to do first. Take the whole
-  jumble and hand back a prioritized plan: each item ranked by when (today /
-  this week / later) and by priority (do now / schedule / hand off / drop), with
-  rough time estimates. The go-to for "clear my head", "organize everything on
-  my mind", "what should I actually work on" when the user has just dumped a
-  pile of items, triaging a brain dump, sorting a raw list into a priority
-  matrix. Not for tidying files, adding calendar events or summarizing text.
-  When the user is closing out the whole day, eod-shutdown runs this triage
-  itself. To break one big task into steps use break-down-task; to time-block an
-  already-sorted list use plan-day. With no pile to sort, building the day is
-  morning-startup and spreading tasks over the week is plan-week. A printable
-  brain-dump page to fill in by hand is blank-page.
+  Triage a brain dump or inbox: sort mixed to-dos and thoughts into do now /
+  schedule / hand off / drop, with time estimates. For "sort my inbox",
+  "triage", "clear my head", except as part of an end-of-day shutdown
+  (eod-shutdown, which runs this triage itself). Not one task
+  (break-down-task), the week (plan-week), the day (plan-day, morning-startup),
+  a blank page to print (blank-page).
 ---
 
 # Capture & triage
