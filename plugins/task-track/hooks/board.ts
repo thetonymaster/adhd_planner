@@ -62,3 +62,25 @@ export function buildBoard(notes: readonly BoardNote[], today: string, days = 7)
     column('Done', notes.filter(n => n.status === 'done' && isRecent(n.finished, today, days))),
   ]
 }
+
+/** `<vault> · Doing N · Parked N · Done N`, the board's header and /board's reply. */
+export function boardHeader(vault: string, columns: readonly BoardColumn[]): string {
+  return [vault, ...columns.map(c => `${c.name} ${c.count}`)].join(' · ')
+}
+
+export type BoardLine ={ kind: 'project' | 'card'; slug: string; text: string }
+
+/**
+ * A column's project headings and cards in `rows` lines. When they don't all fit, the last line is left for
+ * "… N more" (N = the cards cut), and a heading whose cards were all cut goes too.
+ */
+export function fitColumn(column: BoardColumn, rows: number): { lines: BoardLine[]; more: number } {
+  const all: BoardLine[] = column.groups.flatMap(g => [
+    { kind: 'project' as const, slug: '', text: g.project },
+    ...g.cards.map(c => ({ kind: 'card' as const, slug: c.slug, text: c.title })),
+  ])
+  if (all.length <= rows) return { lines: all, more: 0 }
+  const lines = all.slice(0, Math.max(0, rows - 1))
+  while (lines.at(-1)?.kind === 'project') lines.pop()
+  return { lines, more: column.count - lines.filter(l => l.kind === 'card').length }
+}

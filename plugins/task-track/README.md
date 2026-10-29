@@ -14,12 +14,13 @@ Keeps the active Obsidian task note (the session's task: its /tasks:task-switch 
 | Command | Does |
 |---|---|
 | `/task` | Opens the pane. `/task hide` / `/task show` toggles the band. |
+| `/board [vault]` | Opens a read-only board of the vault's task notes: Doing · Parked · Done (finished in the last 7 days), grouped by project, this session's task marked `▸`. No argument: this session's vault. |
 | `/note <text>` | Adds `- [[date]] HH:MM — text` to the Log |
 | `/done [n]` | Checks off item n, or the first open one (again to reopen) |
 | `/openloop <text>` | Adds an Open loop (`/loop` is a built-in) |
 | `/pomo [start\|pause\|resume\|stop]` | Controls the shared Pomodoro; bare `/pomo` pauses or resumes |
 
-Each also adds a hidden one-line note so Claude knows what you logged (turn off with `notesToClaude`).
+Each one that writes to the note also adds a hidden one-line note so Claude knows what you logged (turn off with `notesToClaude`).
 
 ## Pomodoro (shared across sessions)
 

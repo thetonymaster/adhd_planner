@@ -6,7 +6,7 @@ This repo is one plugin marketplace, `adhd-planner`, with three plugins:
 |---|---|---|
 | `planner` | 12 planning skills: triage, breakdown, time-blocking, A5 pages, habits | Claude Code, Cowork |
 | `tasks` | Obsidian task notes: `create-task`/`task-start`/`task-park`/`task-switch`/`task-finish`/`task-note`/`task-list`, session-start context, vault access | Claude Code, Cowork |
-| `task-track` | Task band, pane, shared Pomodoro, `/note` `/done` `/openloop` (a mod) | Claude Code only |
+| `task-track` | Task band, pane, `/board` (Doing · Parked · Done), shared Pomodoro, `/note` `/done` `/openloop` (a mod) | Claude Code only |
 
 > A productivity tool, not medical advice; not affiliated with any planner brand.
 

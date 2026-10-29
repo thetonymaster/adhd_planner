@@ -6,8 +6,8 @@ import { codeSpans, insertInSection, logEntry, logOrder, parseNote, splitEstimat
 import { advance, blockMinutes, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
-import { boardNote, buildBoard } from '../hooks/board'
-import type { BoardNote } from '../hooks/board'
+import { boardNote, buildBoard, fitColumn } from '../hooks/board'
+import type { BoardColumn, BoardNote } from '../hooks/board'
 import { frontmatter, implicitVault, isSlug, normalize, parseVaults, pickTask, pickVault, taskNotePath, zoneFor } from '../hooks/resolve'
 import type { Candidate, VaultState } from '../hooks/resolve'
 import { CASES } from './fixtures/vault-cases'
@@ -1667,5 +1667,125 @@ describe('board', () => {
     )
     expect(cols[1].groups.map(g => g.project)).toEqual(['Alpha', 'Zed', 'No project'])
     expect(cols[1].groups[0].cards.map(c => c.title)).toEqual(['Alpha card', 'beta'])
+  })
+})
+
+describe('/board pane', () => {
+  const CONFIG = '/home/q/.config/adhd-planner/vaults.json'
+  const TWO = JSON.stringify({ default: 'personal', vaults: { personal: { path: '/v' }, work: { path: '/w' } } })
+  const NOW = new Date(2026, 9, 29, 10, 0).getTime()
+  const card = (status: string, title: string, extra = '') => `---\nstatus: ${status}\nup: "[[ADHD Planner]]"\n${extra}---\n# ${title}\n`
+  const vault = {
+    [CONFIG]: TWO,
+    '/v/Tasks/.active': 'set-up-vault\n',
+    [PATH]: NOTE,
+    '/v/Tasks/park-me.md': card('parked', 'Parked thing'),
+    '/v/Tasks/shipped.md': card('done', 'Shipped thing', 'finished: 2026-10-29\n'),
+    '/w/Tasks/deploy.md': card('parked', 'Deploy fix'),
+  }
+  const props = (bodyRows = 30) =>
+    ({ title: 'Board', isFocused: false, bodyColumns: 120, placement: 'dock', scroll: { offset: 0, bodyRows }, view: {} }) as never
+  const mount = ($: Engine, bodyRows?: number) =>
+    $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track-board', props: props(bodyRows) })
+  /** Records each pane the plugin opens, as `id|title`. */
+  const opens = (on: On) => {
+    const ids: string[] = []
+    on('ui.open', ($, e) => {
+      ids.push(`${e.id}|${e.title ?? ''}`)
+      return { value: { isPlaced: true } }
+    })
+    return ids
+  }
+
+  test('no argument: the session vault in three columns with counts', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    fakeVault(on, { ...vault })
+    const ids = opens(on)
+    expect((await run($, 'board', '')).text).toBe('Board: personal · Doing 1 · Parked 1 · Done 1')
+    expect(ids).toEqual(['task-track-board|Board · personal'])
+    const pane = await mount($)
+    expect(await pane.find({ type: 'Text', text: 'personal · Doing 1 · Parked 1 · Done 1' })).toBeDefined()
+    for (const text of ['Parked thing', 'Shipped thing', 'Doing · 1', 'Parked · 1', 'Done · 1', 'ADHD Planner']) {
+      expect(await pane.find({ type: 'Text', text: new RegExp(text) })).toBeDefined()
+    }
+    expect(await pane.find({ type: 'Text', text: /Deploy fix/ })).toBeUndefined()
+  })
+
+  test("the session's task is marked ▸", async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    fakeVault(on, { ...vault })
+    opens(on)
+    await run($, 'board', '')
+    const pane = await mount($)
+    expect(await pane.find({ type: 'Text', text: '▸ Set up vault' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /▸ Parked thing/ })).toBeUndefined()
+  })
+
+  test('<vault> shows that vault, without the session mark', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    fakeVault(on, { ...vault })
+    const ids = opens(on)
+    await run($, 'board', 'work')
+    expect(ids).toEqual(['task-track-board|Board · work'])
+    const pane = await mount($)
+    expect(await pane.find({ type: 'Text', text: 'work · Doing 0 · Parked 1 · Done 0' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Deploy fix/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Set up vault/ })).toBeUndefined()
+  })
+
+  test('an unknown vault names the registered ones and opens nothing', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    fakeVault(on, { ...vault })
+    const ids = opens(on)
+    expect((await run($, 'board', 'nope')).text).toBe('No vault "nope" in vaults.json (have: personal, work)')
+    expect(ids).toEqual([])
+  })
+
+  test('Done counts today in the vaults.json zone, not UTC', async ($, on) => {
+    // 2026-10-16 23:30 UTC is 2026-10-17 in Tokyo: a note finished on the 17th is today, not the future.
+    const zoned = JSON.stringify({ timezone: 'Asia/Tokyo', default: 'personal', vaults: { personal: { path: '/v' } } })
+    mock.env(on, { VAULT: '/v', HOME: '/home/q', TZ: 'UTC' })
+    mock.clock(on, { now: Date.UTC(2026, 9, 16, 23, 30) })
+    fakeVault(on, { [CONFIG]: zoned, '/v/Tasks/shipped.md': card('done', 'Shipped thing', 'finished: 2026-10-17\n') })
+    opens(on)
+    expect((await run($, 'board', '')).text).toBe('Board: personal · Doing 0 · Parked 0 · Done 1')
+  })
+
+  test('a column that does not fit ends in … N more', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const many = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`/v/Tasks/p${i}.md`, card('parked', `Parked ${String(i).padStart(2, '0')}`)]))
+    fakeVault(on, { [CONFIG]: TWO, ...many })
+    opens(on)
+    await run($, 'board', '')
+    const pane = await mount($, 10)
+    // 10 rows less header, gap, border ×2 and column title leave 5 lines: heading, 3 cards, "… 9 more".
+    expect(await pane.find({ type: 'Text', text: /Parked 02/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Parked 03/ })).toBeUndefined()
+    expect(await pane.find({ type: 'Text', text: '… 9 more' })).toBeDefined()
+  })
+})
+
+describe('fitting a board column', () => {
+  const col = (sizes: number[]): BoardColumn => ({
+    name: 'Parked',
+    count: sizes.reduce((a, b) => a + b, 0),
+    groups: sizes.map((n, g) => ({ project: `P${g}`, cards: Array.from({ length: n }, (_, i) => ({ slug: `s${g}-${i}`, title: `t${g}-${i}` })) })),
+  })
+
+  test('everything fits: every heading and card, no more row', () => {
+    const fit = fitColumn(col([2, 1]), 5)
+    expect(fit.lines.map(l => l.text)).toEqual(['P0', 't0-0', 't0-1', 'P1', 't1-0'])
+    expect(fit.more).toBe(0)
+  })
+
+  test('too many: leaves a row for "… N more" and never ends on a bare heading', () => {
+    const fit = fitColumn(col([2, 2]), 4)
+    expect(fit.lines.map(l => l.text)).toEqual(['P0', 't0-0', 't0-1'])
+    expect(fit.more).toBe(2)
   })
 })

@@ -59,6 +59,9 @@ export type PomoFile = {
   logged: Record<string, { ms: number; blocks: number }>
 }
 
+/** The vault a /board pane shows: its vaults.json name and path; hasOthers = 2+ vaults are registered, so /board <vault> can switch. */
+export type BoardTarget = { name: string; path: string; hasOthers: boolean }
+
 declare module 'claude-code' {
   interface PluginState {
     'task-track': {
@@ -81,6 +84,8 @@ declare module 'claude-code' {
       toldBreakUntil: number
       /** This session already said that mv onto .pomo.json failed. */
       toldMvFailed: boolean
+      /** The vault the /board pane shows; null until /board runs. */
+      board: BoardTarget | null
     }
   }
 }

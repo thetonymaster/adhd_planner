@@ -1,7 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import type { PomoFile, TaskView } from '../types'
+import type { BoardTarget, PomoFile, TaskView } from '../types'
+import { boardHeader, boardNote, buildBoard, fitColumn } from './board'
+import type { BoardColumn, BoardNote } from './board'
 import { codeSpans, elapsed, firstOpen, insertInSection, logEntry, logOrder, parseNote, progress, splitEstimate, stamp, toggleNext, truncate } from './note'
 import {
   advance,
@@ -42,8 +44,12 @@ const vaultName = atom({ plugin: 'task-track', key: 'vaultName' } as const, '')
 const configError = atom({ plugin: 'task-track', key: 'configError' } as const, '')
 const toldBreakUntil = atom({ plugin: 'task-track', key: 'toldBreakUntil' } as const, 0)
 const toldMvFailed = atom({ plugin: 'task-track', key: 'toldMvFailed' } as const, false)
+const board = atom({ plugin: 'task-track', key: 'board' } as const, null)
 
 const PANE = 'task-track'
+const BOARD_PANE = 'task-track-board'
+/** Board rows that are not a column's cards: the header, the gap under it, the column's border (2) and its title. */
+const BOARD_CHROME_ROWS = 5
 const POLL_MS = 15_000
 const TICK_MS = 60_000
 /** Less focus than this waits for the next flush instead of writing a line of its own. */
@@ -71,8 +77,11 @@ let zone = ''
 let editsSinceLog = 0
 let logSize = -1
 let isStaleNudged = false
+type Cached<T> = { mtimeMs: number; value: T }
 /** Frontmatter of each task note by note path, re-read only when the note's mtime moves. */
-const noteCache = new Map<string, Candidate>()
+const noteCache = new Map<string, Cached<Candidate>>()
+/** The board's fields of each task note by note path, same rule. */
+const boardCache = new Map<string, Cached<BoardNote>>()
 
 function readSettings(options: PluginOptions): Settings {
   return {
@@ -126,26 +135,37 @@ async function vaultState($: EngineInterface, v: VaultSpec, sessionId: string): 
 
 /** Every task note's slug, repo, status and mtime; [] when there is no Tasks/ folder. */
 async function candidates($: EngineInterface, root: string): Promise<Candidate[]> {
+  return scanNotes($, root, noteCache, (slug, text, mtimeMs) => {
+    const fm = frontmatter(text)
+    return { slug, repo: fm.repo, status: fm.status, mtimeMs }
+  })
+}
+
+/** Every task note's board fields; [] when there is no Tasks/ folder. */
+async function boardNotes($: EngineInterface, root: string): Promise<BoardNote[]> {
+  return scanNotes($, root, boardCache, (slug, text) => boardNote(slug, text))
+}
+
+/** Each note in `root`/Tasks through `parse`, re-read only when its mtime moved since `cache` last saw it. */
+async function scanNotes<T>($: EngineInterface, root: string, cache: Map<string, Cached<T>>, parse: (slug: string, text: string, mtimeMs: number) => T): Promise<T[]> {
   const dir = `${root}/Tasks`
   if (!(await $.fs.exists(dir))) return []
-  const out: Candidate[] = []
+  const out: T[] = []
   for (const entry of await $.fs.list(dir)) {
     if (entry.kind !== 'file' || !entry.name.endsWith('.md')) continue
-    const slug = entry.name.slice(0, -3)
     const path = `${dir}/${entry.name}`
-    let c = noteCache.get(path)
+    let c = cache.get(path)
     if (!c || c.mtimeMs !== entry.mtimeMs) {
-      // Deleted between the listing and the read: not a candidate. Any other read error propagates.
+      // Deleted between the listing and the read: left out. Any other read error propagates.
       const text = await $.fs.read(path).catch(async (err: unknown) => {
         if (await $.fs.exists(path)) throw err
         return undefined
       })
       if (text === undefined) continue
-      const fm = frontmatter(text)
-      c = { slug, repo: fm.repo, status: fm.status, mtimeMs: entry.mtimeMs }
-      noteCache.set(path, c)
+      c = { mtimeMs: entry.mtimeMs, value: parse(entry.name.slice(0, -3), text, entry.mtimeMs) }
+      cache.set(path, c)
     }
-    out.push(c)
+    out.push(c.value)
   }
   return out
 }
@@ -546,6 +566,26 @@ async function openPane($: EngineInterface): Promise<void> {
   await $.ui.open({ id: PANE, title: view ? `Task · ${prefix ? `${prefix} · ` : ''}${view.slug}` : 'Task', focus: true })
 }
 
+/** The vault `/board <name>` names, or the session's with no name; a string says why there is none. */
+async function boardTarget($: EngineInterface, name: string): Promise<BoardTarget | string> {
+  const config = await vaultConfig($, (await $.env.get('HOME')) ?? '')
+  const hasOthers = config.vaults.length > 1
+  if (name) {
+    const v = config.vaults.find(x => x.name === name)
+    return v ? { name: v.name, path: v.path, hasOthers } : `No vault "${name}" in vaults.json (have: ${config.vaults.map(x => x.name).join(', ')})`
+  }
+  await load($)
+  const v = config.vaults.find(x => x.path === vault)
+  // load() picks a vault from the same file: a miss means vaults.json changed between the two reads.
+  if (!v) return `The session's vault ${vault} is not in vaults.json any more. Run /board again.`
+  return { name: v.name, path: v.path, hasOthers }
+}
+
+/** The board of one vault, read fresh; Done counts days in the stamps' zone. */
+async function boardColumns($: EngineInterface, root: string): Promise<BoardColumn[]> {
+  return buildBoard(await boardNotes($, root), await today($))
+}
+
 async function noteFromPane($: EngineInterface, slug: string, value: string): Promise<void> {
   const text = value.trim()
   if (!text) return
@@ -583,6 +623,7 @@ async function openInObsidian($: EngineInterface, path: string): Promise<void> {
 
 const COMMANDS = [
   { name: 'task', description: 'Show the active task pane (/task hide|show toggles the band)', argumentHint: '[hide|show]' },
+  { name: 'board', description: 'Show the task board (Doing / Parked / Done) for this vault or <vault>', argumentHint: '[vault]', immediate: true },
   { name: 'note', description: 'Add a line to the active task Log (no model turn)', argumentHint: '<text>', immediate: true },
   { name: 'done', description: 'Check off a Next item (default: the first open one)', argumentHint: '[n]', immediate: true },
   { name: 'openloop', description: 'Add an Open loop to the active task', argumentHint: '<text>', immediate: true },
@@ -675,6 +716,15 @@ export const register: Register = (on, options) => {
     const view = await load($)
     await openPane($)
     return { text: view ? `Task pane: ${view.slug}` : (await read($, problem)) || 'No active task. /tasks:task-start <name>' }
+  })
+
+  on('command.run', { command: 'board' }, async ($, e) => {
+    const target = await boardTarget($, e.args.trim())
+    if (typeof target === 'string') return { text: target }
+    await update($, board, () => target)
+    const columns = await boardColumns($, target.path)
+    await $.ui.open({ id: BOARD_PANE, title: `Board · ${target.name}`, focus: true })
+    return { text: `Board: ${boardHeader(target.name, columns)}` }
   })
 
   on('command.run', { command: 'note' }, async ($, e) => {
@@ -903,6 +953,49 @@ export const register: Register = (on, options) => {
         <Box gap={1}>
           <Button key="park" label="Park (/tasks:task-park)" onPress={() => park($)} />
           <Button key="obsidian" label="Open in Obsidian" onPress={() => openInObsidian($, view.path)} />
+        </Box>
+      </Box>
+    )
+  })
+
+  // ── board pane: read-only, notes read fresh on every draw ───────────────
+
+  on('ui.render', { component: 'Pane', requestId: BOARD_PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const target = await read($, board)
+    if (!target) return <Text>/board to show the task board.</Text>
+    const columns = await boardColumns($, target.path)
+    const view = await read($, task)
+    // The session's task is marked only on its own vault's board.
+    const mine = view && view.path === taskNotePath(target.path, view.slug) ? view.slug : ''
+    const rows = Math.max(2, e.props.scroll.bodyRows - BOARD_CHROME_ROWS)
+    // Equal thirds, less the two gaps: a long title is cut instead of widening its column.
+    const width = Math.max(10, Math.floor((e.props.bodyColumns - 2) / 3))
+    return (
+      <Box flexDirection="column">
+        <Box gap={2}>
+          <Text color="subtle">{boardHeader(target.name, columns)}</Text>
+          {target.hasOthers ? <Text dimColor>/board &lt;vault&gt; to switch</Text> : null}
+        </Box>
+        <Box flexDirection="row" gap={1} marginTop={1}>
+          {columns.map(column => {
+            const fit = fitColumn(column, rows)
+            return (
+              <Box key={column.name} flexDirection="column" flexGrow={1} width={width} borderStyle="round" borderColor="subtle" paddingX={1}>
+                <Text bold color="claude">{`${column.name} · ${column.count}`}</Text>
+                {fit.lines.map((line, i) =>
+                  line.kind === 'project' ? (
+                    <Text key={`${column.name}-${i}`} color="subtle" wrap="truncate-end">{line.text}</Text>
+                  ) : line.slug === mine ? (
+                    <Text key={`${column.name}-${i}`} color="suggestion" bold wrap="truncate-end">{`▸ ${line.text}`}</Text>
+                  ) : (
+                    <Text key={`${column.name}-${i}`} wrap="truncate-end">{`  ${line.text}`}</Text>
+                  ),
+                )}
+                {fit.more > 0 ? <Text dimColor>{`… ${fit.more} more`}</Text> : null}
+              </Box>
+            )
+          })}
         </Box>
       </Box>
     )
