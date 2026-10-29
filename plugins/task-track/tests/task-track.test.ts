@@ -6,6 +6,8 @@ import { codeSpans, insertInSection, logEntry, logOrder, parseNote, splitEstimat
 import { advance, blockMinutes, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
+import { boardNote, buildBoard } from '../hooks/board'
+import type { BoardNote } from '../hooks/board'
 import { frontmatter, implicitVault, isSlug, normalize, parseVaults, pickTask, pickVault, taskNotePath, zoneFor } from '../hooks/resolve'
 import type { Candidate, VaultState } from '../hooks/resolve'
 import { CASES } from './fixtures/vault-cases'
@@ -1600,5 +1602,70 @@ describe('timezone: stamps follow vaults.json, else $TZ, else the runtime clock'
     const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE })
     await run($, 'note', 'from TZ')
     expect(files[PATH]).toContain('- [[2026-10-16]] 17:30 — from TZ')
+  })
+})
+
+describe('board', () => {
+  const note = (slug: string, status: string, over: Partial<BoardNote> = {}): BoardNote => ({ slug, title: slug, project: 'P', status, finished: '', ...over })
+
+  test('title falls back to slug', () => {
+    expect(boardNote('a-b', '---\nstatus: parked\n---\nbody').title).toBe('a-b')
+    expect(boardNote('a-b', '---\nstatus: parked\n---\n# \n').title).toBe('a-b')
+    expect(boardNote('a-b', '---\nstatus: parked\n---\n# Fix card href XSS\n').title).toBe('Fix card href XSS')
+  })
+
+  test('a "# " line inside the frontmatter is not the title', () => {
+    expect(boardNote('s', '---\nstatus: parked\n# comment\n---\n# Real\n').title).toBe('Real')
+  })
+
+  test('status and finished come from the frontmatter', () => {
+    const n = boardNote('s', '---\nstatus: done\nfinished: 2026-10-29\n---\n# T\n')
+    expect(n.status).toBe('done')
+    expect(n.finished).toBe('2026-10-29')
+    expect(boardNote('s', '---\nstatus: done\nfinished:\n---\n# T\n').finished).toBe('')
+  })
+
+  test('project from up: forms', () => {
+    for (const [up, want] of [['"[[Name|alias]]"', 'Name'], ['"[[Projects/Name]]"', 'Name'], ['"[[]]"', 'No project'], ['', 'No project']]) {
+      expect(boardNote('s', `---\nstatus: active\nup: ${up}\n---\n# T\n`).project).toBe(want)
+    }
+  })
+
+  test('done shows only finished within 7 days including today', () => {
+    const n = (slug: string, finished: string) => note(slug, 'done', { finished })
+    const done = buildBoard([n('today', '2026-10-29'), n('edge', '2026-10-23'), n('old', '2026-10-22'), n('none', ''), n('bad', '29/10')], '2026-10-29')[2]
+    expect(done.groups.flatMap(g => g.cards.map(c => c.slug))).toEqual(['edge', 'today'])
+    expect(done.count).toBe(2)
+  })
+
+  test('a finish date in the future is not shown', () => {
+    expect(buildBoard([note('soon', 'done', { finished: '2026-10-30' })], '2026-10-29')[2].count).toBe(0)
+  })
+
+  test('days widens or narrows the window', () => {
+    const old = note('old', 'done', { finished: '2026-10-22' })
+    expect(buildBoard([old], '2026-10-29', 8)[2].count).toBe(1)
+    expect(buildBoard([old], '2026-10-29', 3)[2].count).toBe(0)
+  })
+
+  test('columns in order with counts, unknown status ignored', () => {
+    const cols = buildBoard([note('a', 'active'), note('p1', 'parked'), note('p2', 'parked'), note('t', 'todo')], '2026-10-29')
+    expect(cols.map(c => c.name)).toEqual(['Doing', 'Parked', 'Done'])
+    expect(cols.map(c => c.count)).toEqual([1, 2, 0])
+    expect(JSON.stringify(cols)).not.toContain('"t"')
+  })
+
+  test('groups by project sorted, No project last; cards by title ignoring case', () => {
+    const cols = buildBoard(
+      [
+        note('1', 'parked', { project: 'No project', title: 'x' }),
+        note('2', 'parked', { project: 'Zed', title: 'b' }),
+        note('3', 'parked', { project: 'Alpha', title: 'beta' }),
+        note('4', 'parked', { project: 'Alpha', title: 'Alpha card' }),
+      ],
+      '2026-10-29',
+    )
+    expect(cols[1].groups.map(g => g.project)).toEqual(['Alpha', 'Zed', 'No project'])
+    expect(cols[1].groups[0].cards.map(c => c.title)).toEqual(['Alpha card', 'beta'])
   })
 })

@@ -3,9 +3,9 @@
 export type Candidate = { slug: string; repo: string; status: string; mtimeMs: number }
 export type Source = 'session' | 'repo' | 'global'
 
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/
+export const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/
 
-function field(block: string, name: string): string {
+export function field(block: string, name: string): string {
   const m = new RegExp(`^${name}:[ \\t]*"?([^"\\r\\n]*?)"?\\s*$`, 'm').exec(block)
   return m?.[1] ?? ''
 }
