@@ -1,6 +1,6 @@
 ---
 name: task-park
-description: Save the active task's state to its note (Next, Open loops, a Log line) so the session can be cleared or the task picked up later. Use on /tasks:task-park, "park this", or when context is noisy. One task note, not the day: a whole-day wrap-up is planner:eod-shutdown, which parks the active task itself. To move to another task, suggest /tasks:task-switch, which parks first. Task complete: task-finish.
+description: Save the active task's state to its note (Next, Open loops, a Log line) so the session can be cleared or resumed later. Use on /tasks:task-park, "park this", or when context is noisy. One task note, not the day: a whole-day wrap-up is planner:eod-shutdown, which parks the active task itself. To move to another task, suggest /tasks:task-switch, which parks first. Task complete: task-finish.
 ---
 
 The vault root is the path on the session-start `Vault:` line; without that line, the `default` vault in `~/.config/adhd-planner/vaults.json` (or `$ADHD_PLANNER_VAULTS`) when that file loads; otherwise the plugin's vault path option `${user_config.vaultPath}` (skip it when empty), else `$VAULT`, else `~/vault`, the session-start hook's order. Every `~/vault` path below means that root.

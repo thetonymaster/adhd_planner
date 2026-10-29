@@ -94,5 +94,25 @@ class TaskLifecycleTest(unittest.TestCase):
             self.assertIn(phrase, text)
 
 
+def description(path):
+    """The frontmatter description, a folded `>` block joined to one line."""
+    front = path.read_text(encoding="utf-8").split("---")[1]
+    found = re.search(r"(?ms)^description:[ \t]*(?:>-?|\|)?[ \t]*\n?(.*?)(?=^\S|\Z)", front)
+    return re.sub(r"\s+", " ", found.group(1)).strip()
+
+
+class SkillDescriptionLengthTest(unittest.TestCase):
+    LIMIT = 400  # what 01c329b trimmed to so every skill fits Claude Code's skill listing
+
+    def test_every_description_fits_the_listing(self):
+        paths = sorted(ROOT.glob("plugins/*/skills/*/SKILL.md"))
+        self.assertTrue(paths)
+        for path in paths:
+            text = description(path)
+            with self.subTest(skill=str(path.relative_to(ROOT))):
+                self.assertTrue(text)
+                self.assertLessEqual(len(text), self.LIMIT, text)
+
+
 if __name__ == "__main__":
     unittest.main()

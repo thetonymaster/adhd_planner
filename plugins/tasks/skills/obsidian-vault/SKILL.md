@@ -2,8 +2,7 @@
 name: obsidian-vault
 description: >
   Rules for reading and writing the user's Obsidian vault: folder placement,
-  templates, frontmatter, wikilinks that keep the graph accurate, Obsidian CLI
-  checks after writing. Use before creating, editing, linking, moving or
+  templates, frontmatter, wikilinks, Obsidian CLI checks after writing. Use before creating, editing, linking, moving or
   renaming any vault note (daily, project, area, people, meeting). Task notes:
   create-task makes them, task-start starts one, task-note edits one,
   task-park saves its state, task-finish closes one.
