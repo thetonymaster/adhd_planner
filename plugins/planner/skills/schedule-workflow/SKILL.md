@@ -1,14 +1,10 @@
 ---
 name: schedule-workflow
 description: >
-  Put a planner workflow on a repeating automatic schedule, or change/remove one
-  that's already set — "run my triage every day at 18:00", "do the morning
-  startup each weekday", "every Monday", "stop the nightly habit check-in". This
-  is about recurring automation of the planner skills themselves, not about
-  putting an appointment or a recurring event on a calendar (add-event) and not
-  about laying today's tasks out as focus blocks (plan-day). Triggers: schedule
-  this daily/weekly, automate my triage/startup/shutdown, run it every morning,
-  set a recurring planner task, change or cancel a scheduled planner run.
+  Put a planner workflow on a repeating automatic schedule, or change or
+  remove one: "run my triage every day at 18:00", "do the morning startup each
+  weekday", "stop the nightly habit check-in". Not a recurring event on a
+  calendar (add-event), focus blocks for today's tasks (plan-day).
 ---
 
 # Schedule a planner workflow

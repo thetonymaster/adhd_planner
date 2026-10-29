@@ -1,15 +1,11 @@
 ---
 name: habit-tracker
 description: >
-  Track daily habits with streaks across sleep/bedtime, eating/fuel, and your
-  active commitments (from the planner's Sustain + Commitments layouts). Log
-  what you did today, see current streaks and 7-day marks, and get a weekly
-  adherence review. Use when the user wants to check off habits, "did I keep my
-  streak", log a habit, or review how this week's habits went. Not for planning
-  the week's tasks (plan-week). The end-of-day wind-down routine is
-  eod-shutdown; logging the day's habits is this skill. Not for checking off a
-  Next item in a task note (task-note). Triggers: habits, streak, log my habits,
-  did I do, habit check-in, weekly habit review.
+  Log daily habits and see streaks across sleep/bedtime, eating/fuel and active
+  commitments (the planner's Sustain + Commitments layouts): today's check-in,
+  7-day marks, weekly adherence review. For "log my habits", "did I keep my
+  streak". Not planning the week (plan-week), the wind-down routine itself
+  (eod-shutdown), or a task note's Next item (task-note).
 ---
 
 # Habit tracker

@@ -1,18 +1,12 @@
 ---
 name: plan-day
 description: >
-  Time-blocking and focus-block scheduling for a task list the user already has.
-  Use this to answer "when do I do each of these today?" — taking several tasks
-  or a to-do list and laying them out as timed work sessions that fit into the
-  free gaps around the user's meetings, calls, and lunch so nothing overlaps.
-  Typical asks: schedule these tasks, block out focus time for these, build me a
-  time-blocked plan, lay my to-dos out as focus blocks, fit these around my
-  calendar, protect my lunch, or order and time them so they don't collide. It
-  uses Pomodoro-style blocks within working hours and, once confirmed, adds them
-  to Google Calendar. Not for booking a single meeting or event, the full
-  morning routine (morning-startup), sorting a raw brain dump into tasks
-  (capture-triage), or splitting one big task into subtasks (break-down-task).
-  "Plan my day" with no task list yet is morning-startup.
+  Time-block a task list the user already has into one day's free gaps (today
+  or a named day) around meetings and lunch as Pomodoro-style focus blocks,
+  then add them to Google
+  Calendar once confirmed. For "schedule these tasks", "fit these around my
+  calendar". Not one event (add-event), a raw brain dump (capture-triage), one
+  big task (break-down-task); "plan my day" with no list is morning-startup.
 ---
 
 # Plan the day (schedule + meetings reconciler)

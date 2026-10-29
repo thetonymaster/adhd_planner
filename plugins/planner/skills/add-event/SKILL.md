@@ -1,18 +1,12 @@
 ---
 name: add-event
 description: >
-  Add specific meetings, appointments, events, and important/recurring dates
-  (birthdays, anniversaries) to Google Calendar — routed to the right calendar
-  (work / personal / family / birthdays) with the right color, recurrence,
-  all-day handling, and reminders. Use whenever the user names a concrete thing
-  to put on a calendar: schedule a meeting, book an appointment, save a
-  birthday, add a deadline, put it on a specific calendar. This is for
-  individual entries the user dictates — NOT for auto-scheduling a whole task
-  list around meetings (use plan-day for that). Recurring calendar entries (a
-  yearly birthday, a weekly class) are this skill; running a planner workflow on
-  a schedule is schedule-workflow. Triggers: add to calendar, schedule a meeting
-  with X at Y, book the dentist, save this birthday, remind me every year, put
-  it on my work or family calendar.
+  Add a specific event to Google Calendar (meeting, appointment, deadline,
+  birthday or other recurring date) on the right calendar (work / personal /
+  family / birthdays) with color, recurrence, all-day handling and reminders.
+  For "book the dentist Tuesday 3pm", "save this birthday". Not time-blocking
+  a task list (plan-day), running a planner workflow on a schedule
+  (schedule-workflow).
 ---
 
 # Add events to Google Calendar (with routing)

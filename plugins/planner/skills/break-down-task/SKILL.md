@@ -1,14 +1,11 @@
 ---
 name: break-down-task
 description: >
-  Break ONE big, vague, or overwhelming task into small, concrete, startable
-  subtasks with time estimates, sized to ~25-minute focus sessions. Use when the
-  user has a single task that feels too big to begin and needs next actions:
-  "break this down", "where do I even start with X", "turn X into a plan". For
-  sorting a whole pile of mixed thoughts and to-dos, use capture-triage instead;
-  to time-block the resulting subtasks into the day, hand off to plan-day.
-  Triggers: break down, break this into steps, too big to start, where do I
-  start, what are the subtasks, next actions for X.
+  Break ONE big, vague or overwhelming task into small startable subtasks with
+  time estimates, sized to ~25-minute focus sessions. For "break this down",
+  "where do I even start with X", "too big to start". Not a pile of mixed to-dos
+  (capture-triage); to time-block the subtasks into the day, hand off to
+  plan-day.
 ---
 
 # Break down a task

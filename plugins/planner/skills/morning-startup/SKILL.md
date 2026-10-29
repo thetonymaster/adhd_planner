@@ -1,16 +1,11 @@
 ---
 name: morning-startup
 description: >
-  Build the user's entire day from scratch: pull today's Google Calendar, set
-  the Top 3, break the main task into subtasks, time-block everything around the
-  real meetings, and print the A5 daily page. Chains break-down-task + plan-day
-  + daily-page and produces actual files. Use for "plan my day", "good morning,
-  set me up", "build my day", "get me ready for the day". Use it when the user
-  has no task list in hand and wants the day built for them; it decides what
-  they will actually do and hands back a plan plus a printed page. A read-only
-  summary of what's already on the calendar is not this skill. To time-block a
-  task list they already have, with no calendar pull and no printing, use
-  plan-day.
+  Build today from scratch: pull Google Calendar, set the Top 3, break down the
+  main task, time-block around meetings and print the A5 daily page (chains
+  break-down-task, plan-day, daily-page). For "plan my day", "good morning, set
+  me up" with no task list in hand. Not a read-only calendar summary;
+  time-blocking a list already in hand is plan-day.
 ---
 
 # Morning startup
