@@ -1138,9 +1138,9 @@ describe('which task a session shows', () => {
     expect(pick({ dir: '/home/q/work/infra-appX', candidates })).toBeNull()
   })
 
-  test('deepest repo wins, then active over parked, then newest; done never binds', () => {
+  test('deepest repo wins, then newest regardless of status; done never binds', () => {
     expect(pick({ dir: '/home/q/r/sub', candidates: [c('outer', '~/r'), c('inner', '~/r/sub')] })?.slug).toBe('inner')
-    expect(pick({ dir: '/home/q/r', candidates: [c('p', '~/r', 'parked', 9), c('a', '~/r', 'active', 1)] })?.slug).toBe('a')
+    expect(pick({ dir: '/home/q/r', candidates: [c('p', '~/r', 'parked', 9), c('a', '~/r', 'active', 1)] })?.slug).toBe('p')
     expect(pick({ dir: '/home/q/r', candidates: [c('old', '~/r', 'active', 1), c('new', '~/r', 'active', 2)] })?.slug).toBe('new')
     expect(pick({ dir: '/home/q/r', candidates: [c('d', '~/r', 'done')], global: 'g' })).toEqual({ slug: 'g', source: 'global' })
   })
