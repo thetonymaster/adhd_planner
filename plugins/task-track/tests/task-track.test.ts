@@ -1634,6 +1634,11 @@ describe('project list', () => {
     expect(list.tasks.map(t => t.slug)).toEqual(['inner'])
   })
 
+  test('a file name resolution would refuse (not a slug) is left out', () => {
+    const list = projectTasks([c('My idea', '~/w', 'parked', 1), c('ok-one', '~/w', 'parked', 1)], '/home/q/w', '/home/q')
+    expect(list.tasks.map(t => t.slug)).toEqual(['ok-one'])
+  })
+
   test('no match gives an empty repo and list', () => {
     expect(projectTasks([c('x', '~/w', 'active', 1)], '/tmp', '/home/q')).toEqual({ repo: '', tasks: [] })
   })
@@ -1686,8 +1691,8 @@ describe('project tasks pane', () => {
       expect(await pane.find({ type: 'Text', text: /ACTIVE \(1\)/ })).toBeDefined()
       expect(await pane.find({ type: 'Text', text: /PARKED \(2\)/ })).toBeDefined()
       expect(await pane.find({ type: 'Text', text: /▸ Audit unbilled calls/ })).toBeDefined()
-      expect(await pane.find({ type: 'Button', key: 'proj-audit-calls' })).toBeUndefined()
-      expect(await pane.find({ type: 'Button', key: 'proj-parked-0' })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'proj-task-audit-calls' })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'proj-task-parked-0' })).toBeDefined()
       expect(await pane.find({ type: 'Button', key: 'proj-new' })).toBeDefined()
       expect(JSON.stringify(await pane.drawn())).not.toMatch(/Shipped already|Other repo task/)
     })
@@ -1700,7 +1705,7 @@ describe('project tasks pane', () => {
     fakeVault(on, repoFiles(7), { root: '/home/q/w' })
     await run($, 'project-tasks', '')
     const pane = await mountPane($)
-    const parkedButtons = async () => (JSON.stringify(await pane.drawn()).match(/"key":"proj-parked-\d+","label"/g) ?? []).length
+    const parkedButtons = async () => (JSON.stringify(await pane.drawn()).match(/"key":"proj-task-parked-\d+","label"/g) ?? []).length
     expect(await parkedButtons()).toBe(5)
     expect(JSON.stringify(await pane.drawn())).toMatch(/… 2 more/)
     await pane.press({ key: 'proj-more' })
@@ -1720,7 +1725,7 @@ describe('project tasks pane', () => {
     fakeVault(on, files, { root: '/home/q/w' })
     await run($, 'project-tasks', '')
     const pane = await mountPane($, 'terminal', 40)
-    const button = await pane.find({ type: 'Button', key: 'proj-long-one' })
+    const button = await pane.find({ type: 'Button', key: 'proj-task-long-one' })
     const label = String(button?.props.label)
     expect(label.length).toBeLessThanOrEqual(40)
     expect(label.endsWith('…')).toBe(true)
@@ -1764,6 +1769,19 @@ describe('project tasks pane', () => {
     expect(opened).toContain(PROJ)
   })
 
+  test('the band Tasks button re-reads the notes before opening', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    const files = fakeVault(on, repoFiles(), { root: '/home/q/w' })
+    await run($, 'note', 'x')
+    files['/v/Tasks/fresh-one.md'] = note('Made a moment ago', 'parked')
+    const band = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+    await band.press({ key: 'project' })
+    const pane = await mountPane($)
+    expect(await pane.find({ type: 'Button', key: 'proj-task-fresh-one' })).toBeDefined()
+  })
+
   /** Answers the chat box, fills, closes, toasts and submits beneath the plugin, recording each. */
   const box = (on: On, draft: string, filled: { isFilled: true } | { isFilled: false; refusal?: 'dialog' | 'no_composer' } = { isFilled: true }) => {
     const seen = { fills: [] as { text: string; mode?: string }[], closed: [] as string[], toasts: [] as string[], submits: [] as string[] }
@@ -1798,7 +1816,7 @@ describe('project tasks pane', () => {
   test('a row press with an empty chat box fills the switch command and closes the pane, never submits', async ($, on) => {
     const seen = box(on, '')
     const pane = await openWith($, on, repoFiles())
-    await pane.press({ key: 'proj-parked-0' })
+    await pane.press({ key: 'proj-task-parked-0' })
     expect(seen.fills).toEqual([{ text: '/tasks:task-switch parked-0', mode: 'replace' }])
     expect(seen.closed).toEqual([PROJ])
     expect(seen.submits).toEqual([])
@@ -1808,7 +1826,7 @@ describe('project tasks pane', () => {
   test('a whitespace-only draft counts as empty', async ($, on) => {
     const seen = box(on, '   \n')
     const pane = await openWith($, on, repoFiles())
-    await pane.press({ key: 'proj-parked-1' })
+    await pane.press({ key: 'proj-task-parked-1' })
     expect(seen.fills).toEqual([{ text: '/tasks:task-switch parked-1', mode: 'replace' }])
     expect(seen.closed).toEqual([PROJ])
   })
@@ -1816,15 +1834,15 @@ describe('project tasks pane', () => {
   test('a typed draft is left alone: no fill, no close, a toast says why', async ($, on) => {
     const seen = box(on, 'half typed')
     const pane = await openWith($, on, repoFiles())
-    await pane.press({ key: 'proj-parked-0' })
+    await pane.press({ key: 'proj-task-parked-0' })
     expect(seen.fills).toEqual([])
     expect(seen.closed).toEqual([])
     expect(seen.toasts).toEqual(['Chat box has a draft: clear it, then click again.'])
   })
 
-  test('New task fills the start command with the cursor after it', async ($, on) => {
+  test('New task fills the start command with the cursor after it, even beside a note named new', async ($, on) => {
     const seen = box(on, '')
-    const pane = await openWith($, on, repoFiles())
+    const pane = await openWith($, on, { ...repoFiles(), '/v/Tasks/new.md': note('A note called new', 'parked') })
     await pane.press({ key: 'proj-new' })
     expect(seen.fills).toEqual([{ text: '/tasks:task-start ', mode: 'replace' }])
     expect(seen.closed).toEqual([PROJ])
@@ -1835,7 +1853,7 @@ describe('project tasks pane', () => {
   test('a refused fill keeps the pane open and toasts', async ($, on) => {
     const seen = box(on, '', { isFilled: false })
     const pane = await openWith($, on, repoFiles())
-    await pane.press({ key: 'proj-parked-0' })
+    await pane.press({ key: 'proj-task-parked-0' })
     expect(seen.closed).toEqual([])
     expect(seen.toasts).toEqual(["Couldn't fill the chat box."])
   })
@@ -1845,7 +1863,7 @@ describe('project tasks pane', () => {
     const files = repoFiles()
     files['/home/q/.config/adhd-planner/vaults.json'] = JSON.stringify({ default: 'personal', vaults: { personal: { path: '/v' }, work: { path: '/w' } } })
     const pane = await openWith($, on, files)
-    await pane.press({ key: 'proj-parked-0' })
+    await pane.press({ key: 'proj-task-parked-0' })
     await pane.press({ key: 'proj-new' })
     expect(seen.fills.map(f => f.text)).toEqual(['/tasks:task-switch personal:parked-0', '/tasks:task-start personal:'])
   })

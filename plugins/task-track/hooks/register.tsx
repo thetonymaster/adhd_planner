@@ -561,6 +561,13 @@ async function noProjectLine($: EngineInterface): Promise<string> {
   return `No tasks for ${basename(await $.session.root())} in ${basename(await currentVault($))}.`
 }
 
+/** Re-reads the notes, then opens the project pane: from /project-tasks and the band's Tasks. */
+async function showProjectTasks($: EngineInterface): Promise<void> {
+  await markActive($)
+  await load($)
+  await openProjectPane($)
+}
+
 async function openProjectPane($: EngineInterface): Promise<void> {
   const { repo } = await read($, projectList)
   const prefix = await read($, vaultName)
@@ -723,9 +730,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'project-tasks' }, async ($, e) => {
-    await markActive($)
-    await load($)
-    await openProjectPane($)
+    await showProjectTasks($)
     const { repo } = await read($, projectList)
     return { text: repo ? `Project tasks: ${repo}` : await noProjectLine($) }
   })
@@ -811,7 +816,7 @@ export const register: Register = (on, options) => {
           <Box flexShrink={0} gap={1}>
             {open && <Button key="done" label="Done" onPress={() => pressDoneFirst($)} />}
             <Button key="pane" label="Task" onPress={() => openPane($)} />
-            <Button key="project" label="Tasks" onPress={() => openProjectPane($)} />
+            <Button key="project" label="Tasks" onPress={() => showProjectTasks($)} />
             <Button key="hide" label="Hide" onPress={() => hideBand($)} />
           </Box>
         </Box>
@@ -979,11 +984,11 @@ export const register: Register = (on, options) => {
     // Title cut by hand: a Button draws its label whole, so a long one would wrap.
     const row = (t: ProjectList['tasks'][number]) =>
       t.slug === current ? (
-        <Text key={`proj-${t.slug}`} bold color="suggestion" wrap="truncate-end">▸ {t.title}</Text>
+        <Text key={`proj-task-${t.slug}`} bold color="suggestion" wrap="truncate-end">▸ {t.title}</Text>
       ) : (
-        <Box key={`proj-${t.slug}`}>
+        <Box key={`proj-task-${t.slug}`}>
           <Text>  </Text>
-          <Button key={`proj-${t.slug}`} plain label={truncate(t.title, width - 2)} onPress={() => fillFromPane($, `/tasks:task-switch ${vaultPrefix}${t.slug}`)} />
+          <Button key={`proj-task-${t.slug}`} plain label={truncate(t.title, width - 2)} onPress={() => fillFromPane($, `/tasks:task-switch ${vaultPrefix}${t.slug}`)} />
         </Box>
       )
     return (

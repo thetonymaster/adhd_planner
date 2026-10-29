@@ -1,6 +1,6 @@
 // The tasks of the repo a session runs in, for the project-tasks pane. Pure: register.tsx gathers the candidates.
 import type { ProjectList, ProjectTask } from '../types'
-import { normalize } from './resolve'
+import { isSlug, normalize } from './resolve'
 import type { Candidate } from './resolve'
 
 /** Parked rows shown before `… N more`. */
@@ -11,13 +11,14 @@ function isWithin(dir: string, root: string): boolean {
 }
 
 /**
- * Non-done notes whose `repo:` is `dir` or a parent, the deepest such root only; active first,
- * then newest. Any status but `active` (empty, a typo) lists as parked, so no task goes missing.
+ * Non-done notes named by a slug (what resolution accepts) whose `repo:` is `dir` or a parent,
+ * the deepest such root only; active first, then newest. Any status but `active` (empty, a typo)
+ * lists as parked, so no task goes missing.
  */
 export function projectTasks(candidates: readonly Candidate[], dir: string, home: string): ProjectList {
   const here = normalize(dir, home)
   const bound = candidates
-    .filter(c => c.repo !== '' && c.status !== 'done')
+    .filter(c => isSlug(c.slug) && c.repo !== '' && c.status !== 'done')
     .map(c => ({ c, root: normalize(c.repo, home) }))
     .filter(x => isWithin(here, x.root))
   const deepest = bound.reduce((longest, x) => (x.root.length > longest.length ? x.root : longest), '')
