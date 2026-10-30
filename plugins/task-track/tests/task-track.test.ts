@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
-import { codeSpans, insertInSection, logEntry, logOrder, parseNote, splitEstimate, stamp, toggleNext } from '../hooks/note'
+import { cells, codeSpans, fitCells, heading, insertInSection, logEntry, logOrder, parseNote, splitEstimate, stamp, toggleNext } from '../hooks/note'
 import { advance, blockMinutes, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
@@ -10,6 +10,7 @@ import { boardNote, buildBoard, fitColumn } from '../hooks/board'
 import type { BoardColumn, BoardNote } from '../hooks/board'
 import { frontmatter, implicitVault, isSlug, normalize, parseVaults, pickTask, pickVault, taskNotePath, zoneFor } from '../hooks/resolve'
 import type { Candidate, VaultState } from '../hooks/resolve'
+import { projectTasks, visibleParked } from '../hooks/project'
 import { CASES } from './fixtures/vault-cases'
 import type { VaultCase } from './fixtures/vault-case'
 
@@ -38,6 +39,35 @@ Vault + task loop working.
 `
 
 const CFG = { focusMinutes: 25, breakMinutes: 5, longBreakEvery: 4, longBreakMinutes: 30 }
+
+describe('cell width', () => {
+  test('counts CJK and emoji as two cells, a combining mark as none', () => {
+    expect(cells('abc')).toBe(3)
+    expect(cells('修正')).toBe(4)
+    expect(cells('🚀 go')).toBe(5)
+    expect(cells('👍🏽')).toBe(2)
+    expect(cells('é')).toBe(1)
+  })
+
+  // wcwidth: a spacing mark (Mc) takes its own cell, a nonspacing one (Mn) none.
+  test('counts a spacing mark inside a grapheme as a cell', () => {
+    expect(cells('का')).toBe(2)
+    expect(cells('कि')).toBe(2)
+    expect(cells('क्')).toBe(1)
+    expect(fitCells('कागज़', 3)).toBe('का…')
+  })
+
+  test('fitCells leaves a fitting string alone', () => {
+    expect(fitCells('修正', 4)).toBe('修正')
+  })
+
+  test('fitCells cuts by cells, never inside a grapheme', () => {
+    expect(fitCells('修正バグ', 5)).toBe('修正…')
+    expect(fitCells('ab👍🏽cd', 4)).toBe('ab…')
+    expect(fitCells('ab👍🏽cd', 5)).toBe('ab👍🏽…')
+    expect(fitCells('abcdef', 4)).toBe('abc…')
+  })
+})
 
 describe('note parsing', () => {
   test('reads title, up, goal, next, loops, log', () => {
@@ -1787,5 +1817,287 @@ describe('fitting a board column', () => {
     const fit = fitColumn(col([2, 2]), 4)
     expect(fit.lines.map(l => l.text)).toEqual(['P0', 't0-0', 't0-1'])
     expect(fit.more).toBe(2)
+  })
+})
+
+describe('project list', () => {
+  const c = (slug: string, repo: string, status: string, mtimeMs: number, title?: string): Candidate => ({ slug, repo, status, mtimeMs, title })
+
+  test("lists this repo's non-done notes, active first, newest first, titles with slug fallback", () => {
+    const list = projectTasks(
+      [
+        c('a', '~/w', 'parked', 1, 'Old parked'),
+        c('b', '~/w/', 'active', 2, 'Active one'),
+        c('d', '~/w', 'done', 9, 'Done'),
+        c('e', '~/other', 'active', 9),
+        c('f', '~/w', '', 5),
+        c('g', '', 'active', 9),
+      ],
+      '/home/q/w/lib',
+      '/home/q',
+    )
+    expect(list.repo).toBe('w')
+    expect(list.tasks.map(t => [t.slug, t.title, t.status])).toEqual([
+      ['b', 'Active one', 'active'],
+      ['f', 'f', 'parked'],
+      ['a', 'Old parked', 'parked'],
+    ])
+  })
+
+  test('only the deepest matching root counts', () => {
+    const list = projectTasks([c('outer', '~/p', 'active', 1), c('inner', '~/p/w', 'parked', 1)], '/home/q/p/w', '/home/q')
+    expect(list.repo).toBe('w')
+    expect(list.tasks.map(t => t.slug)).toEqual(['inner'])
+  })
+
+  test('a file name resolution would refuse (not a slug) is left out', () => {
+    const list = projectTasks([c('My idea', '~/w', 'parked', 1), c('ok-one', '~/w', 'parked', 1)], '/home/q/w', '/home/q')
+    expect(list.tasks.map(t => t.slug)).toEqual(['ok-one'])
+  })
+
+  test('no match gives an empty repo and list', () => {
+    expect(projectTasks([c('x', '~/w', 'active', 1)], '/tmp', '/home/q')).toEqual({ repo: '', tasks: [] })
+  })
+
+  test('visibleParked caps at 5 unless open', () => {
+    const seven = Array.from({ length: 7 }, (_, i) => ({ slug: `p${i}`, title: `p${i}`, status: 'parked' as const, mtimeMs: 7 - i }))
+    expect(visibleParked(seven, false)).toEqual({ shown: seven.slice(0, 5), hidden: 2 })
+    expect(visibleParked(seven, true)).toEqual({ shown: seven, hidden: 0 })
+  })
+
+  test('heading reads the first # line', () => {
+    expect(heading('---\nx: 1\n---\n# Decide: encrypt google_tokens\n## Goal')).toBe('Decide: encrypt google_tokens')
+    expect(heading('no heading')).toBe('')
+  })
+})
+
+describe('project tasks pane', () => {
+  const PROJ = 'task-track-project'
+  const note = (title: string, status: string, repo = '~/w') => `---\nstatus: ${status}\nrepo: "${repo}"\n---\n# ${title}\n\n## Next\n- [ ] step\n`
+  const repoFiles = (parked = 2): Record<string, string> => {
+    const files: Record<string, string> = {
+      '/v/Tasks/.active': 'audit-calls\n',
+      // The session's own pick, as task-start writes it: notes share one mtime, and the repo match ranks newest, not active.
+      '/v/Tasks/.session/sess-test': 'audit-calls\n',
+      '/v/Tasks/audit-calls.md': note('Audit unbilled calls', 'active'),
+      '/v/Tasks/old-thing.md': note('Shipped already', 'done'),
+      '/v/Tasks/elsewhere.md': note('Other repo task', 'parked', '~/other'),
+    }
+    for (let i = 0; i < parked; i++) files[`/v/Tasks/parked-${i}.md`] = note(`Parked number ${i}`, 'parked')
+    return files
+  }
+  /** Answers ui.open as a surface that places the pane would, noting each id opened. */
+  const answerOpen = (on: On, opened: string[] = []) => {
+    on('ui.open', ($, e) => {
+      opened.push(e.id)
+      return { value: { isPlaced: true as const } }
+    })
+    return opened
+  }
+  const mountPane = ($: Engine, surface: 'terminal' | 'desktop' = 'terminal', bodyColumns = 60) =>
+    $.ui.mount({ plugin: 'task-track', surface, component: 'Pane', requestId: PROJ, props: { bodyColumns } as never })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`${surface}: lists this repo's active and parked tasks by title, session task marked, no button`, async ($, on) => {
+      mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+      mock.clock(on)
+      answerOpen(on)
+      fakeVault(on, repoFiles(), { root: '/home/q/w' })
+      const out = await run($, 'project-tasks', '')
+      expect(out.text).toBe('Project tasks: w')
+      const pane = await mountPane($, surface)
+      expect(await pane.find({ type: 'Text', text: /ACTIVE \(1\)/ })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /PARKED \(2\)/ })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /▸ Audit unbilled calls/ })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'proj-task-audit-calls' })).toBeUndefined()
+      expect(await pane.find({ type: 'Button', key: 'proj-task-parked-0' })).toBeDefined()
+      expect(await pane.find({ type: 'Button', key: 'proj-new' })).toBeDefined()
+      expect(JSON.stringify(await pane.drawn())).not.toMatch(/Shipped already|Other repo task/)
+    })
+  }
+
+  test('caps parked at 5; more expands, survives a reload, and Show less folds it', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    fakeVault(on, repoFiles(7), { root: '/home/q/w' })
+    await run($, 'project-tasks', '')
+    const pane = await mountPane($)
+    const parkedButtons = async () => (JSON.stringify(await pane.drawn()).match(/"key":"proj-task-parked-\d+","label"/g) ?? []).length
+    expect(await parkedButtons()).toBe(5)
+    expect(JSON.stringify(await pane.drawn())).toMatch(/… 2 more/)
+    await pane.press({ key: 'proj-more' })
+    await run($, 'project-tasks', '')
+    expect(await parkedButtons()).toBe(7)
+    expect(JSON.stringify(await pane.drawn())).toMatch(/Show less/)
+    await pane.press({ key: 'proj-more' })
+    expect(await parkedButtons()).toBe(5)
+  })
+
+  test('a long title is cut to the pane width', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    const files = repoFiles(0)
+    files['/v/Tasks/long-one.md'] = note(`Fix \`code\` and [[links]] ${'x'.repeat(80)}`, 'parked')
+    fakeVault(on, files, { root: '/home/q/w' })
+    await run($, 'project-tasks', '')
+    const pane = await mountPane($, 'terminal', 40)
+    const button = await pane.find({ type: 'Button', key: 'proj-task-long-one' })
+    const label = String(button?.props.label)
+    expect(label.length).toBeLessThanOrEqual(40)
+    expect(label.endsWith('…')).toBe(true)
+  })
+
+  test('a wide-character title is cut by screen cells, not characters', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    const files = repoFiles(0)
+    files['/v/Tasks/wide-one.md'] = note(`🚀 ${'修正'.repeat(30)}`, 'parked')
+    fakeVault(on, files, { root: '/home/q/w' })
+    await run($, 'project-tasks', '')
+    const pane = await mountPane($, 'terminal', 40)
+    const button = await pane.find({ type: 'Button', key: 'proj-task-wide-one' })
+    const label = String(button?.props.label)
+    expect(cells(label)).toBeLessThanOrEqual(38)
+    expect(label.endsWith('…')).toBe(true)
+  })
+
+  // The repo match never picks a done note, so only a session override can make one current.
+  test('a done session task is just absent: no marked row', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    const files = repoFiles()
+    files['/v/Tasks/.session/sess-test'] = 'old-thing\n'
+    files['/v/Tasks/audit-calls.md'] = note('Audit unbilled calls', 'parked')
+    fakeVault(on, files, { root: '/home/q/w' })
+    await run($, 'project-tasks', '')
+    const pane = await mountPane($)
+    expect(JSON.stringify(await pane.drawn())).not.toMatch(/▸/)
+    expect(await pane.find({ type: 'Text', text: /PARKED \(3\)/ })).toBeDefined()
+  })
+
+  test('a folder with no task notes says so and still offers New task', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    fakeVault(on, repoFiles(), { root: '/tmp/x' })
+    const out = await run($, 'project-tasks', '')
+    expect(out.text).toBe('No tasks for x in v.')
+    const pane = await mountPane($)
+    expect(await pane.find({ type: 'Text', text: 'No tasks for x in v.' })).toBeDefined()
+    expect(await pane.find({ type: 'Button', key: 'proj-new' })).toBeDefined()
+  })
+
+  test('the band has a Tasks button that opens the pane', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    const opened = answerOpen(on)
+    fakeVault(on, repoFiles(), { root: '/home/q/w' })
+    await run($, 'note', 'x')
+    const band = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+    await band.press({ key: 'project' })
+    expect(opened).toContain(PROJ)
+  })
+
+  test('the band Tasks button re-reads the notes before opening', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    const files = fakeVault(on, repoFiles(), { root: '/home/q/w' })
+    await run($, 'note', 'x')
+    files['/v/Tasks/fresh-one.md'] = note('Made a moment ago', 'parked')
+    const band = await $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+    await band.press({ key: 'project' })
+    const pane = await mountPane($)
+    expect(await pane.find({ type: 'Button', key: 'proj-task-fresh-one' })).toBeDefined()
+  })
+
+  /** Answers the chat box, fills, closes, toasts and submits beneath the plugin, recording each. */
+  const box = (on: On, draft: string, filled: { isFilled: true } | { isFilled: false; refusal?: 'dialog' | 'no_composer' } = { isFilled: true }) => {
+    const seen = { fills: [] as { text: string; mode?: string }[], closed: [] as string[], toasts: [] as string[], submits: [] as string[] }
+    on('prompt.read', () => ({ value: { text: draft, cursor: 0 } }))
+    on('prompt.fill', ($, e) => {
+      seen.fills.push({ text: e.text, mode: e.mode })
+      return filled.isFilled ? { isFilled: true, text: e.text, cursor: e.text.length } : { ...filled, text: draft, cursor: 0 }
+    })
+    on('ui.close', ($, e) => {
+      seen.closed.push(e.id)
+      return { value: undefined }
+    })
+    on('ui.toast', ($, e) => {
+      seen.toasts.push(e.text)
+      return { value: undefined }
+    })
+    on('prompt.submit', ($, e) => {
+      seen.submits.push(e.text)
+      return { text: e.text }
+    })
+    return seen
+  }
+  const openWith = async ($: Engine, on: On, files: Record<string, string>) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    fakeVault(on, files, { root: '/home/q/w' })
+    await run($, 'project-tasks', '')
+    return mountPane($)
+  }
+
+  test('a row press with an empty chat box fills the switch command and closes the pane, never submits', async ($, on) => {
+    const seen = box(on, '')
+    const pane = await openWith($, on, repoFiles())
+    await pane.press({ key: 'proj-task-parked-0' })
+    expect(seen.fills).toEqual([{ text: '/tasks:task-switch parked-0', mode: 'replace' }])
+    expect(seen.closed).toEqual([PROJ])
+    expect(seen.submits).toEqual([])
+    expect(seen.toasts).toEqual([])
+  })
+
+  test('a whitespace-only draft counts as empty', async ($, on) => {
+    const seen = box(on, '   \n')
+    const pane = await openWith($, on, repoFiles())
+    await pane.press({ key: 'proj-task-parked-1' })
+    expect(seen.fills).toEqual([{ text: '/tasks:task-switch parked-1', mode: 'replace' }])
+    expect(seen.closed).toEqual([PROJ])
+  })
+
+  test('a typed draft is left alone: no fill, no close, a toast says why', async ($, on) => {
+    const seen = box(on, 'half typed')
+    const pane = await openWith($, on, repoFiles())
+    await pane.press({ key: 'proj-task-parked-0' })
+    expect(seen.fills).toEqual([])
+    expect(seen.closed).toEqual([])
+    expect(seen.toasts).toEqual(['Chat box has a draft: clear it, then click again.'])
+  })
+
+  test('New task fills the start command with the cursor after it, even beside a note named new', async ($, on) => {
+    const seen = box(on, '')
+    const pane = await openWith($, on, { ...repoFiles(), '/v/Tasks/new.md': note('A note called new', 'parked') })
+    await pane.press({ key: 'proj-new' })
+    expect(seen.fills).toEqual([{ text: '/tasks:task-start ', mode: 'replace' }])
+    expect(seen.closed).toEqual([PROJ])
+  })
+
+  // A hook's refusal carries no cause (only the engine's own names `dialog` or `no_composer`), so a
+  // test reaches only the unknown-cause toast.
+  test('a refused fill keeps the pane open and toasts', async ($, on) => {
+    const seen = box(on, '', { isFilled: false })
+    const pane = await openWith($, on, repoFiles())
+    await pane.press({ key: 'proj-task-parked-0' })
+    expect(seen.closed).toEqual([])
+    expect(seen.toasts).toEqual(["Couldn't fill the chat box."])
+  })
+
+  test('with several vaults the fills name the vault', async ($, on) => {
+    const seen = box(on, '')
+    const files = repoFiles()
+    files['/home/q/.config/adhd-planner/vaults.json'] = JSON.stringify({ default: 'personal', vaults: { personal: { path: '/v' }, work: { path: '/w' } } })
+    const pane = await openWith($, on, files)
+    await pane.press({ key: 'proj-task-parked-0' })
+    await pane.press({ key: 'proj-new' })
+    expect(seen.fills.map(f => f.text)).toEqual(['/tasks:task-switch personal:parked-0', '/tasks:task-start personal:'])
   })
 })

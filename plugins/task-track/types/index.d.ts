@@ -1,5 +1,11 @@
 export type NextItem = { text: string; isDone: boolean }
 
+/** One task of the session's repo, as the project-tasks pane lists it. */
+export type ProjectTask = { slug: string; title: string; status: 'active' | 'parked'; mtimeMs: number }
+
+/** The session's repo (last path segment; '' when no note names it) and its non-done tasks. */
+export type ProjectList = { repo: string; tasks: ProjectTask[] }
+
 export type TaskView = {
   slug: string
   path: string
@@ -84,6 +90,10 @@ declare module 'claude-code' {
       toldBreakUntil: number
       /** This session already said that mv onto .pomo.json failed. */
       toldMvFailed: boolean
+      /** This session's repo and its non-done tasks, for the project-tasks pane; refreshed on every load. */
+      projectList: ProjectList
+      /** The project-tasks pane lists every parked task, not the first five. */
+      isProjectMoreOpen: boolean
       /** The vault the /board pane shows; null until /board runs. */
       board: BoardTarget | null
     }

@@ -1,6 +1,7 @@
 // Which task a session shows. Pure: register.tsx gathers the inputs (IO at the edge).
 
-export type Candidate = { slug: string; repo: string; status: string; mtimeMs: number }
+/** `title` is the note's `# ` heading, for listing; resolution never reads it. */
+export type Candidate = { slug: string; repo: string; status: string; mtimeMs: number; title?: string }
 export type Source = 'session' | 'repo' | 'global'
 
 export const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/

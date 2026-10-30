@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import type { BoardTarget, PomoFile, TaskView } from '../types'
+import type { BoardTarget, PomoFile, ProjectList, TaskView } from '../types'
 import { boardHeader, boardNote, buildBoard, fitColumn } from './board'
 import type { BoardColumn, BoardNote } from './board'
-import { codeSpans, elapsed, firstOpen, insertInSection, logEntry, logOrder, parseNote, progress, splitEstimate, stamp, toggleNext, truncate } from './note'
+import { codeSpans, elapsed, firstOpen, fitCells, heading, insertInSection, logEntry, logOrder, parseNote, progress, splitEstimate, stamp, toggleNext, truncate } from './note'
 import {
   advance,
   isRunning,
@@ -29,6 +29,7 @@ import {
 } from './pomo'
 import type { DayTotals, PomoConfig, PomoEvent, Transition } from './pomo'
 import { defaultVault, frontmatter, implicitVault, isSlug, normalize, parseVaults, pickVault, taskNotePath, zoneFor } from './resolve'
+import { PARKED_CAP, projectTasks, visibleParked } from './project'
 import { blockSummary, checkedTitles, SUMMARY_SYSTEM, summaryPrompt } from './summary'
 import type { NoteRead } from './summary'
 import type { Candidate, VaultConfig, VaultSpec, VaultState } from './resolve'
@@ -44,9 +45,12 @@ const vaultName = atom({ plugin: 'task-track', key: 'vaultName' } as const, '')
 const configError = atom({ plugin: 'task-track', key: 'configError' } as const, '')
 const toldBreakUntil = atom({ plugin: 'task-track', key: 'toldBreakUntil' } as const, 0)
 const toldMvFailed = atom({ plugin: 'task-track', key: 'toldMvFailed' } as const, false)
+const projectList = atom({ plugin: 'task-track', key: 'projectList' } as const, { repo: '', tasks: [] } as ProjectList)
+const isProjectMoreOpen = atom({ plugin: 'task-track', key: 'isProjectMoreOpen' } as const, false)
 const board = atom({ plugin: 'task-track', key: 'board' } as const, null)
 
 const PANE = 'task-track'
+const PROJECT_PANE = 'task-track-project'
 const BOARD_PANE = 'task-track-board'
 /** Board rows that are not a column's cards: the header, the gap under it, the column's border (2) and its title. */
 const BOARD_CHROME_ROWS = 5
@@ -133,11 +137,11 @@ async function vaultState($: EngineInterface, v: VaultSpec, sessionId: string): 
   return { vault: v, candidates: found, override, overrideMtimeMs, global }
 }
 
-/** Every task note's slug, repo, status and mtime; [] when there is no Tasks/ folder. */
+/** Every task note's slug, repo, status, mtime and title; [] when there is no Tasks/ folder. */
 async function candidates($: EngineInterface, root: string): Promise<Candidate[]> {
   return scanNotes($, root, noteCache, (slug, text, mtimeMs) => {
     const fm = frontmatter(text)
-    return { slug, repo: fm.repo, status: fm.status, mtimeMs }
+    return { slug, repo: fm.repo, status: fm.status, mtimeMs, title: heading(text) }
   })
 }
 
@@ -195,6 +199,7 @@ async function load($: EngineInterface): Promise<TaskView | null> {
   const isVaultChange = vault !== '' && root !== vault
   if (prev && isVaultChange) await flushFocus($, prev.slug, prev.path)
   vault = root
+  await update($, projectList, () => projectTasks(states.find(s => s.vault.path === root)?.candidates ?? [], dir, home))
   zone = zoneFor(config, (await $.env.get('TZ')) ?? '')
   await update($, source, () => picked?.reason ?? 'global')
   await update($, vaultName, () => (config.vaults.length > 1 && picked ? picked.vault.name : ''))
@@ -586,6 +591,52 @@ async function boardColumns($: EngineInterface, root: string): Promise<BoardColu
   return buildBoard(await boardNotes($, root), await today($))
 }
 
+/** The last segment of a path, for naming a folder or vault. */
+function basename(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1)
+}
+
+/** What the project-tasks pane and its command say when no note names this folder. */
+async function noProjectLine($: EngineInterface): Promise<string> {
+  return `No tasks for ${basename(await $.session.root())} in ${basename(await currentVault($))}.`
+}
+
+/** Re-reads the notes, then opens the project pane: from /project-tasks and the band's Tasks. */
+async function showProjectTasks($: EngineInterface): Promise<void> {
+  await markActive($)
+  await load($)
+  await openProjectPane($)
+}
+
+async function openProjectPane($: EngineInterface): Promise<void> {
+  const { repo } = await read($, projectList)
+  const prefix = await read($, vaultName)
+  await $.ui.open({ id: PROJECT_PANE, title: `Tasks · ${prefix ? `${prefix} · ` : ''}${repo || basename(await $.session.root())}`, focus: true })
+}
+
+const FILL_REFUSED: Record<'dialog' | 'no_composer', string> = {
+  dialog: 'Close the dialog, then click again.',
+  no_composer: 'No chat box in this session.',
+}
+
+/**
+ * Puts `text` in the chat box for the person to send, then closes the project pane so their Enter
+ * reaches the box (a pane Button press keeps the keys). Never submits; never overwrites a draft.
+ */
+async function fillFromPane($: EngineInterface, text: string): Promise<void> {
+  await markActive($)
+  if ((await $.prompt.read()).text.trim()) {
+    $.ui.toast('Chat box has a draft: clear it, then click again.')
+    return
+  }
+  const filled = await $.prompt.fill({ text, mode: 'replace' })
+  if (!filled.isFilled) {
+    $.ui.toast(filled.refusal ? FILL_REFUSED[filled.refusal] : "Couldn't fill the chat box.")
+    return
+  }
+  await $.ui.close({ id: PROJECT_PANE })
+}
+
 async function noteFromPane($: EngineInterface, slug: string, value: string): Promise<void> {
   const text = value.trim()
   if (!text) return
@@ -627,6 +678,7 @@ const COMMANDS = [
   { name: 'note', description: 'Add a line to the active task Log (no model turn)', argumentHint: '<text>', immediate: true },
   { name: 'done', description: 'Check off a Next item (default: the first open one)', argumentHint: '[n]', immediate: true },
   { name: 'openloop', description: 'Add an Open loop to the active task', argumentHint: '<text>', immediate: true },
+  { name: 'project-tasks', description: "Show this repo's active and parked tasks; a click fills the switch command", immediate: true },
   { name: 'pomo', description: 'Pomodoro: /pomo pauses or resumes; /pomo start|pause|resume|stop', argumentHint: '[start|pause|resume|stop]', immediate: true },
 ] as const
 
@@ -716,6 +768,12 @@ export const register: Register = (on, options) => {
     const view = await load($)
     await openPane($)
     return { text: view ? `Task pane: ${view.slug}` : (await read($, problem)) || 'No active task. /tasks:task-start <name>' }
+  })
+
+  on('command.run', { command: 'project-tasks' }, async ($, e) => {
+    await showProjectTasks($)
+    const { repo } = await read($, projectList)
+    return { text: repo ? `Project tasks: ${repo}` : await noProjectLine($) }
   })
 
   on('command.run', { command: 'board' }, async ($, e) => {
@@ -808,6 +866,7 @@ export const register: Register = (on, options) => {
           <Box flexShrink={0} gap={1}>
             {open && <Button key="done" label="Done" onPress={() => pressDoneFirst($)} />}
             <Button key="pane" label="Task" onPress={() => openPane($)} />
+            <Button key="project" label="Tasks" onPress={() => showProjectTasks($)} />
             <Button key="hide" label="Hide" onPress={() => hideBand($)} />
           </Box>
         </Box>
@@ -996,6 +1055,48 @@ export const register: Register = (on, options) => {
               </Box>
             )
           })}
+        </Box>
+      </Box>
+    )
+  })
+
+  // ── project-tasks pane: this repo's tasks; a press fills the chat box ───────
+
+  on('ui.render', { component: 'Pane', requestId: PROJECT_PANE }, async ($, e) => {
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const { repo, tasks } = await read($, projectList)
+    const current = (await read($, task))?.slug
+    const prefix = await read($, vaultName)
+    const isOpen = await read($, isProjectMoreOpen)
+    // With several vaults a bare slug makes the skills look in the session-start vault first.
+    const vaultPrefix = prefix ? `${prefix}:` : ''
+    const width = Math.max(20, e.props.bodyColumns)
+    const active = tasks.filter(t => t.status === 'active')
+    const parked = visibleParked(tasks.filter(t => t.status === 'parked'), isOpen)
+    const allParked = parked.shown.length + parked.hidden
+    // Title cut by hand: a Button draws its label whole, so a long one would wrap.
+    const row = (t: ProjectList['tasks'][number]) =>
+      t.slug === current ? (
+        <Text key={`proj-task-${t.slug}`} bold color="suggestion" wrap="truncate-end">▸ {t.title}</Text>
+      ) : (
+        <Box key={`proj-task-${t.slug}`}>
+          <Text>  </Text>
+          <Button key={`proj-task-${t.slug}`} plain label={fitCells(t.title, width - 2)} onPress={() => fillFromPane($, `/tasks:task-switch ${vaultPrefix}${t.slug}`)} />
+        </Box>
+      )
+    return (
+      <Box flexDirection="column" width={width}>
+        <Text bold color="claude" wrap="truncate-end">Tasks · {prefix ? `${prefix} · ` : ''}{repo || basename(await $.session.root())}</Text>
+        {repo ? null : <Text>{await noProjectLine($)}</Text>}
+        {active.length > 0 ? <Text bold color="success">ACTIVE ({active.length})</Text> : null}
+        {active.map(row)}
+        {allParked > 0 ? <Text bold color="warning">PARKED ({allParked})</Text> : null}
+        {parked.shown.map(row)}
+        {allParked > PARKED_CAP ? (
+          <Button key="proj-more" plain dimColor label={isOpen ? 'Show less' : `… ${parked.hidden} more`} onPress={() => update($, isProjectMoreOpen, v => !v)} />
+        ) : null}
+        <Box marginTop={1}>
+          <Button key="proj-new" label="+ New task" onPress={() => fillFromPane($, `/tasks:task-start ${vaultPrefix}`)} />
         </Box>
       </Box>
     )
