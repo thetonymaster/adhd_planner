@@ -9,7 +9,7 @@ from pathlib import Path
 from . import actions, files, paths, settings
 
 MENU = ("Status", "Install plugins (Claude Code)", "Settings (vault path, permissions)",
-        "Vault starter", "Add another vault", "Timezone", "Example CLAUDE.md", "Cowork steps", "Quit")
+        "Vault starter", "Update existing vaults (task board)", "Add another vault", "Timezone", "Example CLAUDE.md", "Cowork steps", "Quit")
 
 
 def _ctx(args: argparse.Namespace, confirm=None) -> actions.Ctx:
@@ -31,6 +31,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--permissions", action="store_true", help="also allow Bash(obsidian:*)")
     p = sub.add_parser("vault")
     p.add_argument("--vault", type=Path)
+    sub.add_parser("update-vaults", help="add the task board to every registered vault: Tasks.base views + board plugin")
     p = sub.add_parser("add-vault", help="register another vault in ~/.config/adhd-planner/vaults.json")
     p.add_argument("name", help="kebab-case, e.g. work")
     p.add_argument("--path", type=Path, required=True)
@@ -76,6 +77,8 @@ def _menu(args: argparse.Namespace) -> int:
             vault = questionary.path("Create the starter vault at", default=default_vault).ask()
             if vault:
                 actions.seed_vault(ctx, Path(os.path.expanduser(vault)).absolute())
+        elif choice.startswith("Update existing vaults"):
+            actions.update_vaults(ctx)
         elif choice == "Add another vault":
             name = questionary.text("Name (kebab-case, e.g. work)").ask()
             where = questionary.path("Vault path", only_directories=True).ask()
@@ -113,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         "install": lambda: actions.install(ctx, args.plugins),
         "settings": lambda: actions.configure(ctx, vault, args.permissions),
         "vault": lambda: actions.seed_vault(ctx, vault),
+        "update-vaults": lambda: actions.update_vaults(ctx),
         "add-vault": lambda: actions.add_vault(ctx, args.name, Path(os.path.expanduser(str(args.path))).absolute(),
                                                args.folder, args.existing_name),
         "timezone": lambda: actions.set_timezone(ctx, args.zone, args.existing_name),
