@@ -5,15 +5,17 @@ Keeps the active Obsidian task note (the session's task: its /tasks:task-switch 
 ## What it shows
 
 - **Band above the prompt**, only while a task is active:
-  `▶ set-up-vault  Next: Copy hooks (~10 min)  1/3 · ●○○○ 12/25m  [Done] [Task] [Hide]`
+  `▶ set-up-vault  Next: Copy hooks (~10 min)  1/3 · ●○○○ 12/25m  [Done] [Task] [Tasks] [Hide]`
 - **Status line**: `▶ set-up-vault 1/3 · ●○○○ 12/25m`
 - **Pane** (`/task`): goal, Next as toggles, open loops, last 5 log lines, a note field, Park and Open in Obsidian.
+- **Project tasks pane** (`/project-tasks`, or `Tasks` on the band): this repo's active and parked tasks by title (the 5 newest parked, `… N more` for the rest). A click fills the chat box with `/tasks:task-switch <slug>` (`+ New task`: `/tasks:task-start `) and closes the pane; you press Enter. It never sends, and leaves a typed draft alone.
 
 ## Commands (run mid-turn, no model turn)
 
 | Command | Does |
 |---|---|
 | `/task` | Opens the pane. `/task hide` / `/task show` toggles the band. |
+| `/project-tasks` | Opens the project tasks pane. |
 | `/note <text>` | Adds `- [[date]] HH:MM — text` to the Log |
 | `/done [n]` | Checks off item n, or the first open one (again to reopen) |
 | `/openloop <text>` | Adds an Open loop (`/loop` is a built-in) |

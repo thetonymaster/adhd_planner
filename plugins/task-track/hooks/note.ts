@@ -19,9 +19,14 @@ function sectionLines(lines: readonly string[], name: string): string[] {
   return range ? lines.slice(range[0] + 1, range[1]) : []
 }
 
+/** The first `# ` line, trimmed; '' when the note has none. */
+export function heading(text: string): string {
+  return text.split('\n').find(l => l.startsWith('# '))?.slice(2).trim() ?? ''
+}
+
 export function parseNote(slug: string, path: string, text: string, mtimeMs: number): TaskView {
   const lines = text.split('\n')
-  const title = lines.find(l => l.startsWith('# '))?.slice(2).trim() || slug
+  const title = heading(text) || slug
   const up = /^up:\s*"?\[\[([^\]|]+)/m.exec(text)?.[1] ?? ''
   const goal = sectionLines(lines, 'Goal').map(l => l.trim()).filter(Boolean).join(' ')
   const next: NextItem[] = sectionLines(lines, 'Next').flatMap(l => {
@@ -112,6 +117,41 @@ export function stamp(d: Date, timeZone: string): { date: string; time: string }
 
 export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`
+}
+
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u
+// East Asian Wide/Fullwidth blocks: Hangul Jamo, CJK + kana, Hangul, compatibility, fullwidth forms, CJK ext.
+const WIDE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]|[\u{20000}-\u{3FFFD}]/u
+
+const SPACING_MARK = /\p{Mc}/gu
+
+function graphemeCells(g: string): number {
+  const cp = g.codePointAt(0) ?? 0
+  if (WIDE.test(g) || (EMOJI.test(g) && (cp >= 0x1f000 || g.includes('️')))) return 2
+  // As wcwidth: each spacing mark (the ा in का) takes a cell of its own.
+  return 1 + (g.match(SPACING_MARK)?.length ?? 0)
+}
+
+/** Terminal cells a string takes: wide (CJK, emoji) graphemes count 2, spacing marks 1 more, anything else 1. */
+export function cells(text: string): number {
+  let n = 0
+  for (const { segment } of GRAPHEMES.segment(text)) n += graphemeCells(segment)
+  return n
+}
+
+/** `text` in at most `max` cells, cut at a grapheme boundary with `…` (1 cell) when it does not fit. */
+export function fitCells(text: string, max: number): string {
+  if (cells(text) <= max) return text
+  let out = ''
+  let used = 0
+  for (const { segment } of GRAPHEMES.segment(text)) {
+    const w = graphemeCells(segment)
+    if (used + w > max - 1) break
+    out += segment
+    used += w
+  }
+  return `${out}…`
 }
 
 const ESTIMATE = /\s*\(~\s*(\d+)\s*(min|m|hours?|h|days?|d)\b[^)]*\)\s*$/
