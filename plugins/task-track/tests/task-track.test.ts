@@ -1766,6 +1766,17 @@ describe('/board pane', () => {
     expect(await pane.find({ type: 'Text', text: /Set up vault/ })).toBeUndefined()
   })
 
+  test('an unreadable note is named; the other cards still show', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    fakeVault(on, { ...vault, '/w/Tasks/bad.md': card('parked', 'Bad') }, {}, { unreadable: ['/w/Tasks/bad.md'] })
+    opens(on)
+    expect((await run($, 'board', 'work')).text).toBe('Board: work · Doing 0 · Parked 1 · Done 0 · unreadable: bad.md')
+    const pane = await mount($)
+    expect(await pane.find({ type: 'Text', text: /Deploy fix/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: 'unreadable: bad.md' })).toBeDefined()
+  })
+
   test('an unknown vault names the registered ones and opens nothing', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: NOW })

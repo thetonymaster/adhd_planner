@@ -132,7 +132,7 @@ Order: `vaults.json`'s `timezone`, else `$TZ`, else the system clock. A name tha
 
 ## Task board in Obsidian
 
-`Tasks.base` has a **Board** view (columns Parked · Active · Done, by each note's `status`; drag a card to change it) and a **Done (7 days)** table. The Board needs the community plugin [Kanban Bases View](https://github.com/xiwcx/obsidian-bases-kanban) (`kanban-bases-view`, pinned to 0.10.6) and Obsidian 1.10+ (Bases). A new starter vault gets both; for vaults you already have, run:
+`Tasks.base` has a **Board** view (columns Parked · Active · Done, by each note's `status`; drag a card to change it) and a **Done (7 days)** table. Dragging a card to Done sets `status: done` but not `finished:`, and both views show a done note only while `finished` is in the last 7 days, so the card disappears: finish a task with `/tasks:task-finish` (sets both), or fill in `finished: YYYY-MM-DD` yourself after the drag. The Board needs the community plugin [Kanban Bases View](https://github.com/xiwcx/obsidian-bases-kanban) (`kanban-bases-view`, pinned to 0.10.6) and Obsidian 1.10+ (Bases). A new starter vault gets both; for vaults you already have, run:
 
 ```bash
 uvx --from "git+https://github.com/thetonymaster/adhd_planner#subdirectory=setup" planner-setup update-vaults

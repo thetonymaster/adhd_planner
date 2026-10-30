@@ -1,9 +1,15 @@
+import hashlib
 import http.client
 import json
+import re
+
+import pytest
 
 from planner_setup import board_plugin, paths
 from planner_setup.board_plugin import (BOARD_VIEW, DONE_VIEW, DONE_VIEW_NAME, PLUGIN_FILES, PLUGIN_ID, PLUGIN_REPO,
                                         PLUGIN_VERSION, install_plugin, installed_version, merge_base)
+
+REAL_SHA256 = dict(board_plugin.PLUGIN_SHA256)
 
 
 def starter_base() -> str:
@@ -89,16 +95,28 @@ BASE_WITH_OTHER_BOARD = PERSONAL_BASE + '''\
 '''
 
 
-def fake_fetch(calls=None, fail_on=None, version=PLUGIN_VERSION):
+def fake_asset(name, version=PLUGIN_VERSION):
+    if name == "manifest.json":
+        return json.dumps({"id": PLUGIN_ID, "version": version}).encode()
+    return f"/* {name} */".encode()
+
+
+@pytest.fixture(autouse=True)
+def fake_release_digests(monkeypatch):
+    """fake_fetch's bytes stand in for the release, so the pin is their digests."""
+    monkeypatch.setattr(board_plugin, "PLUGIN_SHA256", {n: hashlib.sha256(fake_asset(n)).hexdigest() for n in PLUGIN_FILES})
+
+
+def fake_fetch(calls=None, fail_on=None, version=PLUGIN_VERSION, tamper=None):
     def fetch(url):
         if calls is not None:
             calls.append(url)
         name = url.rsplit("/", 1)[1]
         if name == fail_on:
             raise OSError(f"no route to host for {name}")
-        if name == "manifest.json":
-            return json.dumps({"id": PLUGIN_ID, "version": version}).encode()
-        return f"/* {name} */".encode()
+        if name == tamper:
+            return b"/* not the release */"
+        return fake_asset(name, version)
     return fetch
 
 
@@ -198,6 +216,27 @@ def test_install_refuses_a_release_with_another_version(tmp_path):
     vault = obsidian(tmp_path)
     result = install_plugin(vault, fake_fetch(version="0.0.1"), tmp_path / "backups", home=tmp_path)
     assert result.startswith("failed: ") and "0.0.1" in result
+    assert not (vault / ".obsidian" / "plugins").exists()
+
+
+def test_every_release_file_has_a_pinned_sha256():
+    assert set(REAL_SHA256) == set(PLUGIN_FILES)
+    assert all(re.fullmatch(r"[0-9a-f]{64}", d) for d in REAL_SHA256.values())
+
+
+def test_install_refuses_a_file_whose_digest_differs(tmp_path):
+    vault = obsidian(tmp_path, ["meetings-plus"])
+    result = install_plugin(vault, fake_fetch(tamper="main.js"), tmp_path / "backups", home=tmp_path)
+    assert result.startswith("failed: ") and "main.js" in result and "sha256" in result
+    assert not (vault / ".obsidian" / "plugins" / PLUGIN_ID).exists()
+    assert json.loads((vault / ".obsidian" / "community-plugins.json").read_text()) == ["meetings-plus"]
+
+
+def test_install_reports_a_community_plugins_file_that_is_not_utf8(tmp_path):
+    vault = obsidian(tmp_path)
+    (vault / ".obsidian" / "community-plugins.json").write_bytes(b'["caf\xe9"]')
+    result = install_plugin(vault, fake_fetch(), tmp_path / "backups", home=tmp_path)
+    assert result.startswith("failed: ") and "community-plugins.json" in result
     assert not (vault / ".obsidian" / "plugins").exists()
 
 

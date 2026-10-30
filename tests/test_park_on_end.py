@@ -42,6 +42,12 @@ class ParkTest(unittest.TestCase):
         out = park_on_end.park(text, STAMP).splitlines()
         self.assertEqual(out[out.index("## Later") - 2], LINE)
 
+    def test_crlf_note_is_parked_and_stays_crlf(self):
+        out = park_on_end.park(NOTE.format(status="active").replace("\n", "\r\n"), STAMP)
+        self.assertIn("\r\nstatus: parked\r\n", out)
+        self.assertTrue(out.endswith(LINE + "\r\n"))
+        self.assertNotIn("\n", out.replace("\r\n", ""))
+
     def test_missing_log_section_is_created_at_end(self):
         out = park_on_end.park("---\nstatus: active\n---\n# t\n", STAMP)
         self.assertTrue(out.endswith("## Log\n" + LINE + "\n"))
@@ -110,6 +116,44 @@ class MainTest(unittest.TestCase):
         self.assertEqual(self.run_main(), (0, ""))
         self.assertIn("status: parked", p.read_text())
         self.assertEqual(p.stat().st_mode & 0o777, 0o644)
+
+    def test_crlf_note_on_disk_is_parked_and_stays_crlf(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_bytes(NOTE.format(status="active").replace("\n", "\r\n").encode())
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        self.assertEqual(self.run_main(), (0, ""))
+        raw = p.read_bytes()
+        self.assertIn(b"\r\nstatus: parked\r\n", raw)
+        self.assertNotIn(b"\n", raw.replace(b"\r\n", b""))
+
+    def test_a_write_after_the_read_is_kept_and_the_note_still_parked(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_text(NOTE.format(status="active"))
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        real_read, calls = park_on_end._read, []
+
+        def read_then_someone_writes(path):
+            text = real_read(path)
+            if path == p and not calls:
+                calls.append(path)
+                p.write_text(text + "- [[2026-10-29]] 16:39 — from /note\n")  # lands between our read and replace
+            return text
+        with mock.patch.object(park_on_end, "_read", side_effect=read_then_someone_writes):
+            self.assertEqual(self.run_main(), (0, ""))
+        text = p.read_text()
+        self.assertIn("— from /note", text)
+        self.assertIn("status: parked", text)
+
+    def test_a_note_that_keeps_changing_is_left_active_with_stderr_line(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_text(NOTE.format(status="active"))
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        with mock.patch.object(park_on_end, "version", side_effect=lambda path, n=iter(range(100)): (next(n), 0)):
+            rc, err = self.run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn(f"park_on_end: note kept changing, left active: {p}", err)
+        self.assertEqual(p.read_text(), NOTE.format(status="active"))
+        self.assertEqual(sorted(x.name for x in p.parent.iterdir() if x.name.startswith(".t.md.")), [])
 
     def test_unexpected_error_returns_0_with_stderr_line(self):
         (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")

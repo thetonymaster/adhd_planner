@@ -5,7 +5,7 @@ from pathlib import Path
 from planner_setup import actions, paths
 from planner_setup.board_plugin import (BOARD_VIEW, DONE_VIEW, PLUGIN_FILES, PLUGIN_ID, PLUGIN_REPO, PLUGIN_VERSION,
                                         installed_version)
-from test_board_plugin import BASE_WITH_OTHER_BOARD, PERSONAL_BASE, fake_fetch
+from test_board_plugin import BASE_WITH_OTHER_BOARD, PERSONAL_BASE, fake_fetch, fake_release_digests  # noqa: F401 (autouse fixture)
 
 
 def text(ctx):

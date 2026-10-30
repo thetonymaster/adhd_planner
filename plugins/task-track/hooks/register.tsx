@@ -145,13 +145,28 @@ async function candidates($: EngineInterface, root: string): Promise<Candidate[]
   })
 }
 
-/** Every task note's board fields; [] when there is no Tasks/ folder. */
-async function boardNotes($: EngineInterface, root: string): Promise<BoardNote[]> {
-  return scanNotes($, root, boardCache, (slug, text) => boardNote(slug, text))
+/**
+ * Every readable task note's board fields, and the file names of notes that exist but could not be read:
+ * the board shows what it can and names the rest. [] when there is no Tasks/ folder.
+ */
+async function boardNotes($: EngineInterface, root: string): Promise<{ notes: BoardNote[]; unreadable: string[] }> {
+  const unreadable: string[] = []
+  const notes = await scanNotes($, root, boardCache, (slug, text) => boardNote(slug, text), name => unreadable.push(name))
+  return { notes, unreadable }
 }
 
-/** Each note in `root`/Tasks through `parse`, re-read only when its mtime moved since `cache` last saw it. */
-async function scanNotes<T>($: EngineInterface, root: string, cache: Map<string, Cached<T>>, parse: (slug: string, text: string, mtimeMs: number) => T): Promise<T[]> {
+/**
+ * Each note in `root`/Tasks through `parse`, re-read only when its mtime moved since `cache` last saw it.
+ * A note that exists but can't be read goes to `onUnreadable` when given; without it the error propagates
+ * (resolution must see every note, as vaults.py does).
+ */
+async function scanNotes<T>(
+  $: EngineInterface,
+  root: string,
+  cache: Map<string, Cached<T>>,
+  parse: (slug: string, text: string, mtimeMs: number) => T,
+  onUnreadable?: (name: string) => void,
+): Promise<T[]> {
   const dir = `${root}/Tasks`
   if (!(await $.fs.exists(dir))) return []
   const out: T[] = []
@@ -160,9 +175,11 @@ async function scanNotes<T>($: EngineInterface, root: string, cache: Map<string,
     const path = `${dir}/${entry.name}`
     let c = cache.get(path)
     if (!c || c.mtimeMs !== entry.mtimeMs) {
-      // Deleted between the listing and the read: left out. Any other read error propagates.
+      // Deleted between the listing and the read: left out. Any other read error goes to onUnreadable, else propagates.
       const text = await $.fs.read(path).catch(async (err: unknown) => {
-        if (await $.fs.exists(path)) throw err
+        if (!(await $.fs.exists(path))) return undefined
+        if (!onUnreadable) throw err
+        onUnreadable(entry.name)
         return undefined
       })
       if (text === undefined) continue
@@ -586,9 +603,15 @@ async function boardTarget($: EngineInterface, name: string): Promise<BoardTarge
   return { name: v.name, path: v.path, hasOthers }
 }
 
-/** The board of one vault, read fresh; Done counts days in the stamps' zone. */
-async function boardColumns($: EngineInterface, root: string): Promise<BoardColumn[]> {
-  return buildBoard(await boardNotes($, root), await today($))
+/** The board of one vault, read fresh, and the notes it could not read; Done counts days in the stamps' zone. */
+async function boardColumns($: EngineInterface, root: string): Promise<{ columns: BoardColumn[]; unreadable: string[] }> {
+  const { notes, unreadable } = await boardNotes($, root)
+  return { columns: buildBoard(notes, await today($)), unreadable }
+}
+
+/** `unreadable: a.md, b.md`, or '' when every note was read. */
+function unreadableLine(names: readonly string[]): string {
+  return names.length ? `unreadable: ${names.join(', ')}` : ''
 }
 
 /** The last segment of a path, for naming a folder or vault. */
@@ -780,9 +803,9 @@ export const register: Register = (on, options) => {
     const target = await boardTarget($, e.args.trim())
     if (typeof target === 'string') return { text: target }
     await update($, board, () => target)
-    const columns = await boardColumns($, target.path)
+    const { columns, unreadable } = await boardColumns($, target.path)
     await $.ui.open({ id: BOARD_PANE, title: `Board · ${target.name}`, focus: true })
-    return { text: `Board: ${boardHeader(target.name, columns)}` }
+    return { text: [`Board: ${boardHeader(target.name, columns)}`, unreadableLine(unreadable)].filter(Boolean).join(' · ') }
   })
 
   on('command.run', { command: 'note' }, async ($, e) => {
@@ -1023,7 +1046,7 @@ export const register: Register = (on, options) => {
     const { Box, Text } = $.ui.resolve(e)
     const target = await read($, board)
     if (!target) return <Text>/board to show the task board.</Text>
-    const columns = await boardColumns($, target.path)
+    const { columns, unreadable } = await boardColumns($, target.path)
     const view = await read($, task)
     // The session's task is marked only on its own vault's board.
     const mine = view && view.path === taskNotePath(target.path, view.slug) ? view.slug : ''
@@ -1035,6 +1058,7 @@ export const register: Register = (on, options) => {
         <Box gap={2}>
           <Text color="subtle">{boardHeader(target.name, columns)}</Text>
           {target.hasOthers ? <Text dimColor>/board &lt;vault&gt; to switch</Text> : null}
+          {unreadable.length ? <Text color="warning" wrap="truncate-end">{unreadableLine(unreadable)}</Text> : null}
         </Box>
         <Box flexDirection="row" gap={1} marginTop={1}>
           {columns.map(column => {

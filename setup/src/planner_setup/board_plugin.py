@@ -7,6 +7,7 @@ Dragging a card rewrites the grouped property in the note's frontmatter.
 """
 from __future__ import annotations
 
+import hashlib
 import http.client
 import json
 import re
@@ -22,6 +23,13 @@ PLUGIN_ID = "kanban-bases-view"
 PLUGIN_VERSION = "0.10.6"
 PLUGIN_REPO = "xiwcx/obsidian-bases-kanban"
 PLUGIN_FILES = ("manifest.json", "main.js", "styles.css")
+# SHA-256 of each 0.10.6 release asset. The tag pins a name, not bytes: release assets can be replaced,
+# and Obsidian runs main.js with full access to the machine. Change together with PLUGIN_VERSION.
+PLUGIN_SHA256 = {
+    "manifest.json": "fe6222590b00dd6da8ebc6338111147c004bcf865757b5084bda6d2396ed3e19",
+    "main.js": "154cec90036c1f582c7b1ad270c5ee56466909259dd31bb9e60b91f139c597e3",
+    "styles.css": "fe444af65f188f5b8bbf6739364154be498a62fb393e394f0cb3eb23debe2299",
+}
 
 # 7 days including today, matching /board in task-track.
 DONE_WINDOW = 'finished >= today() - "6 days"'
@@ -123,7 +131,7 @@ def installed_version(vault: Path) -> str | None:
     if not manifest.exists():
         return None
     try:
-        return json.loads(manifest.read_text()).get("version")
+        return json.loads(manifest.read_text(encoding="utf-8")).get("version")
     except (ValueError, AttributeError):
         return None  # a broken copy: install_plugin replaces it, after a backup
 
@@ -141,11 +149,11 @@ def install_plugin(vault: Path, fetch: Callable[[str], bytes], backups: Path, *,
     Returns "installed", "present" (this version was already there) or "failed: <why>".
     """
     registry = vault / ".obsidian" / "community-plugins.json"
-    raw = registry.read_text() if registry.exists() else ""
     try:
+        raw = registry.read_text(encoding="utf-8") if registry.exists() else ""
         enabled = json.loads(raw) if raw.strip() else []
-    except ValueError as err:
-        return f"failed: {registry} is not valid JSON ({err})"
+    except (OSError, ValueError) as err:  # UnicodeDecodeError is a ValueError
+        return f"failed: {registry} could not be read as UTF-8 JSON ({err})"
     if not isinstance(enabled, list) or not all(isinstance(p, str) for p in enabled):
         return f"failed: {registry} holds {raw.strip()[:80]!r}, expected a JSON list of plugin ids"
     present = installed_version(vault) == PLUGIN_VERSION
@@ -160,11 +168,15 @@ def install_plugin(vault: Path, fetch: Callable[[str], bytes], backups: Path, *,
                     # URLError, HTTPError and timeouts are OSErrors; a cut-off body is IncompleteRead; a bad URL is ValueError
                     return f"failed: could not download {url} ({err})"
             try:
-                got = json.loads((staged / "manifest.json").read_text()).get("version")
+                got = json.loads((staged / "manifest.json").read_text(encoding="utf-8")).get("version")
             except (ValueError, AttributeError) as err:
                 return f"failed: {release_url('manifest.json')} is not a plugin manifest ({err})"
             if got != PLUGIN_VERSION:
                 return f"failed: {release_url('manifest.json')} says version {got!r}, expected {PLUGIN_VERSION}"
+            for name in PLUGIN_FILES:
+                digest = hashlib.sha256((staged / name).read_bytes()).hexdigest()
+                if digest != PLUGIN_SHA256[name]:
+                    return f"failed: {release_url(name)} has sha256 {digest}, expected {PLUGIN_SHA256[name]}"
             dest = plugin_dir(vault)
             files.backup(dest, backups, home=home)
             dest.mkdir(parents=True, exist_ok=True)
