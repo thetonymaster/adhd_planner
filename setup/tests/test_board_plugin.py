@@ -1,3 +1,4 @@
+import http.client
 import json
 
 from planner_setup import board_plugin, paths
@@ -181,6 +182,16 @@ def test_install_failed_fetch_leaves_nothing(tmp_path):
     assert result.startswith("failed: ") and "main.js" in result
     assert not (vault / ".obsidian" / "plugins" / PLUGIN_ID).exists()
     assert json.loads((vault / ".obsidian" / "community-plugins.json").read_text()) == ["meetings-plus"]
+
+
+def test_install_failed_read_leaves_nothing(tmp_path):
+    vault = obsidian(tmp_path, ["meetings-plus"])
+
+    def fetch(url):
+        raise http.client.IncompleteRead(b"")
+    result = install_plugin(vault, fetch, tmp_path / "backups", home=tmp_path)
+    assert result.startswith("failed: ")
+    assert not (vault / ".obsidian" / "plugins" / PLUGIN_ID).exists()
 
 
 def test_install_refuses_a_release_with_another_version(tmp_path):

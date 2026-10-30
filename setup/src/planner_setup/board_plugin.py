@@ -7,6 +7,7 @@ Dragging a card rewrites the grouped property in the note's frontmatter.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import shutil
@@ -155,7 +156,8 @@ def install_plugin(vault: Path, fetch: Callable[[str], bytes], backups: Path, *,
                 url = release_url(name)
                 try:
                     (staged / name).write_bytes(fetch(url))
-                except OSError as err:  # urllib's URLError, HTTPError and timeouts are all OSErrors
+                except (OSError, http.client.HTTPException, ValueError) as err:
+                    # URLError, HTTPError and timeouts are OSErrors; a cut-off body is IncompleteRead; a bad URL is ValueError
                     return f"failed: could not download {url} ({err})"
             try:
                 got = json.loads((staged / "manifest.json").read_text()).get("version")
