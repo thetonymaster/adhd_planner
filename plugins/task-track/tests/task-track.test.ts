@@ -47,6 +47,14 @@ describe('cell width', () => {
     expect(cells('é')).toBe(1)
   })
 
+  // wcwidth: a spacing mark (Mc) takes its own cell, a nonspacing one (Mn) none.
+  test('counts a spacing mark inside a grapheme as a cell', () => {
+    expect(cells('का')).toBe(2)
+    expect(cells('कि')).toBe(2)
+    expect(cells('क्')).toBe(1)
+    expect(fitCells('कागज़', 3)).toBe('का…')
+  })
+
   test('fitCells leaves a fitting string alone', () => {
     expect(fitCells('修正', 4)).toBe('修正')
   })

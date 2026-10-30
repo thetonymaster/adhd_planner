@@ -124,13 +124,16 @@ const EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u
 // East Asian Wide/Fullwidth blocks: Hangul Jamo, CJK + kana, Hangul, compatibility, fullwidth forms, CJK ext.
 const WIDE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]|[\u{20000}-\u{3FFFD}]/u
 
+const SPACING_MARK = /\p{Mc}/gu
+
 function graphemeCells(g: string): number {
   const cp = g.codePointAt(0) ?? 0
   if (WIDE.test(g) || (EMOJI.test(g) && (cp >= 0x1f000 || g.includes('️')))) return 2
-  return 1
+  // As wcwidth: each spacing mark (the ा in का) takes a cell of its own.
+  return 1 + (g.match(SPACING_MARK)?.length ?? 0)
 }
 
-/** Terminal cells a string takes: wide (CJK, emoji) graphemes count 2, anything else 1. */
+/** Terminal cells a string takes: wide (CJK, emoji) graphemes count 2, spacing marks 1 more, anything else 1. */
 export function cells(text: string): number {
   let n = 0
   for (const { segment } of GRAPHEMES.segment(text)) n += graphemeCells(segment)
