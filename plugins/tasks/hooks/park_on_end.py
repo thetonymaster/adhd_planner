@@ -2,8 +2,10 @@
 """tasks plugin SessionEnd hook: parks the task this session was on.
 
 Sets `status: active` -> `status: parked` in the note named by Tasks/.session/<session_id> (any vault) and
-appends a Log line, so a task board's Doing column only holds tasks a live session is on. Never blocks
-session end: main returns 0 whatever happens; problems go to stderr.
+appends a Log line, so a task board's Doing column only holds tasks a live session is on. Skips `/clear`
+(hook input `reason: "clear"`): task-start and task-switch tell the user to run it right after activating a
+task, and that task must stay active; park-then-clear still parks because task-park writes `parked` itself.
+Never blocks session end: main returns 0 whatever happens; problems go to stderr.
 """
 import json
 import os
@@ -13,6 +15,7 @@ import shutil
 import sys
 import tempfile
 from collections.abc import Mapping
+from typing import TextIO
 
 import vaults
 
@@ -53,10 +56,15 @@ def write_atomic(path: pathlib.Path, text: str) -> None:
         raise
 
 
-def main(stdin: str, env: Mapping[str, str], home: str) -> int:
-    """Always 0: a hook must never block session end."""
+def main(stdin: str | TextIO, env: Mapping[str, str], home: str) -> int:
+    """Always 0: a hook must never block session end. `stdin` is the hook input text, or a stream read here."""
     try:
-        _park_session(stdin, env, home)
+        try:
+            raw = stdin if isinstance(stdin, str) else stdin.read()
+        except (OSError, ValueError) as e:  # UnicodeDecodeError is a ValueError
+            print(f"park_on_end: read hook input: {type(e).__name__}: {e}", file=sys.stderr)
+            return 0
+        _park_session(raw, env, home)
     except Exception as e:  # noqa: BLE001 - reported, never raised
         print(f"park_on_end: unexpected error: {type(e).__name__}: {e}", file=sys.stderr)
     return 0
@@ -68,7 +76,9 @@ def _park_session(stdin: str, env: Mapping[str, str], home: str) -> None:
     except ValueError as e:
         print(f"park_on_end: parse hook input: {e}", file=sys.stderr)
         return
-    sid = str(data.get("session_id") or "") if isinstance(data, dict) else ""
+    if not isinstance(data, dict) or data.get("reason") == "clear":
+        return
+    sid = str(data.get("session_id") or "")
     if not SESSION_ID.match(sid):
         return
     config = vaults.load_config(env, home)
@@ -101,4 +111,4 @@ def _read(path: pathlib.Path) -> str:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.stdin.read() if not sys.stdin.isatty() else "", os.environ, os.path.expanduser("~")))
+    sys.exit(main("" if sys.stdin.isatty() else sys.stdin, os.environ, os.path.expanduser("~")))

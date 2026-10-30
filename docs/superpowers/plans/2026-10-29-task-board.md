@@ -27,7 +27,7 @@
 
 1. A note with no `# ` heading, or `# ` followed by nothing → card shows the slug. (Task 4 test)
 2. `up:` written as `"[[Name|alias]]"`, `"[[Projects/Name]]"`, `"[[]]"` (template default) or missing → project `Name`, `Name`, `No project`, `No project`. (Task 4 test)
-3. SessionEnd when the session file names a missing note, a note already `parked`/`done`, or there is no `.session/<id>` in any vault → no write, exit 0, never blocks session end. (Task 2 test)
+3. SessionEnd with `reason: "clear"` → no write (the task just started stays active); other reasons park. SessionEnd when the session file names a missing note, a note already `parked`/`done`, or there is no `.session/<id>` in any vault → no write, exit 0, never blocks session end. (Task 2 test)
 4. `Tasks.base` that already contains the board view, or uses CRLF line endings → running update twice changes nothing the second time; no duplicate view. (Task 7 test)
 5. A note with `status: active` text inside its body (not frontmatter) → only the frontmatter line is rewritten. (Task 2 test)
 
@@ -85,7 +85,7 @@ git commit -m "fix(tasks,task-track): repo match no longer prefers active over p
 - Consumes: `vaults.load_config(env, home) -> Config`, `vaults.slug_or_empty(text) -> str`, `vaults.zone_for(config, env) -> str`, `vaults.now(zone) -> datetime`.
 - Produces:
   - `park(text: str, stamp: str) -> str | None` — returns the note with frontmatter `status: active` → `status: parked` and `- <stamp> — parked: session ended` appended as the last line of `## Log` (section created at end of note if missing); `None` when frontmatter status is not `active`.
-  - `main(stdin: str, env: Mapping[str, str], home: str) -> int` — reads `session_id` from the hook JSON; for each vault in config, reads `<vault>/Tasks/.session/<session_id>`; parks the named note if `park` returns text. Always returns 0. Errors go to stderr as `park_on_end: <what failed>: <path>: <error>`.
+  - `main(stdin: str, env: Mapping[str, str], home: str) -> int` — reads `session_id` and `reason` from the hook JSON (`reason == "clear"` → nothing is touched; `stdin` may also be a stream, read inside the catch-all); for each vault in config, reads `<vault>/Tasks/.session/<session_id>`; parks the named note if `park` returns text. Always returns 0. Errors go to stderr as `park_on_end: <what failed>: <path>: <error>`.
   - `stamp` format: `[[YYYY-MM-DD]] HH:MM`.
   - Parks even if another session also names the task (spec leaves this to the builder; simplest rule, the other session's next `task-switch`/`task-start` re-activates it).
 
@@ -306,12 +306,13 @@ DONE_VIEW_NAME = "Done (7 days)"
 ```
 
 - [ ] **Step 1: Choose the plugin** against the spec criteria (Obsidian 1.11.7 in use; groups by a text property; drag rewrites it; shows note title; release within 6 months; MIT-like). Check each candidate's GitHub releases and README for its Bases view `type:` id and group-by config. Write the pick, version and why into this plan under this step before continuing.
+  - Decision (Q, 2026-10-29): keep the community plugin kanban-bases-view 0.10.6 even though Obsidian 1.14 ships a native Bases kanban layout.
 
   **Pick: Kanban Bases View** — id `kanban-bases-view`, repo `xiwcx/obsidian-bases-kanban`, pinned `0.10.6` (released 2026-09-27; assets `manifest.json`, `main.js`, `styles.css`; `minAppVersion` 1.10.2; MIT). It is the plugin the spec calls "Kanban Bases View"; the community list maps that id to xiwcx, not zenobi-us (zenobi-us/obsidian-bases-kanban-view is a separate 0.0.1 from 2025-11, unmaintained). Why: most used (156 stars), released within the month; view type `kanban-view` with `groupByProperty` (any non-`file.` property), drag rewrites it via `processFrontMatter`, card title defaults to the file name, and column order is stored in the view entry (`columnOrders: {note.status: [...]}`), so the starter can pin parked → active → done (without it the plugin sorts columns alphabetically). Card order is kept in the base config, not in notes. Rejected: Base Board (mderazon, 2.6.1, MIT) writes a `kanban_order` property into every note; Bases Kanban (kotserge, 0BSD, last release 2026-06) and Kanban Base (jaidetree, 2 stars) are less used. Note: Obsidian 1.14 (2026-09) ships a native Bases `kanban` view; on 1.11.7 the plugin is still needed, and its `kanban-view` id does not clash with the native one.
 
 - [ ] **Step 2: Write the failing test**: `BOARD_VIEW` parses as part of the starter `Tasks.base` (assert the starter contains `BOARD_VIEW` verbatim and a view named `DONE_VIEW_NAME` filtering on `finished`), and `PLUGIN_FILES` includes `manifest.json` and `main.js`.
 
-- [ ] **Step 3: Add constants and update the starter `Tasks.base`**: append the board view (group by `status`, column order parked → active → done, title = `file.name` or the title property the plugin supports) and a `Done (7 days)` table view filtering `status == "done"` and `finished >= today() - "7 days"` (use the Bases date syntax the docs specify; verify in Obsidian). Keep existing views; add `sort: started DESC` to Active as personal has.
+- [ ] **Step 3: Add constants and update the starter `Tasks.base`**: append the board view (group by `status`, column order parked → active → done, title = `file.name` or the title property the plugin supports) and a `Done (7 days)` table view filtering `status == "done"` and `finished >= today() - "6 days"` (7 days including today) (use the Bases date syntax the docs specify; verify in Obsidian). Keep existing views; add `sort: started DESC` to Active as personal has.
 
 - [ ] **Step 4: Run** `cd setup && uv run pytest tests/test_board_plugin.py` → PASS.
 

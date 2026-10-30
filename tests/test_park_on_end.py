@@ -59,10 +59,10 @@ class MainTest(unittest.TestCase):
                                    "vaults": {"a": {"path": str(self.v1)}, "b": {"path": str(self.v2)}}}))
         self.env = {"ADHD_PLANNER_VAULTS": str(cfg)}
 
-    def run_main(self, sid="s1"):
+    def run_main(self, sid="s1", **extra):
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            rc = park_on_end.main(json.dumps({"session_id": sid}), self.env, str(self.home))
+            rc = park_on_end.main(json.dumps({"session_id": sid, **extra}), self.env, str(self.home))
         return rc, err.getvalue()
 
     def test_main_parks_the_note_named_by_this_session(self):
@@ -117,6 +117,28 @@ class MainTest(unittest.TestCase):
             rc, err = self.run_main()
         self.assertEqual(rc, 0)
         self.assertIn("park_on_end: unexpected error: RuntimeError: boom", err)
+
+    def test_clear_reason_leaves_the_active_note_alone(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_text(NOTE.format(status="active"))
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        self.assertEqual(self.run_main(reason="clear"), (0, ""))
+        self.assertEqual(p.read_text(), NOTE.format(status="active"))
+
+    def test_other_reasons_still_park(self):
+        p = self.v1 / "Tasks" / "t.md"
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        for reason in ("logout", "prompt_input_exit", "other"):
+            p.write_text(NOTE.format(status="active"))
+            self.assertEqual(self.run_main(reason=reason), (0, ""))
+            self.assertIn("\nstatus: parked\n", p.read_text(), reason)
+
+    def test_undecodable_stdin_returns_0(self):
+        stream = io.TextIOWrapper(io.BytesIO(b"\xff\xfe{bad"), encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(park_on_end.main(stream, self.env, str(self.home)), 0)
+        self.assertIn("park_on_end: read hook input: UnicodeDecodeError", err.getvalue())
 
     def test_bad_stdin_and_hostile_session_id_return_0(self):
         for stdin in ("", "not json", "[]", json.dumps({"session_id": "../x"})):
