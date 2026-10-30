@@ -15,7 +15,7 @@ const DAY_MS = 86_400_000
 
 /** `[[Projects/Name|alias]]` → `Name`; empty or `[[]]` → 'No project'. */
 function projectName(up: string): string {
-  const target = up.replace(/^\[\[|\]\]$/g, '').split('|')[0].split('/').pop()?.trim() ?? ''
+  const target = up.replace(/^\[\[|\]\]$/g, '').split('|')[0]?.split('/').pop()?.trim() ?? ''
   return target === '' ? NO_PROJECT : target
 }
 
@@ -23,7 +23,7 @@ function projectName(up: string): string {
 export function boardNote(slug: string, text: string): BoardNote {
   const block = FRONTMATTER.exec(text)?.[1] ?? ''
   const body = text.replace(FRONTMATTER, '')
-  const title = /^# (.*)$/m.exec(body)?.[1].trim() ?? ''
+  const title = /^# (.*)$/m.exec(body)?.[1]?.trim() ?? ''
   return {
     slug,
     title: title === '' ? slug : title,
@@ -34,7 +34,7 @@ export function boardNote(slug: string, text: string): BoardNote {
 }
 
 function dayNumber(date: string): number {
-  const [y, m, d] = date.split('-').map(Number)
+  const [y = 0, m = 1, d = 1] = date.split('-').map(Number)
   return Date.UTC(y, m - 1, d) / DAY_MS
 }
 
