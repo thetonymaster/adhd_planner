@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
-import { codeSpans, heading, insertInSection, logEntry, logOrder, parseNote, splitEstimate, stamp, toggleNext } from '../hooks/note'
+import { cells, codeSpans, fitCells, heading, insertInSection, logEntry, logOrder, parseNote, splitEstimate, stamp, toggleNext } from '../hooks/note'
 import { advance, blockMinutes, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
@@ -37,6 +37,27 @@ Vault + task loop working.
 `
 
 const CFG = { focusMinutes: 25, breakMinutes: 5, longBreakEvery: 4, longBreakMinutes: 30 }
+
+describe('cell width', () => {
+  test('counts CJK and emoji as two cells, a combining mark as none', () => {
+    expect(cells('abc')).toBe(3)
+    expect(cells('修正')).toBe(4)
+    expect(cells('🚀 go')).toBe(5)
+    expect(cells('👍🏽')).toBe(2)
+    expect(cells('é')).toBe(1)
+  })
+
+  test('fitCells leaves a fitting string alone', () => {
+    expect(fitCells('修正', 4)).toBe('修正')
+  })
+
+  test('fitCells cuts by cells, never inside a grapheme', () => {
+    expect(fitCells('修正バグ', 5)).toBe('修正…')
+    expect(fitCells('ab👍🏽cd', 4)).toBe('ab…')
+    expect(fitCells('ab👍🏽cd', 5)).toBe('ab👍🏽…')
+    expect(fitCells('abcdef', 4)).toBe('abc…')
+  })
+})
 
 describe('note parsing', () => {
   test('reads title, up, goal, next, loops, log', () => {
@@ -1728,6 +1749,21 @@ describe('project tasks pane', () => {
     const button = await pane.find({ type: 'Button', key: 'proj-task-long-one' })
     const label = String(button?.props.label)
     expect(label.length).toBeLessThanOrEqual(40)
+    expect(label.endsWith('…')).toBe(true)
+  })
+
+  test('a wide-character title is cut by screen cells, not characters', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on)
+    answerOpen(on)
+    const files = repoFiles(0)
+    files['/v/Tasks/wide-one.md'] = note(`🚀 ${'修正'.repeat(30)}`, 'parked')
+    fakeVault(on, files, { root: '/home/q/w' })
+    await run($, 'project-tasks', '')
+    const pane = await mountPane($, 'terminal', 40)
+    const button = await pane.find({ type: 'Button', key: 'proj-task-wide-one' })
+    const label = String(button?.props.label)
+    expect(cells(label)).toBeLessThanOrEqual(38)
     expect(label.endsWith('…')).toBe(true)
   })
 

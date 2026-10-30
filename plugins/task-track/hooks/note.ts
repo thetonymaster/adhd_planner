@@ -119,6 +119,38 @@ export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`
 }
 
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u
+// East Asian Wide/Fullwidth blocks: Hangul Jamo, CJK + kana, Hangul, compatibility, fullwidth forms, CJK ext.
+const WIDE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]|[\u{20000}-\u{3FFFD}]/u
+
+function graphemeCells(g: string): number {
+  const cp = g.codePointAt(0) ?? 0
+  if (WIDE.test(g) || (EMOJI.test(g) && (cp >= 0x1f000 || g.includes('️')))) return 2
+  return 1
+}
+
+/** Terminal cells a string takes: wide (CJK, emoji) graphemes count 2, anything else 1. */
+export function cells(text: string): number {
+  let n = 0
+  for (const { segment } of GRAPHEMES.segment(text)) n += graphemeCells(segment)
+  return n
+}
+
+/** `text` in at most `max` cells, cut at a grapheme boundary with `…` (1 cell) when it does not fit. */
+export function fitCells(text: string, max: number): string {
+  if (cells(text) <= max) return text
+  let out = ''
+  let used = 0
+  for (const { segment } of GRAPHEMES.segment(text)) {
+    const w = graphemeCells(segment)
+    if (used + w > max - 1) break
+    out += segment
+    used += w
+  }
+  return `${out}…`
+}
+
 const ESTIMATE = /\s*\(~\s*(\d+)\s*(min|m|hours?|h|days?|d)\b[^)]*\)\s*$/
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 

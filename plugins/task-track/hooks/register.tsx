@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import type { PomoFile, ProjectList, TaskView } from '../types'
-import { codeSpans, elapsed, firstOpen, heading, insertInSection, logEntry, logOrder, parseNote, progress, splitEstimate, stamp, toggleNext, truncate } from './note'
+import { codeSpans, elapsed, firstOpen, fitCells, heading, insertInSection, logEntry, logOrder, parseNote, progress, splitEstimate, stamp, toggleNext, truncate } from './note'
 import {
   advance,
   isRunning,
@@ -988,7 +988,7 @@ export const register: Register = (on, options) => {
       ) : (
         <Box key={`proj-task-${t.slug}`}>
           <Text>  </Text>
-          <Button key={`proj-task-${t.slug}`} plain label={truncate(t.title, width - 2)} onPress={() => fillFromPane($, `/tasks:task-switch ${vaultPrefix}${t.slug}`)} />
+          <Button key={`proj-task-${t.slug}`} plain label={fitCells(t.title, width - 2)} onPress={() => fillFromPane($, `/tasks:task-switch ${vaultPrefix}${t.slug}`)} />
         </Box>
       )
     return (
