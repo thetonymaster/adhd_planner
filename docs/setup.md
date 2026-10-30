@@ -143,7 +143,7 @@ For every vault in `vaults.json` (or your one configured vault) it:
 - **Tasks.base**: appends the Board and Done (7 days) views to `views:`, keeping your other views, sorts and properties (and CRLF line endings). Nothing to do when both are already there. If a view with one of those names exists with other content, or `views:` isn't a plain 2-space list, it asks **"Replace Tasks.base in <vault>? (backup kept)"**; yes swaps in the starter's file, no leaves yours alone. A vault without `Tasks.base` is skipped.
 - **Plugin**: shows the source and asks **"Download xiwcx/obsidian-bases-kanban@0.10.6 into <vault>?"**, then downloads `manifest.json`, `main.js` and `styles.css` from that GitHub release into `<vault>/.obsidian/plugins/kanban-bases-view/` and adds `kanban-bases-view` to `.obsidian/community-plugins.json`, keeping the plugins already listed there. All three files are fetched before anything in the vault changes: offline or a failed download leaves the vault as it was (rerun later). Already at 0.10.6: no question, no download.
 
-Then **reload Obsidian** (or close and reopen the vault), and allow community plugins in Settings → Community plugins if restricted mode is on. `--dry-run` shows all of this and writes nothing; `--yes` answers both questions with yes. Changed files are backed up under `~/.claude/backups/<timestamp>/` first.
+Then **reload Obsidian** (or close and reopen the vault), and allow community plugins in Settings → Community plugins if restricted mode is on. `--dry-run` shows all of this and writes nothing; `--yes` answers both questions with yes. Changed files are backed up under `~/.claude/backups/<timestamp>/<vault name>/` first.
 
 ## What each plugin needs
 

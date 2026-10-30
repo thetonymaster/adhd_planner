@@ -185,16 +185,16 @@ def _board_plugin(ctx: Ctx, vault: Path, fetch: Callable[[str], bytes], backups:
     return True
 
 
-def _registered_vaults(ctx: Ctx) -> list[Path]:
-    """Every vault in vaults.json; without one, the single vault settings or $VAULT name."""
+def _registered_vaults(ctx: Ctx) -> list[tuple[str, Path]]:
+    """(name, path) of every vault in vaults.json; without one, the single vault settings or $VAULT name."""
     registry = files.load_json(paths.vaults_file(ctx.env, ctx.home))
     vaults = registry.get("vaults") or {}
-    listed = [Path(paths.norm(spec["path"], ctx.home)) for spec in vaults.values()
+    listed = [(name, Path(paths.norm(spec["path"], ctx.home))) for name, spec in vaults.items()
               if isinstance(spec, dict) and isinstance(spec.get("path"), str)]
     if listed:
         return listed
     vault, _ = _current_vault(ctx, files.load_json(ctx.settings_path))
-    return [_absolute(ctx, str(vault))]
+    return [("vault", _absolute(ctx, str(vault)))]
 
 
 def _merge_tasks_base(ctx: Ctx, vault: Path, backups: Path) -> None:
@@ -230,12 +230,14 @@ def update_vaults(ctx: Ctx, fetch: Callable[[str], bytes] = board_plugin.downloa
     """Brings vaults made before the task board up to date: board views in Tasks.base, the board plugin installed."""
     backups = files.backup_dir(ctx.home)
     failed = False
-    for vault in _registered_vaults(ctx):
+    for name, vault in _registered_vaults(ctx):
         if not vault.is_dir():
             ctx.say(f"{vault} does not exist; skipped.")
             continue
-        _merge_tasks_base(ctx, vault, backups)
-        failed |= _board_plugin(ctx, vault, fetch, backups) is False
+        # One folder per vault: files.backup keeps only the file name for paths outside home, so two such
+        # vaults' Tasks.base (and plugin folders) would otherwise land on the same backup path.
+        _merge_tasks_base(ctx, vault, backups / name)
+        failed |= _board_plugin(ctx, vault, fetch, backups / name) is False
     if not ctx.dry_run:
         ctx.say(RELOAD)
     return 1 if failed else 0

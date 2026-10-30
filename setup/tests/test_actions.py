@@ -401,7 +401,7 @@ def test_update_vaults_merges_installs_and_says_reload(ctx):
     assert json.loads((vaults["arryved"] / ".obsidian" / "community-plugins.json").read_text()) == [
         "meetings-plus", PLUGIN_ID]
     assert len(calls) == 2 * len(PLUGIN_FILES)
-    backups = list((ctx.home / ".claude" / "backups").glob("*/vaults/personal/Tasks.base"))
+    backups = list((ctx.home / ".claude" / "backups").glob("*/personal/vaults/personal/Tasks.base"))
     assert [b.read_text() for b in backups] == [PERSONAL_BASE]
     assert "Reload Obsidian; allow community plugins (Settings → Community plugins) if restricted mode is on." in text(ctx)
     assert actions.update_vaults(ctx, fake_fetch(calls)) == 0  # second run: nothing to do
@@ -437,7 +437,7 @@ def test_update_vaults_conflict_asks_then_replaces_with_the_starter(ctx):
     starter = (paths.examples() / "vault-starter" / "Tasks.base").read_text()
     assert f"Replace Tasks.base in {vaults['personal']}? (backup kept)" in asked
     assert (vaults["personal"] / "Tasks.base").read_text() == starter
-    backups = list((ctx.home / ".claude" / "backups").glob("*/vaults/personal/Tasks.base"))
+    backups = list((ctx.home / ".claude" / "backups").glob("*/personal/vaults/personal/Tasks.base"))
     assert [b.read_text() for b in backups] == [BASE_WITH_OTHER_BOARD]
 
 
@@ -473,3 +473,25 @@ def test_update_vaults_skips_a_missing_vault_or_base(ctx):
     assert actions.update_vaults(ctx, fake_fetch()) == 0
     assert "has no Tasks.base" in text(ctx) and "does not exist" in text(ctx)
     assert not (ctx.home / "vaults" / "gone").exists()
+
+
+def test_update_vaults_keeps_separate_backups_for_vaults_outside_home(ctx, tmp_path):
+    # files.backup stores a path outside home under its bare name: two such vaults must not share one backup.
+    made = {}
+    for name in ("one", "two"):
+        v = tmp_path / "elsewhere" / name
+        old = v / ".obsidian" / "plugins" / PLUGIN_ID
+        old.mkdir(parents=True)
+        (old / "manifest.json").write_text(json.dumps({"version": "0.9.0", "vault": name}))
+        (v / "Tasks.base").write_text(PERSONAL_BASE + f"# {name}\n")
+        made[name] = v
+    vaults_json(ctx).parent.mkdir(parents=True)
+    vaults_json(ctx).write_text(json.dumps({"default": "one", "vaults": {
+        n: {"path": str(v)} for n, v in made.items()}}))
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    for name, v in made.items():
+        assert BOARD_VIEW in (v / "Tasks.base").read_text() and installed_version(v) == PLUGIN_VERSION
+        [base] = (ctx.home / ".claude" / "backups").glob(f"*/{name}/Tasks.base")
+        assert base.read_text() == PERSONAL_BASE + f"# {name}\n"
+        [manifest] = (ctx.home / ".claude" / "backups").glob(f"*/{name}/{PLUGIN_ID}/manifest.json")
+        assert json.loads(manifest.read_text())["vault"] == name
