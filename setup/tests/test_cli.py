@@ -164,3 +164,24 @@ def test_menu_asks_the_name_when_vaults_json_has_no_vaults(tmp_path, monkeypatch
     _run_menu(monkeypatch, {**_entry_answers(entry, tmp_path), "Name for this machine's vault (kebab-case)": ["vail"]})
     data = json.loads(registry.read_text())
     assert data["default"] == "vail" and "vail" in data["vaults"]
+
+
+def test_update_vaults_subcommand_dry_run(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("ADHD_PLANNER_VAULTS", raising=False)
+    monkeypatch.setenv("VAULT", "~/v")
+    base = "views:\n  - type: table\n    name: Active\n"
+    (tmp_path / "v").mkdir()
+    (tmp_path / "v" / "Tasks.base").write_text(base)
+    assert cli.main(["--dry-run", "update-vaults"]) == 0
+    out = capsys.readouterr().out
+    assert "Would add the board views" in out and "Would download" in out
+    assert (tmp_path / "v" / "Tasks.base").read_text() == base
+
+
+def test_menu_update_existing_vaults(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    ran = []
+    monkeypatch.setattr(cli.actions, "update_vaults", lambda ctx: ran.append(ctx) or 0)
+    _run_menu(monkeypatch, {"planner-setup": ["Update existing vaults (task board)", "Quit"]})
+    assert len(ran) == 1

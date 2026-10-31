@@ -4,8 +4,9 @@ description: >
   End-of-day shutdown: review what got done, move unfinished tasks to tomorrow,
   brain-dump and triage, guide the wind-down routine, seed tomorrow (Top 3,
   daily page, focus blocks). For "wrap up my day", "done for the day" or the
-  scheduled EOD. Not one task's mid-day save (/tasks:task-park) or logging
-  habits (habit-tracker); a brain dump alone is capture-triage.
+  scheduled EOD. Not one task's mid-day save (/tasks:task-park), closing one
+  task (/tasks:task-finish) or logging habits (habit-tracker); a brain dump
+  alone is capture-triage.
 ---
 
 # EOD shutdown

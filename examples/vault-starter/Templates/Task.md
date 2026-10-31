@@ -1,8 +1,9 @@
 ---
-status: active
+status: parked
 up: "[[]]"
 repo:
 started: {{date}}
+finished:
 aliases: []
 tags: [task]
 ---

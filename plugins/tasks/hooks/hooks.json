@@ -24,6 +24,17 @@
         ]
       }
     ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v python3 >/dev/null; then python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/park_on_end.py\"; fi",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PermissionRequest": [
       {
         "matcher": "Read|Edit|Write|NotebookEdit|Glob|Grep",

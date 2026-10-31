@@ -1,4 +1,4 @@
-"""The seven things setup can do. Each returns an exit code and talks through ctx.say."""
+"""The things setup can do. Each returns an exit code and talks through ctx.say."""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import claude_cli, files, paths, settings
+from . import board_plugin, claude_cli, files, paths, settings
 
 VAULT_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
@@ -143,7 +143,7 @@ def configure(ctx: Ctx, vault: Path, permissions: bool) -> int:
     return 0
 
 
-def seed_vault(ctx: Ctx, vault: Path) -> int:
+def seed_vault(ctx: Ctx, vault: Path, fetch: Callable[[str], bytes] = board_plugin.download) -> int:
     if vault.exists():
         ctx.say(f"{vault} already exists; left as is.")
         return 0
@@ -153,7 +153,94 @@ def seed_vault(ctx: Ctx, vault: Path) -> int:
     shutil.copytree(paths.examples() / "vault-starter", vault)
     (vault / "_claude").rename(vault / ".claude")
     ctx.say(f"Vault created at {vault}. Open it in Obsidian: Open folder as vault.")
+    if _board_plugin(ctx, vault, fetch, files.backup_dir(ctx.home)) is True:
+        ctx.say(RELOAD)
     return 0
+
+
+RELOAD = "Reload Obsidian; allow community plugins (Settings → Community plugins) if restricted mode is on."
+
+
+def _board_plugin(ctx: Ctx, vault: Path, fetch: Callable[[str], bytes], backups: Path) -> bool | None:
+    """Offers the board plugin to one vault: True when it is there now, False when the install failed, None when skipped."""
+    pin = f"{board_plugin.PLUGIN_REPO}@{board_plugin.PLUGIN_VERSION}"
+    if board_plugin.installed_version(vault) != board_plugin.PLUGIN_VERSION:
+        ctx.say(f"The task board in Tasks.base needs the community plugin {pin}, from "
+                f"https://github.com/{board_plugin.PLUGIN_REPO}/releases/tag/{board_plugin.PLUGIN_VERSION}")
+        if ctx.dry_run:
+            ctx.say(f"Would download {pin} into {board_plugin.plugin_dir(vault)} and enable it.")
+            return None
+        if not (ctx.yes or ctx.confirm(f"Download {pin} into {vault}?")):
+            ctx.say(f"Skipped the board plugin in {vault}; the Board view stays empty until it is installed.")
+            return None
+    elif ctx.dry_run:
+        ctx.say(f"{pin} is already in {vault}.")
+        return None
+    result = board_plugin.install_plugin(vault, fetch, backups, home=ctx.home)
+    if result.startswith("failed: "):
+        ctx.say(f"Board plugin not installed in {vault}: {result.removeprefix('failed: ')}. "
+                f"Nothing in the vault changed; rerun `planner-setup update-vaults` when online.")
+        return False
+    ctx.say(f"{pin} {'was already in' if result == 'present' else 'installed in'} {vault}.")
+    return True
+
+
+def _registered_vaults(ctx: Ctx) -> list[tuple[str, Path]]:
+    """(name, path) of every vault in vaults.json; without one, the single vault settings or $VAULT name."""
+    registry = files.load_json(paths.vaults_file(ctx.env, ctx.home))
+    vaults = registry.get("vaults") or {}
+    listed = [(name, Path(paths.norm(spec["path"], ctx.home))) for name, spec in vaults.items()
+              if isinstance(spec, dict) and isinstance(spec.get("path"), str)]
+    if listed:
+        return listed
+    vault, _ = _current_vault(ctx, files.load_json(ctx.settings_path))
+    return [("vault", _absolute(ctx, str(vault)))]
+
+
+def _merge_tasks_base(ctx: Ctx, vault: Path, backups: Path) -> None:
+    base, starter = vault / "Tasks.base", paths.examples() / "vault-starter" / "Tasks.base"
+    if not base.exists():
+        ctx.say(f"{vault} has no Tasks.base; board views not added (copy {starter} there to get them).")
+        return
+    text = base.read_bytes().decode()  # bytes, not read_text: keep CRLF line endings as they are
+    merged, outcome = board_plugin.merge_base(text)
+    if outcome == "unchanged":
+        ctx.say(f"{base} already has the board views.")
+        return
+    if outcome == "added":
+        ctx.say(("Would add" if ctx.dry_run else "Add") + f" the board views (Board, {board_plugin.DONE_VIEW_NAME}) "
+                f"to {base}, keeping its other views.")
+        if not ctx.dry_run:
+            files.backup(base, backups, home=ctx.home)
+            base.write_bytes(merged.encode())
+        return
+    ctx.say(f"{base} cannot take the board views line by line: a view named Board or {board_plugin.DONE_VIEW_NAME} "
+            f"differs from the starter's, or `views:` is not a 2-space block list.")
+    if ctx.dry_run:
+        ctx.say(f"Would ask to replace it with {starter} (backup kept).")
+    elif ctx.yes or ctx.confirm(f"Replace Tasks.base in {vault}? (backup kept)"):
+        saved = files.backup(base, backups, home=ctx.home)
+        base.write_bytes(starter.read_bytes())
+        ctx.say(f"Replaced {base} with the starter's; your file is at {saved}.")
+    else:
+        ctx.say(f"Kept {base}; copy the Board and {board_plugin.DONE_VIEW_NAME} views from {starter} by hand.")
+
+
+def update_vaults(ctx: Ctx, fetch: Callable[[str], bytes] = board_plugin.download) -> int:
+    """Brings vaults made before the task board up to date: board views in Tasks.base, the board plugin installed."""
+    backups = files.backup_dir(ctx.home)
+    failed = False
+    for name, vault in _registered_vaults(ctx):
+        if not vault.is_dir():
+            ctx.say(f"{vault} does not exist; skipped.")
+            continue
+        # One folder per vault: files.backup keeps only the file name for paths outside home, so two such
+        # vaults' Tasks.base (and plugin folders) would otherwise land on the same backup path.
+        _merge_tasks_base(ctx, vault, backups / name)
+        failed |= _board_plugin(ctx, vault, fetch, backups / name) is False
+    if not ctx.dry_run:
+        ctx.say(RELOAD)
+    return 1 if failed else 0
 
 
 def add_vault(ctx: Ctx, name: str, path: Path, folders: Sequence[str], existing_name: str = "personal") -> int:

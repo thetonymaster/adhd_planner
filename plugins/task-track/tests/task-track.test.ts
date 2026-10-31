@@ -6,6 +6,8 @@ import { cells, codeSpans, fitCells, heading, insertInSection, logEntry, logOrde
 import { advance, blockMinutes, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
+import { boardNote, buildBoard, fitColumn } from '../hooks/board'
+import type { BoardColumn, BoardNote } from '../hooks/board'
 import { frontmatter, implicitVault, isSlug, normalize, parseVaults, pickTask, pickVault, taskNotePath, zoneFor } from '../hooks/resolve'
 import type { Candidate, VaultState } from '../hooks/resolve'
 import { projectTasks, visibleParked } from '../hooks/project'
@@ -1168,9 +1170,9 @@ describe('which task a session shows', () => {
     expect(pick({ dir: '/home/q/work/infra-appX', candidates })).toBeNull()
   })
 
-  test('deepest repo wins, then active over parked, then newest; done never binds', () => {
+  test('deepest repo wins, then newest regardless of status; done never binds', () => {
     expect(pick({ dir: '/home/q/r/sub', candidates: [c('outer', '~/r'), c('inner', '~/r/sub')] })?.slug).toBe('inner')
-    expect(pick({ dir: '/home/q/r', candidates: [c('p', '~/r', 'parked', 9), c('a', '~/r', 'active', 1)] })?.slug).toBe('a')
+    expect(pick({ dir: '/home/q/r', candidates: [c('p', '~/r', 'parked', 9), c('a', '~/r', 'active', 1)] })?.slug).toBe('p')
     expect(pick({ dir: '/home/q/r', candidates: [c('old', '~/r', 'active', 1), c('new', '~/r', 'active', 2)] })?.slug).toBe('new')
     expect(pick({ dir: '/home/q/r', candidates: [c('d', '~/r', 'done')], global: 'g' })).toEqual({ slug: 'g', source: 'global' })
   })
@@ -1633,6 +1635,202 @@ describe('timezone: stamps follow vaults.json, else $TZ, else the runtime clock'
   })
 })
 
+describe('board', () => {
+  const note = (slug: string, status: string, over: Partial<BoardNote> = {}): BoardNote => ({ slug, title: slug, project: 'P', status, finished: '', ...over })
+
+  test('title falls back to slug', () => {
+    expect(boardNote('a-b', '---\nstatus: parked\n---\nbody').title).toBe('a-b')
+    expect(boardNote('a-b', '---\nstatus: parked\n---\n# \n').title).toBe('a-b')
+    expect(boardNote('a-b', '---\nstatus: parked\n---\n# Fix card href XSS\n').title).toBe('Fix card href XSS')
+  })
+
+  test('a "# " line inside the frontmatter is not the title', () => {
+    expect(boardNote('s', '---\nstatus: parked\n# comment\n---\n# Real\n').title).toBe('Real')
+  })
+
+  test('status and finished come from the frontmatter', () => {
+    const n = boardNote('s', '---\nstatus: done\nfinished: 2026-10-29\n---\n# T\n')
+    expect(n.status).toBe('done')
+    expect(n.finished).toBe('2026-10-29')
+    expect(boardNote('s', '---\nstatus: done\nfinished:\n---\n# T\n').finished).toBe('')
+  })
+
+  test('project from up: forms', () => {
+    for (const [up, want] of [['"[[Name|alias]]"', 'Name'], ['"[[Projects/Name]]"', 'Name'], ['"[[]]"', 'No project'], ['', 'No project']]) {
+      expect(boardNote('s', `---\nstatus: active\nup: ${up}\n---\n# T\n`).project).toBe(want)
+    }
+  })
+
+  test('done shows only finished within 7 days including today', () => {
+    const n = (slug: string, finished: string) => note(slug, 'done', { finished })
+    const done = buildBoard([n('today', '2026-10-29'), n('edge', '2026-10-23'), n('old', '2026-10-22'), n('none', ''), n('bad', '29/10')], '2026-10-29')[2]
+    expect(done.groups.flatMap(g => g.cards.map(c => c.slug))).toEqual(['edge', 'today'])
+    expect(done.count).toBe(2)
+  })
+
+  test('a finish date in the future is not shown', () => {
+    expect(buildBoard([note('soon', 'done', { finished: '2026-10-30' })], '2026-10-29')[2].count).toBe(0)
+  })
+
+  test('days widens or narrows the window', () => {
+    const old = note('old', 'done', { finished: '2026-10-22' })
+    expect(buildBoard([old], '2026-10-29', 8)[2].count).toBe(1)
+    expect(buildBoard([old], '2026-10-29', 3)[2].count).toBe(0)
+  })
+
+  test('columns in order with counts, unknown status ignored', () => {
+    const cols = buildBoard([note('a', 'active'), note('p1', 'parked'), note('p2', 'parked'), note('t', 'todo')], '2026-10-29')
+    expect(cols.map(c => c.name)).toEqual(['Doing', 'Parked', 'Done'])
+    expect(cols.map(c => c.count)).toEqual([1, 2, 0])
+    expect(JSON.stringify(cols)).not.toContain('"t"')
+  })
+
+  test('groups by project sorted, No project last; cards by title ignoring case', () => {
+    const cols = buildBoard(
+      [
+        note('1', 'parked', { project: 'No project', title: 'x' }),
+        note('2', 'parked', { project: 'Zed', title: 'b' }),
+        note('3', 'parked', { project: 'Alpha', title: 'beta' }),
+        note('4', 'parked', { project: 'Alpha', title: 'Alpha card' }),
+      ],
+      '2026-10-29',
+    )
+    expect(cols[1].groups.map(g => g.project)).toEqual(['Alpha', 'Zed', 'No project'])
+    expect(cols[1].groups[0].cards.map(c => c.title)).toEqual(['Alpha card', 'beta'])
+  })
+})
+
+describe('/board pane', () => {
+  const CONFIG = '/home/q/.config/adhd-planner/vaults.json'
+  const TWO = JSON.stringify({ default: 'personal', vaults: { personal: { path: '/v' }, work: { path: '/w' } } })
+  const NOW = new Date(2026, 9, 29, 10, 0).getTime()
+  const card = (status: string, title: string, extra = '') => `---\nstatus: ${status}\nup: "[[ADHD Planner]]"\n${extra}---\n# ${title}\n`
+  const vault = {
+    [CONFIG]: TWO,
+    '/v/Tasks/.active': 'set-up-vault\n',
+    [PATH]: NOTE,
+    '/v/Tasks/park-me.md': card('parked', 'Parked thing'),
+    '/v/Tasks/shipped.md': card('done', 'Shipped thing', 'finished: 2026-10-29\n'),
+    '/w/Tasks/deploy.md': card('parked', 'Deploy fix'),
+  }
+  const props = (bodyRows = 30) =>
+    ({ title: 'Board', isFocused: false, bodyColumns: 120, placement: 'dock', scroll: { offset: 0, bodyRows }, view: {} }) as never
+  const mount = ($: Engine, bodyRows?: number) =>
+    $.ui.mount({ plugin: 'task-track', surface: 'terminal', component: 'Pane', requestId: 'task-track-board', props: props(bodyRows) })
+  /** Records each pane the plugin opens, as `id|title`. */
+  const opens = (on: On) => {
+    const ids: string[] = []
+    on('ui.open', ($, e) => {
+      ids.push(`${e.id}|${e.title ?? ''}`)
+      return { value: { isPlaced: true } }
+    })
+    return ids
+  }
+
+  test('no argument: the session vault in three columns with counts', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    fakeVault(on, { ...vault })
+    const ids = opens(on)
+    expect((await run($, 'board', '')).text).toBe('Board: personal · Doing 1 · Parked 1 · Done 1')
+    expect(ids).toEqual(['task-track-board|Board · personal'])
+    const pane = await mount($)
+    expect(await pane.find({ type: 'Text', text: 'personal · Doing 1 · Parked 1 · Done 1' })).toBeDefined()
+    for (const text of ['Parked thing', 'Shipped thing', 'Doing · 1', 'Parked · 1', 'Done · 1', 'ADHD Planner']) {
+      expect(await pane.find({ type: 'Text', text: new RegExp(text) })).toBeDefined()
+    }
+    expect(await pane.find({ type: 'Text', text: /Deploy fix/ })).toBeUndefined()
+  })
+
+  test("the session's task is marked ▸", async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    fakeVault(on, { ...vault })
+    opens(on)
+    await run($, 'board', '')
+    const pane = await mount($)
+    expect(await pane.find({ type: 'Text', text: '▸ Set up vault' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /▸ Parked thing/ })).toBeUndefined()
+  })
+
+  test('<vault> shows that vault, without the session mark', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    fakeVault(on, { ...vault })
+    const ids = opens(on)
+    await run($, 'board', 'work')
+    expect(ids).toEqual(['task-track-board|Board · work'])
+    const pane = await mount($)
+    expect(await pane.find({ type: 'Text', text: 'work · Doing 0 · Parked 1 · Done 0' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Deploy fix/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Set up vault/ })).toBeUndefined()
+  })
+
+  test('an unreadable note is named; the other cards still show', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    fakeVault(on, { ...vault, '/w/Tasks/bad.md': card('parked', 'Bad') }, {}, { unreadable: ['/w/Tasks/bad.md'] })
+    opens(on)
+    expect((await run($, 'board', 'work')).text).toBe('Board: work · Doing 0 · Parked 1 · Done 0 · unreadable: bad.md')
+    const pane = await mount($)
+    expect(await pane.find({ type: 'Text', text: /Deploy fix/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: 'unreadable: bad.md' })).toBeDefined()
+  })
+
+  test('an unknown vault names the registered ones and opens nothing', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    fakeVault(on, { ...vault })
+    const ids = opens(on)
+    expect((await run($, 'board', 'nope')).text).toBe('No vault "nope" in vaults.json (have: personal, work)')
+    expect(ids).toEqual([])
+  })
+
+  test('Done counts today in the vaults.json zone, not UTC', async ($, on) => {
+    // 2026-10-16 23:30 UTC is 2026-10-17 in Tokyo: a note finished on the 17th is today, not the future.
+    const zoned = JSON.stringify({ timezone: 'Asia/Tokyo', default: 'personal', vaults: { personal: { path: '/v' } } })
+    mock.env(on, { VAULT: '/v', HOME: '/home/q', TZ: 'UTC' })
+    mock.clock(on, { now: Date.UTC(2026, 9, 16, 23, 30) })
+    fakeVault(on, { [CONFIG]: zoned, '/v/Tasks/shipped.md': card('done', 'Shipped thing', 'finished: 2026-10-17\n') })
+    opens(on)
+    expect((await run($, 'board', '')).text).toBe('Board: personal · Doing 0 · Parked 0 · Done 1')
+  })
+
+  test('a column that does not fit ends in … N more', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const many = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`/v/Tasks/p${i}.md`, card('parked', `Parked ${String(i).padStart(2, '0')}`)]))
+    fakeVault(on, { [CONFIG]: TWO, ...many })
+    opens(on)
+    await run($, 'board', '')
+    const pane = await mount($, 10)
+    // 10 rows less header, gap, border ×2 and column title leave 5 lines: heading, 3 cards, "… 9 more".
+    expect(await pane.find({ type: 'Text', text: /Parked 02/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Parked 03/ })).toBeUndefined()
+    expect(await pane.find({ type: 'Text', text: '… 9 more' })).toBeDefined()
+  })
+})
+
+describe('fitting a board column', () => {
+  const col = (sizes: number[]): BoardColumn => ({
+    name: 'Parked',
+    count: sizes.reduce((a, b) => a + b, 0),
+    groups: sizes.map((n, g) => ({ project: `P${g}`, cards: Array.from({ length: n }, (_, i) => ({ slug: `s${g}-${i}`, title: `t${g}-${i}` })) })),
+  })
+
+  test('everything fits: every heading and card, no more row', () => {
+    const fit = fitColumn(col([2, 1]), 5)
+    expect(fit.lines.map(l => l.text)).toEqual(['P0', 't0-0', 't0-1', 'P1', 't1-0'])
+    expect(fit.more).toBe(0)
+  })
+
+  test('too many: leaves a row for "… N more" and never ends on a bare heading', () => {
+    const fit = fitColumn(col([2, 2]), 4)
+    expect(fit.lines.map(l => l.text)).toEqual(['P0', 't0-0', 't0-1'])
+    expect(fit.more).toBe(2)
+  })
+})
+
 describe('project list', () => {
   const c = (slug: string, repo: string, status: string, mtimeMs: number, title?: string): Candidate => ({ slug, repo, status, mtimeMs, title })
 
@@ -1690,6 +1888,8 @@ describe('project tasks pane', () => {
   const repoFiles = (parked = 2): Record<string, string> => {
     const files: Record<string, string> = {
       '/v/Tasks/.active': 'audit-calls\n',
+      // The session's own pick, as task-start writes it: notes share one mtime, and the repo match ranks newest, not active.
+      '/v/Tasks/.session/sess-test': 'audit-calls\n',
       '/v/Tasks/audit-calls.md': note('Audit unbilled calls', 'active'),
       '/v/Tasks/old-thing.md': note('Shipped already', 'done'),
       '/v/Tasks/elsewhere.md': note('Other repo task', 'parked', '~/other'),

@@ -5,8 +5,8 @@ This repo is one plugin marketplace, `adhd-planner`, with three plugins:
 | Plugin | What | Runs in |
 |---|---|---|
 | `planner` | 12 planning skills: triage, breakdown, time-blocking, A5 pages, habits | Claude Code, Cowork |
-| `tasks` | Obsidian task notes: `task-start`/`task-park`/`task-switch`/`task-note`/`task-list`, session-start context, vault access | Claude Code, Cowork |
-| `task-track` | Task band, task and project-tasks panes, shared Pomodoro, `/note` `/done` `/openloop` (a mod) | Claude Code only |
+| `tasks` | Obsidian task notes: `create-task`/`task-start`/`task-park`/`task-switch`/`task-finish`/`task-note`/`task-list`, session-start context, vault access | Claude Code, Cowork |
+| `task-track` | Task band, task and project-tasks panes, `/board` (Doing · Parked · Done), shared Pomodoro, `/note` `/done` `/openloop` (a mod) | Claude Code only |
 
 > A productivity tool, not medical advice; not affiliated with any planner brand.
 
@@ -21,14 +21,15 @@ uvx --from ./setup planner-setup
 - **Status**: marketplace and plugins installed? vault path, and is it in `additionalDirectories`?
 - **Install plugins**: `claude plugin marketplace add` + `claude plugin install` for the ones you tick.
 - **Settings**: writes `vaultPath` for `tasks` and `task-track`; optionally allows `Bash(obsidian:*)`.
-- **Vault starter**: creates a starter vault, only if the path doesn't exist.
+- **Vault starter**: creates a starter vault, only if the path doesn't exist, then offers the board plugin (see Task board in Obsidian).
+- **Update existing vaults (task board)**: adds the board to vaults made before it (see Task board in Obsidian).
 - **Add another vault**: registers a second vault in `~/.config/adhd-planner/vaults.json` (see Several vaults).
 - **Timezone**: sets the zone times are stamped in (see Timezone).
 - **Example CLAUDE.md**: copies `examples/CLAUDE.md` only if you have no `~/.claude/CLAUDE.md`.
 - **Cowork steps**: prints the section below.
 
 Every item is also a `planner-setup` subcommand: `status`, `install [--plugins …]`,
-`settings [--vault PATH] [--permissions]`, `vault [--vault PATH]`,
+`settings [--vault PATH] [--permissions]`, `vault [--vault PATH]`, `update-vaults`,
 `add-vault NAME --path PATH [--folder DIR]…`, `timezone ZONE [--existing-name NAME]`, `claude-md`, `cowork`.
 `--dry-run` (show what would change) and `--yes` (skip the confirmation) go **before**
 the subcommand: `planner-setup --dry-run install`, `planner-setup --yes settings --vault ~/vault`.
@@ -90,7 +91,7 @@ Plugins cannot set permissions, so these stay in your own settings
 4. Try: "add a note to <task>: test".
 
 In Cowork, `tasks` gives you `task-note` (show a task, add a Log line, check a Next item,
-add an Open loop), `task-list` (one project's tasks) and the start/park/switch skills. Its hooks print only the time when no
+add an Open loop), `task-list` (one project's tasks), `create-task` (backlog tasks, one or a batch), `task-finish` (close a task) and the start/park/switch skills. Its hooks print only the time when no
 vault is found, so they never break a session.
 
 **Cowork fallback.** If Cowork can't add the marketplace, build the
@@ -128,6 +129,21 @@ With no `vaults.json` yet, this creates one holding this machine's vault as `per
 ```
 
 Order: `vaults.json`'s `timezone`, else `$TZ`, else the system clock. A name that isn't an IANA zone is reported at session start (`Vault config warning:`) and ignored; your vaults keep working. Lines already written are not changed.
+
+## Task board in Obsidian
+
+`Tasks.base` has a **Board** view (columns Parked · Active · Done, by each note's `status`; drag a card to change it) and a **Done (7 days)** table. Dragging a card to Done sets `status: done` but not `finished:`, and both views show a done note only while `finished` is in the last 7 days, so the card disappears: finish a task with `/tasks:task-finish` (sets both), or fill in `finished: YYYY-MM-DD` yourself after the drag. The Board needs the community plugin [Kanban Bases View](https://github.com/xiwcx/obsidian-bases-kanban) (`kanban-bases-view`, pinned to 0.10.6) and Obsidian 1.10+ (Bases). A new starter vault gets both; for vaults you already have, run:
+
+```bash
+uvx --from "git+https://github.com/thetonymaster/adhd_planner#subdirectory=setup" planner-setup update-vaults
+```
+
+For every vault in `vaults.json` (or your one configured vault) it:
+
+- **Tasks.base**: appends the Board and Done (7 days) views to `views:`, keeping your other views, sorts and properties (and CRLF line endings). Nothing to do when both are already there. If a view with one of those names exists with other content, or `views:` isn't a plain 2-space list, it asks **"Replace Tasks.base in <vault>? (backup kept)"**; yes swaps in the starter's file, no leaves yours alone. A vault without `Tasks.base` is skipped.
+- **Plugin**: shows the source and asks **"Download xiwcx/obsidian-bases-kanban@0.10.6 into <vault>?"**, then downloads `manifest.json`, `main.js` and `styles.css` from that GitHub release into `<vault>/.obsidian/plugins/kanban-bases-view/` and adds `kanban-bases-view` to `.obsidian/community-plugins.json`, keeping the plugins already listed there. All three files are fetched before anything in the vault changes: offline or a failed download leaves the vault as it was (rerun later). Already at 0.10.6: no question, no download.
+
+Then **reload Obsidian** (or close and reopen the vault), and allow community plugins in Settings → Community plugins if restricted mode is on. `--dry-run` shows all of this and writes nothing; `--yes` answers both questions with yes. Changed files are backed up under `~/.claude/backups/<timestamp>/<vault name>/` first.
 
 ## What each plugin needs
 

@@ -247,10 +247,10 @@ def pick(config: Config, states: list[State], cwd: str, home: str) -> Pick | Non
                 continue
             root = norm(n.repo, home)
             if within(here, root):
-                bound.append((len(root), n.status == "active", n.mtime, n.slug, s.vault, root))
+                bound.append((len(root), n.mtime, n.slug, s.vault, root))
     if bound:
-        best = max(bound, key=lambda b: b[:4])
-        return Pick(best[4], best[3], f"project: {os.path.basename(best[5])}")
+        best = max(bound, key=lambda b: b[:3])
+        return Pick(best[3], best[2], f"project: {os.path.basename(best[4])}")
     folders = [(len(root), written, s) for s in states for written, root in s.vault.folders if within(here, root)]
     if folders:
         _, written, s = max(folders, key=lambda f: f[0])

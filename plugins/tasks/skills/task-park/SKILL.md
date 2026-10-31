@@ -1,6 +1,6 @@
 ---
 name: task-park
-description: Save the active task's state to its note (Next, Open loops, a Log line) so the session can be cleared or the task picked up later. Use on /tasks:task-park, "park this", or when context is noisy. One task note, not the day: a whole-day wrap-up is planner:eod-shutdown, which parks the active task itself. To move to another task, suggest /tasks:task-switch, which parks first.
+description: Save the active task's state to its note (Next, Open loops, a Log line) so the session can be cleared or resumed later. Use on /tasks:task-park, "park this", or when context is noisy. One task note, not the day: a whole-day wrap-up is planner:eod-shutdown, which parks the active task itself. To move to another task, suggest /tasks:task-switch, which parks first. Task complete: task-finish.
 ---
 
 The vault root is the path on the session-start `Vault:` line; without that line, the `default` vault in `~/.config/adhd-planner/vaults.json` (or `$ADHD_PLANNER_VAULTS`) when that file loads; otherwise the plugin's vault path option `${user_config.vaultPath}` (skip it when empty), else `$VAULT`, else `~/vault`, the session-start hook's order. Every `~/vault` path below means that root.
@@ -9,6 +9,6 @@ The vault root is the path on the session-start `Vault:` line; without that line
 2. Rewrite `## Next` with the 1–3 concrete next actions as `- [ ]` with time estimates. Someone with no memory of this session must be able to start from line 1.
 3. Add new questions to `## Open loops`; strike through resolved ones with the answer.
 4. Append one line to `## Log`: `- [[YYYY-MM-DD]] HH:MM — <what got done, what was learned>`, date and time from the latest `Now:` line (it follows `vaults.json`'s `timezone`; `date` only when there is none).
-5. If the user is switching or stopping for the day, set `status: parked` (or `done` if finished). Keep `.active` unless switching.
+5. Set `status: parked`, always: parked means nobody is working on it, including park-then-`/clear` (ending a session parks it too). Keep `.active` and `.session/` unless switching. The task is finished → `/tasks:task-finish` instead.
 6. Durable lessons (not task state) → auto memory, not the note.
 7. Verify per obsidian-vault. Reply: `Parked <slug>. Next: <first action>. Run /clear when ready.`

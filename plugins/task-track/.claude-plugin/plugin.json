@@ -1,7 +1,7 @@
 {
   "name": "task-track",
-  "version": "0.5.0",
-  "description": "Keeps the active Obsidian task note in view (band, pane), lists this repo's tasks in a pane whose click fills the switch command, runs one shared Pomodoro you can /pomo start, pause, resume and stop, and lets /note, /done, /openloop write to the note without a model turn.",
+  "version": "0.6.0",
+  "description": "Keeps the active Obsidian task note in view (band, pane), lists this repo's tasks in a pane whose click fills the switch command, shows the vault's tasks as a /board of Doing, Parked and Done, runs one shared Pomodoro you can /pomo start, pause, resume and stop, and lets /note, /done, /openloop write to the note without a model turn.",
   "author": {
     "name": "Antonio Cabrera"
   },

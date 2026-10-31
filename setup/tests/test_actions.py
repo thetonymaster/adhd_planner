@@ -3,6 +3,9 @@ from dataclasses import replace
 from pathlib import Path
 
 from planner_setup import actions, paths
+from planner_setup.board_plugin import (BOARD_VIEW, DONE_VIEW, PLUGIN_FILES, PLUGIN_ID, PLUGIN_REPO, PLUGIN_VERSION,
+                                        installed_version)
+from test_board_plugin import BASE_WITH_OTHER_BOARD, PERSONAL_BASE, fake_fetch, fake_release_digests  # noqa: F401 (autouse fixture)
 
 
 def text(ctx):
@@ -152,12 +155,15 @@ def test_configure_twice_makes_one_backup_at_most(ctx):
 
 
 def test_seed_vault_copies_once(ctx):
-    v = ctx.home / "vault"
-    assert actions.seed_vault(ctx, v) == 0
+    v, calls = ctx.home / "vault", []
+    assert actions.seed_vault(ctx, v, fake_fetch(calls)) == 0
     assert (v / "Tasks" / "set-up-vault.md").is_file()
     assert (v / ".claude" / "CLAUDE.md").is_file() and not (v / "_claude").exists()
+    assert installed_version(v) == PLUGIN_VERSION
+    assert json.loads((v / ".obsidian" / "community-plugins.json").read_text()) == [PLUGIN_ID]
     (v / "Tasks" / "set-up-vault.md").write_text("mine")
-    assert actions.seed_vault(ctx, v) == 0
+    assert actions.seed_vault(ctx, v, fake_fetch(calls)) == 0
+    assert len(calls) == len(PLUGIN_FILES)
     assert (v / "Tasks" / "set-up-vault.md").read_text() == "mine"
     assert "already exists" in text(ctx)
 
@@ -354,3 +360,138 @@ def test_timezone_refuses_what_the_hooks_refuse_and_changes_nothing(ctx):
         assert actions.set_timezone(ctx, zone) == 2
         assert f"{zone!r} is not an IANA zone" in text(ctx)
     assert not vaults_json(ctx).exists()
+
+
+DOWNLOAD_Q = f"Download {PLUGIN_REPO}@{PLUGIN_VERSION} into {{}}?"
+
+
+def board_vaults(ctx, base=PERSONAL_BASE):
+    """Two registered vaults with a Tasks.base each; arryved already has a community plugin."""
+    made = {}
+    for name, plugins in (("personal", None), ("arryved", ["meetings-plus"])):
+        v = ctx.home / "vaults" / name
+        (v / ".obsidian").mkdir(parents=True)
+        (v / "Tasks.base").write_text(base)
+        if plugins is not None:
+            (v / ".obsidian" / "community-plugins.json").write_text(json.dumps(plugins))
+        made[name] = v
+    vaults_json(ctx).parent.mkdir(parents=True)
+    vaults_json(ctx).write_text(json.dumps({"default": "personal", "vaults": {
+        n: {"path": f"~/vaults/{n}"} for n in made}}))
+    return made
+
+
+def changed(ctx, **fields):
+    """dataclasses.replace that keeps the fixture's captured output."""
+    new = replace(ctx, **fields)
+    new.lines = ctx.lines
+    return new
+
+
+def snapshot(root):
+    return {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+
+def test_update_vaults_merges_installs_and_says_reload(ctx):
+    vaults, calls = board_vaults(ctx), []
+    assert actions.update_vaults(ctx, fake_fetch(calls)) == 0
+    for v in vaults.values():
+        assert (v / "Tasks.base").read_text() == PERSONAL_BASE + BOARD_VIEW + DONE_VIEW
+        assert installed_version(v) == PLUGIN_VERSION
+    assert json.loads((vaults["arryved"] / ".obsidian" / "community-plugins.json").read_text()) == [
+        "meetings-plus", PLUGIN_ID]
+    assert len(calls) == 2 * len(PLUGIN_FILES)
+    backups = list((ctx.home / ".claude" / "backups").glob("*/personal/vaults/personal/Tasks.base"))
+    assert [b.read_text() for b in backups] == [PERSONAL_BASE]
+    assert "Reload Obsidian; allow community plugins (Settings → Community plugins) if restricted mode is on." in text(ctx)
+    assert actions.update_vaults(ctx, fake_fetch(calls)) == 0  # second run: nothing to do
+    assert len(calls) == 2 * len(PLUGIN_FILES)
+
+
+def test_update_vaults_asks_before_download(ctx):
+    vaults, calls, asked = board_vaults(ctx), [], []
+    ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) and False)
+    assert actions.update_vaults(ctx, fake_fetch(calls)) == 0
+    assert calls == []
+    assert asked == [DOWNLOAD_Q.format(v) for v in vaults.values()]
+    for v in vaults.values():
+        assert (v / "Tasks.base").read_text() == PERSONAL_BASE + BOARD_VIEW + DONE_VIEW
+        assert not (v / ".obsidian" / "plugins").exists()
+    assert f"https://github.com/{PLUGIN_REPO}/releases/tag/{PLUGIN_VERSION}" in text(ctx)
+
+
+def test_update_vaults_dry_run_writes_nothing(ctx):
+    board_vaults(ctx)
+    before, calls, asked = snapshot(ctx.home), [], []
+    ctx = changed(ctx, dry_run=True, confirm=lambda q: asked.append(q) or True)
+    assert actions.update_vaults(ctx, fake_fetch(calls)) == 0
+    assert snapshot(ctx.home) == before and calls == [] and asked == []
+    assert "Would add the board views" in text(ctx) and "Would download" in text(ctx)
+
+
+def test_update_vaults_conflict_asks_then_replaces_with_the_starter(ctx):
+    vaults = board_vaults(ctx, base=BASE_WITH_OTHER_BOARD)
+    asked = []
+    ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) or q.startswith("Replace Tasks.base in"))
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    starter = (paths.examples() / "vault-starter" / "Tasks.base").read_text()
+    assert f"Replace Tasks.base in {vaults['personal']}? (backup kept)" in asked
+    assert (vaults["personal"] / "Tasks.base").read_text() == starter
+    backups = list((ctx.home / ".claude" / "backups").glob("*/personal/vaults/personal/Tasks.base"))
+    assert [b.read_text() for b in backups] == [BASE_WITH_OTHER_BOARD]
+
+
+def test_update_vaults_conflict_declined_keeps_the_file(ctx):
+    vaults = board_vaults(ctx, base=BASE_WITH_OTHER_BOARD)
+    ctx = changed(ctx, yes=False, confirm=lambda q: False)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (vaults["personal"] / "Tasks.base").read_text() == BASE_WITH_OTHER_BOARD
+
+
+def test_update_vaults_reports_a_failed_download_and_goes_on(ctx):
+    vaults = board_vaults(ctx)
+    assert actions.update_vaults(ctx, fake_fetch(fail_on="main.js")) == 1
+    assert "no route to host for main.js" in text(ctx)
+    for v in vaults.values():
+        assert (v / "Tasks.base").read_text() == PERSONAL_BASE + BOARD_VIEW + DONE_VIEW
+        assert not (v / ".obsidian" / "plugins").exists()
+
+
+def test_update_vaults_without_vaults_json_uses_the_configured_vault(ctx):
+    v = ctx.home / "notes"
+    (v / ".obsidian").mkdir(parents=True)
+    (v / "Tasks.base").write_text(PERSONAL_BASE)
+    assert actions.update_vaults(replace(ctx, env={"VAULT": "~/notes"}), fake_fetch()) == 0
+    assert installed_version(v) == PLUGIN_VERSION and BOARD_VIEW in (v / "Tasks.base").read_text()
+
+
+def test_update_vaults_skips_a_missing_vault_or_base(ctx):
+    vaults = board_vaults(ctx)
+    (vaults["personal"] / "Tasks.base").unlink()
+    vaults_json(ctx).write_text(json.dumps({"default": "personal", "vaults": {
+        "personal": {"path": "~/vaults/personal"}, "gone": {"path": "~/vaults/gone"}}}))
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert "has no Tasks.base" in text(ctx) and "does not exist" in text(ctx)
+    assert not (ctx.home / "vaults" / "gone").exists()
+
+
+def test_update_vaults_keeps_separate_backups_for_vaults_outside_home(ctx, tmp_path):
+    # files.backup stores a path outside home under its bare name: two such vaults must not share one backup.
+    made = {}
+    for name in ("one", "two"):
+        v = tmp_path / "elsewhere" / name
+        old = v / ".obsidian" / "plugins" / PLUGIN_ID
+        old.mkdir(parents=True)
+        (old / "manifest.json").write_text(json.dumps({"version": "0.9.0", "vault": name}))
+        (v / "Tasks.base").write_text(PERSONAL_BASE + f"# {name}\n")
+        made[name] = v
+    vaults_json(ctx).parent.mkdir(parents=True)
+    vaults_json(ctx).write_text(json.dumps({"default": "one", "vaults": {
+        n: {"path": str(v)} for n, v in made.items()}}))
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    for name, v in made.items():
+        assert BOARD_VIEW in (v / "Tasks.base").read_text() and installed_version(v) == PLUGIN_VERSION
+        [base] = (ctx.home / ".claude" / "backups").glob(f"*/{name}/Tasks.base")
+        assert base.read_text() == PERSONAL_BASE + f"# {name}\n"
+        [manifest] = (ctx.home / ".claude" / "backups").glob(f"*/{name}/{PLUGIN_ID}/manifest.json")
+        assert json.loads(manifest.read_text())["vault"] == name

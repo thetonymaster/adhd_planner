@@ -54,13 +54,13 @@ class LoadTaskTest(unittest.TestCase):
         out = self.run_hook({"session_id": "s1", "cwd": str(self.home / "code" / "app" / "src")})
         self.assertIn("Active task: bound (project: app)", out)
 
-    def test_deepest_then_active_then_newest_and_done_never_binds(self):
+    def test_deepest_then_newest_ignoring_status_and_done_never_binds(self):
         self.note("outer", repo="~/r")
         self.note("inner", repo="~/r/sub")
         self.assertIn("Active task: inner", self.run_hook({"session_id": "x", "cwd": str(self.home / "r" / "sub")}))
         self.note("parked", status="parked", repo="~/p", mtime=time.time())
         self.note("active", status='"active"', repo='"~/p"', mtime=time.time() - 100)
-        self.assertIn("Active task: active", self.run_hook({"session_id": "x", "cwd": str(self.home / "p")}))
+        self.assertIn("Active task: parked", self.run_hook({"session_id": "x", "cwd": str(self.home / "p")}))
         self.note("done", status="done", repo="~/d")
         (self.tasks / ".active").write_text("outer\n")
         self.assertIn("Active task: outer (global)", self.run_hook({"session_id": "x", "cwd": str(self.home / "d")}))

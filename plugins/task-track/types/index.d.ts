@@ -65,6 +65,9 @@ export type PomoFile = {
   logged: Record<string, { ms: number; blocks: number }>
 }
 
+/** The vault a /board pane shows: its vaults.json name and path; hasOthers = 2+ vaults are registered, so /board <vault> can switch. */
+export type BoardTarget = { name: string; path: string; hasOthers: boolean }
+
 declare module 'claude-code' {
   interface PluginState {
     'task-track': {
@@ -91,6 +94,8 @@ declare module 'claude-code' {
       projectList: ProjectList
       /** The project-tasks pane lists every parked task, not the first five. */
       isProjectMoreOpen: boolean
+      /** The vault the /board pane shows; null until /board runs. */
+      board: BoardTarget | null
     }
   }
 }

@@ -53,7 +53,7 @@ def _umask() -> int:
     return mask
 
 
-def write_json(path: Path, data: dict, backups: Path, *, home: Path) -> Path | None:
+def write_json(path: Path, data: dict | list, backups: Path, *, home: Path) -> Path | None:
     saved = backup(path, backups, home=home)
     # A symlinked settings.json (dotfiles) stays a link: write the file it points at.
     target = path.resolve()

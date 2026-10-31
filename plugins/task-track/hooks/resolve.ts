@@ -4,9 +4,9 @@
 export type Candidate = { slug: string; repo: string; status: string; mtimeMs: number; title?: string }
 export type Source = 'session' | 'repo' | 'global'
 
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/
+export const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/
 
-function field(block: string, name: string): string {
+export function field(block: string, name: string): string {
   const m = new RegExp(`^${name}:[ \\t]*"?([^"\\r\\n]*?)"?\\s*$`, 'm').exec(block)
   return m?.[1] ?? ''
 }
@@ -29,7 +29,7 @@ function isWithin(dir: string, root: string): boolean {
 
 /**
  * Session override (when its note exists) → the task bound to `dir` or a parent
- * (deepest path, then active, then newest) → the global `.active` → null.
+ * (deepest path, then newest) → the global `.active` → null.
  */
 export function pickTask(input: {
   override: string
@@ -48,7 +48,6 @@ export function pickTask(input: {
     .sort(
       (a, b) =>
         b.root.length - a.root.length ||
-        Number(b.c.status === 'active') - Number(a.c.status === 'active') ||
         b.c.mtimeMs - a.c.mtimeMs,
     )
   const best = bound[0]
@@ -176,8 +175,7 @@ export function defaultVault(config: VaultConfig): VaultSpec {
 }
 
 /**
- * Session override (newest across vaults) → a repo note in any vault (deepest, then active, then
- * newest; done never binds, nor does a note whose name is not a slug) → the deepest bound folder (its vault's .active) → the default
+ * Session override (newest across vaults) → a repo note in any vault (deepest, then newest; done never binds, nor does a note whose name is not a slug) → the deepest bound folder (its vault's .active) → the default
  * vault's .active. `states` holds only vaults that have Tasks/; null when none of them answers.
  */
 export function pickVault(input: { config: VaultConfig; states: readonly VaultState[]; dir: string; home: string }): VaultPick | null {
@@ -194,7 +192,6 @@ export function pickVault(input: { config: VaultConfig; states: readonly VaultSt
     .sort(
       (a, b) =>
         b.root.length - a.root.length ||
-        Number(b.c.status === 'active') - Number(a.c.status === 'active') ||
         b.c.mtimeMs - a.c.mtimeMs ||
         (a.c.slug < b.c.slug ? 1 : a.c.slug > b.c.slug ? -1 : 0),
     )[0]

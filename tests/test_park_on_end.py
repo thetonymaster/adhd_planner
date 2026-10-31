@@ -1,0 +1,194 @@
+"""Tests for plugins/tasks/hooks/park_on_end.py. Run: python3 -m unittest discover -s tests"""
+import contextlib
+import io
+import json
+import os
+import pathlib
+import shutil
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+HOOKS = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "tasks" / "hooks"
+sys.path.insert(0, str(HOOKS))
+import park_on_end  # noqa: E402
+
+NOTE = "---\nstatus: {status}\n---\n# t\n\n## Goal\ng\n\n## Log\n- [[2026-10-01]] 09:00 — started\n"
+STAMP = "[[2026-10-29]] 16:40"
+LINE = "- [[2026-10-29]] 16:40 — parked: session ended"
+
+
+class ParkTest(unittest.TestCase):
+    def test_active_note_is_parked_and_logged(self):
+        out = park_on_end.park(NOTE.format(status="active"), STAMP)
+        self.assertIn("\nstatus: parked\n", out)
+        self.assertTrue(out.rstrip().endswith(LINE))
+
+    def test_parked_and_done_notes_are_left(self):
+        for s in ("parked", "done"):
+            self.assertIsNone(park_on_end.park(NOTE.format(status=s), STAMP))
+
+    def test_body_text_status_line_is_not_touched(self):
+        text = NOTE.format(status="parked") + "status: active\n"
+        self.assertIsNone(park_on_end.park(text, STAMP))
+
+    def test_body_status_line_survives_when_frontmatter_is_active(self):
+        out = park_on_end.park(NOTE.format(status="active") + "\nstatus: active\n", STAMP)
+        self.assertIn("\nstatus: active\n", out.split("---\n", 2)[2])
+
+    def test_log_line_goes_at_end_of_log_before_next_section(self):
+        text = NOTE.format(status="active") + "\n## Later\nx\n"
+        out = park_on_end.park(text, STAMP).splitlines()
+        self.assertEqual(out[out.index("## Later") - 2], LINE)
+
+    def test_crlf_note_is_parked_and_stays_crlf(self):
+        out = park_on_end.park(NOTE.format(status="active").replace("\n", "\r\n"), STAMP)
+        self.assertIn("\r\nstatus: parked\r\n", out)
+        self.assertTrue(out.endswith(LINE + "\r\n"))
+        self.assertNotIn("\n", out.replace("\r\n", ""))
+
+    def test_missing_log_section_is_created_at_end(self):
+        out = park_on_end.park("---\nstatus: active\n---\n# t\n", STAMP)
+        self.assertTrue(out.endswith("## Log\n" + LINE + "\n"))
+
+
+class MainTest(unittest.TestCase):
+    def setUp(self):
+        self.home = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.home)
+        self.v1, self.v2 = self.home / "v1", self.home / "v2"
+        for v in (self.v1, self.v2):
+            (v / "Tasks" / ".session").mkdir(parents=True)
+        cfg = self.home / "vaults.json"
+        cfg.write_text(json.dumps({"default": "a", "timezone": "UTC",
+                                   "vaults": {"a": {"path": str(self.v1)}, "b": {"path": str(self.v2)}}}))
+        self.env = {"ADHD_PLANNER_VAULTS": str(cfg)}
+
+    def run_main(self, sid="s1", **extra):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = park_on_end.main(json.dumps({"session_id": sid, **extra}), self.env, str(self.home))
+        return rc, err.getvalue()
+
+    def test_main_parks_the_note_named_by_this_session(self):
+        for v in (self.v1, self.v2):
+            (v / "Tasks" / "t.md").write_text(NOTE.format(status="active"))
+        (self.v2 / "Tasks" / ".session" / "s1").write_text("t\n")
+        rc, err = self.run_main()
+        self.assertEqual((rc, err), (0, ""))
+        text = (self.v2 / "Tasks" / "t.md").read_text()
+        self.assertIn("\nstatus: parked\n", text)
+        self.assertIn("— parked: session ended", text)
+        self.assertEqual((self.v1 / "Tasks" / "t.md").read_text(), NOTE.format(status="active"))
+
+    def test_main_without_session_file_writes_nothing(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_text(NOTE.format(status="active"))
+        os.utime(p, (1, 1))
+        rc, err = self.run_main()
+        self.assertEqual((rc, err, p.stat().st_mtime), (0, "", 1))
+
+    def test_main_with_missing_note_names_the_path_and_returns_0(self):
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("gone\n")
+        rc, err = self.run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn(f"park_on_end: read note: {self.v1}/Tasks/gone.md", err)
+        self.assertEqual(list((self.v1 / "Tasks").glob("*.md")), [])
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores directory permissions")
+    def test_unwritable_tasks_dir_returns_0_leaves_note_and_names_path(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_text(NOTE.format(status="active"))
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        os.chmod(self.v1 / "Tasks", 0o500)
+        self.addCleanup(os.chmod, self.v1 / "Tasks", 0o700)
+        rc, err = self.run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn(f"park_on_end: write note: {p}", err)
+        self.assertEqual(p.read_text(), NOTE.format(status="active"))
+
+    def test_note_mode_is_preserved(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_text(NOTE.format(status="active"))
+        os.chmod(p, 0o644)
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        self.assertEqual(self.run_main(), (0, ""))
+        self.assertIn("status: parked", p.read_text())
+        self.assertEqual(p.stat().st_mode & 0o777, 0o644)
+
+    def test_crlf_note_on_disk_is_parked_and_stays_crlf(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_bytes(NOTE.format(status="active").replace("\n", "\r\n").encode())
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        self.assertEqual(self.run_main(), (0, ""))
+        raw = p.read_bytes()
+        self.assertIn(b"\r\nstatus: parked\r\n", raw)
+        self.assertNotIn(b"\n", raw.replace(b"\r\n", b""))
+
+    def test_a_write_after_the_read_is_kept_and_the_note_still_parked(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_text(NOTE.format(status="active"))
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        real_read, calls = park_on_end._read, []
+
+        def read_then_someone_writes(path):
+            text = real_read(path)
+            if path == p and not calls:
+                calls.append(path)
+                p.write_text(text + "- [[2026-10-29]] 16:39 — from /note\n")  # lands between our read and replace
+            return text
+        with mock.patch.object(park_on_end, "_read", side_effect=read_then_someone_writes):
+            self.assertEqual(self.run_main(), (0, ""))
+        text = p.read_text()
+        self.assertIn("— from /note", text)
+        self.assertIn("status: parked", text)
+
+    def test_a_note_that_keeps_changing_is_left_active_with_stderr_line(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_text(NOTE.format(status="active"))
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        with mock.patch.object(park_on_end, "version", side_effect=lambda path, n=iter(range(100)): (next(n), 0)):
+            rc, err = self.run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn(f"park_on_end: note kept changing, left active: {p}", err)
+        self.assertEqual(p.read_text(), NOTE.format(status="active"))
+        self.assertEqual(sorted(x.name for x in p.parent.iterdir() if x.name.startswith(".t.md.")), [])
+
+    def test_unexpected_error_returns_0_with_stderr_line(self):
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        with mock.patch.object(park_on_end.vaults, "now", side_effect=RuntimeError("boom")):
+            rc, err = self.run_main()
+        self.assertEqual(rc, 0)
+        self.assertIn("park_on_end: unexpected error: RuntimeError: boom", err)
+
+    def test_clear_reason_leaves_the_active_note_alone(self):
+        p = self.v1 / "Tasks" / "t.md"
+        p.write_text(NOTE.format(status="active"))
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        self.assertEqual(self.run_main(reason="clear"), (0, ""))
+        self.assertEqual(p.read_text(), NOTE.format(status="active"))
+
+    def test_other_reasons_still_park(self):
+        p = self.v1 / "Tasks" / "t.md"
+        (self.v1 / "Tasks" / ".session" / "s1").write_text("t\n")
+        for reason in ("logout", "prompt_input_exit", "other"):
+            p.write_text(NOTE.format(status="active"))
+            self.assertEqual(self.run_main(reason=reason), (0, ""))
+            self.assertIn("\nstatus: parked\n", p.read_text(), reason)
+
+    def test_undecodable_stdin_returns_0(self):
+        stream = io.TextIOWrapper(io.BytesIO(b"\xff\xfe{bad"), encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(park_on_end.main(stream, self.env, str(self.home)), 0)
+        self.assertIn("park_on_end: read hook input: UnicodeDecodeError", err.getvalue())
+
+    def test_bad_stdin_and_hostile_session_id_return_0(self):
+        for stdin in ("", "not json", "[]", json.dumps({"session_id": "../x"})):
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(park_on_end.main(stdin, self.env, str(self.home)), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
