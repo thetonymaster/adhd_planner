@@ -157,7 +157,7 @@ Each task note can carry two optional frontmatter keys, which new notes get from
 
 To change a task's priority, ask `task-note` (for example "set <task> to p1"): it rewrites `priority:` and adds a Log line with the old and new value. Editing `priority:` in the note's frontmatter by hand works too. The next planner run and the hub list pick it up.
 
-A hub (a note in `Projects/` or `Areas/` made from `Templates/Project.md`) lists its open tasks under `## Tasks`: every task whose `up:` names that hub and whose `status` isn't `done`, with priority, due date and status. The order is `p0` tasks due within 7 days first, then other tasks due within 7 days by date, then the rest by priority. The planner's own order can differ in small ways (it uses the planning period, not a fixed 7 days). Hubs from before this list get it through `update-vaults` (see above).
+A hub (a note in `Projects/` or `Areas/` made from `Templates/Project.md`) lists its open tasks under `## Tasks`: every task whose `up:` names that hub and whose `status` isn't `done`, with priority, due date and status. The order is every `p0` task first, then tasks due within 7 days by date (soonest first), then the rest by priority. The planner's own order can differ in small ways (it uses the planning period, not a fixed 7 days). Hubs from before this list get it through `update-vaults` (see above).
 
 ## What each plugin needs
 
