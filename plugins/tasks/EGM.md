@@ -23,9 +23,8 @@ invalid).
   `$VAULT` → `~/vault`); `task-list` and `task-note` a variant that skips `vaultPath`
   and adds a connected folder named `vault` (or holding `Tasks/` and `Daily/`), as the
   marketplace and multi-vault specs give it for Cowork. Only `task-switch` restates the
-  hook's task pick order; `task-park` and `task-finish` use their own (last
-  started/switched → `Current task:` line → `.active`), `task-note` a shorter one
-  (`Current task:` line → `.active`).
+  hook's task pick order; `task-park`, `task-finish`, `task-note` and the planner skills use their own
+  (last started/switched → `Current task:` line → `.active`).
   - [create-task](./skills/create-task/SKILL.md) - make one or many backlog notes
     (`status: parked`)
   - [obsidian-vault](./skills/obsidian-vault/SKILL.md) - rules for any vault write

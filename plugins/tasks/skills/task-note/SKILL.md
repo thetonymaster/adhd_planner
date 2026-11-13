@@ -28,7 +28,10 @@ None has `Tasks/` → say "No vault found (looked in: <each place checked>)" and
 - The user named one → match the file stem in `Tasks/`, else a note whose `aliases` contains the
   name (case-insensitive). Several match → list them and ask.
 - `<vault>:<slug>` → that vault's `Tasks/<slug>.md`.
-- The user named none → the task named in the session-start `Current task:` line, else `Tasks/.active`.
+- The user named none → first match wins: the task this session last started or switched to
+  (`/tasks:task-start`, `/tasks:task-switch`), else the task named in the session-start
+  `Current task:` line, else `Tasks/.active`. That line is written once at session start, so
+  after a mid-session switch it names the old task.
   Neither → list open tasks and ask.
 
 ## Actions
