@@ -456,14 +456,19 @@ function parseOwner(text: string): { by: string; at: number } | undefined {
   }
 }
 
-/** The lock at `lock` now, or undefined when there is none. */
+/**
+ * The lock at `lock` now, or undefined only when it is confirmed gone. A lock that exists but can't be inspected
+ * (permissions, I/O) counts as held and never stale: an unreadable lock proves nothing about its holder.
+ */
 async function inspectLock($: EngineInterface, lock: string): Promise<SeenLock | undefined> {
   const text = await $.fs.read(`${lock}/owner`).catch(() => undefined)
   const owner = text === undefined ? undefined : parseOwner(text)
   if (owner) return { key: `${owner.by}-${owner.at}`, at: owner.at }
   // No owner file yet (or half-written): the folder's own age.
   const stat = await $.fs.stat(lock).catch(() => undefined)
-  return stat ? { key: `unowned-${stat.mtimeMs}`, at: stat.mtimeMs } : undefined
+  if (stat) return { key: `unowned-${stat.mtimeMs}`, at: stat.mtimeMs }
+  const isThere = await $.fs.exists(lock).catch(() => true)
+  return isThere ? { key: 'uninspectable', at: Number.POSITIVE_INFINITY } : undefined
 }
 
 /**
@@ -489,10 +494,11 @@ async function breakStaleLock($: EngineInterface, lock: string, seen: SeenLock, 
 /**
  * Runs `fn` holding the cross-session lock on the timer file: a folder made with `mkdir`, which only one
  * process can create. Busy: waits LOCK_WAIT_MS up to LOCK_TRIES times, then resolves null (the round is skipped).
- * A stale lock is broken by one session (breakStaleLock). A lock gone by the time it is looked at was just
- * released: mkdir is retried at once. Only mkdir failing LOCK_TRIES times in a row with no lock ever there means
- * it can't work here (no Tasks folder, no shell): said once per session, and `fn` runs unlocked rather than
- * freezing the timer. Any lock seen in between is contention: the normal waits apply, and the round may be skipped.
+ * A stale lock is broken by one session (breakStaleLock). A lock confirmed gone by the time it is looked at was
+ * just released: mkdir is retried at once. mkdir failing LOCK_TRIES times in a row with the lock confirmed gone
+ * each time means it can't work here (no Tasks folder, no shell) or, rarely, a lock taken and released between
+ * every mkdir and look: said once per session, and `fn` runs unlocked rather than freezing the timer. Any lock
+ * seen in between, readable or not, is contention: the normal waits apply, and the round may be skipped.
  */
 async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<T>): Promise<T | null> {
   const lock = `${await currentVault($)}/Tasks/.pomo.lock`

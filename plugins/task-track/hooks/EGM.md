@@ -100,10 +100,13 @@ state live in [../types/EGM.md](../types/EGM.md).
   never taken; a marker 30 s old (its breaker died) is removed. The holder re-reads its
   owner file between reading and writing each note (task Log, daily note, a rollover's
   notes) and before the timer write, and stops once it no longer holds the lock, leaving
-  that focus unlogged. A lock gone by the time it is looked at was just released, so
-  `mkdir` is retried at once; only `mkdir` failing `LOCK_TRIES` times in a row with no lock
-  ever there (no `Tasks/` folder, no shell) makes the session say so once and run
-  unlocked rather than freeze the timer: timer writes are then not serialized.
+  that focus unlogged. A lock confirmed gone (`fs.exists`) by the time it is looked at was
+  just released, so `mkdir` is retried at once; a lock that exists but can't be read or
+  stat'ed counts as held and is never broken. Only `mkdir` failing `LOCK_TRIES` times in a
+  row with the lock confirmed gone each time makes the session say so once and run
+  unlocked rather than freeze the timer: that is `mkdir` not working here (no `Tasks/`
+  folder, no shell) or, rarely, a lock taken and released between every `mkdir` and look.
+  Timer writes are then not serialized.
 - Known gap (needs an OS-level lock, which the mod runtime has no API to hold): every
   check above is separate from the write it guards. A holder that stalls past
   `LOCK_STALE_MS` exactly between its owner check and a write can still write once after

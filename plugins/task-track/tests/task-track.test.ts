@@ -491,6 +491,7 @@ function fakeVault(on: On, files: Record<string, string>, session: { id?: string
     return exit(127, `fake host: no ${e.argv.join(' ')}\n`)
   })
   on('fs.stat', ($, e) => {
+    if (opts.unreadable?.includes(e.path)) return { deny: `EACCES: ${e.path}` }
     const text = files[e.path]
     if (text === undefined && (dirs.has(e.path) || under(e.path).length > 0)) {
       return { value: { kind: 'dir' as const, size: 0, mtimeMs: dirTimes[e.path] ?? Number.MAX_SAFE_INTEGER, isLink: false } }
@@ -904,6 +905,26 @@ describe('/pomo and the band controls', () => {
     expect(logs.filter(l => l.includes('lock'))).toEqual([])
     expect(busy).toBe(0)
     expect(shared(files).pausedAt).toBe(NOW)
+  })
+
+  test('a lock that exists but cannot be inspected counts as held: never run unlocked, never broken', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: NOW })
+    const theirs = owner('other-session', NOW - LOCK_STALE_MS)
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: theirs }, {}, {
+      unreadable: [`${LOCK}/owner`, LOCK],
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    const pausing = run($, 'pomo', 'pause')
+    await clock.advance(1000)
+    expect((await pausing).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
+    expect(logs.filter(l => l.includes('lock'))).toEqual([])
+    expect(shared(files).pausedAt).toBe(0)
+    expect(files[`${LOCK}/owner`]).toBe(theirs)
   })
 
   test('two sessions breaking the same stale lock: the late one never takes the fresh lock the first made', async ($, on) => {
