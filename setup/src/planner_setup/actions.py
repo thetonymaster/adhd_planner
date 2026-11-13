@@ -326,6 +326,7 @@ def _replace_hub_tasks(ctx: Ctx, vault: Path, backups: Path) -> None:
     todo: list[tuple[Path, str]] = []  # (note, its text with the original line replaced)
     edited: list[Path] = []
     done = 0  # notes whose Tasks section already is the Base block
+    listed: dict[Path, bytes] = {}  # each note as read, to catch a save while the prompt is open
     for note in _hub_notes(vault):
         text = _read_utf8(ctx, note)
         if text is None:
@@ -345,6 +346,7 @@ def _replace_hub_tasks(ctx: Ctx, vault: Path, backups: Path) -> None:
         i = next(i for i in range(first, end) if lines[i].strip() == ORIGINAL_HUB_TASKS)
         new_line = block.replace("\n", "\r\n" if "\r\n" in text else "\n") + lines[i][len(lines[i].rstrip("\r\n")):]
         todo.append((note, "".join(lines[:i] + [new_line] + lines[i + 1:])))
+        listed[note] = text.encode()
     if done:
         ctx.say(f"{done} note(s) in {vault} already have the task list.")
     for note in edited:
@@ -360,6 +362,9 @@ def _replace_hub_tasks(ctx: Ctx, vault: Path, backups: Path) -> None:
         ctx.say(f"Kept the Tasks section in {len(todo)} note(s) in {vault}.")
         return
     for note, new in todo:
+        if note.read_bytes() != listed[note]:
+            ctx.say(f"Changed since it was listed, left unchanged: {note}")
+            continue
         files.backup(note, backups / note.parent.name, home=ctx.home)
         note.write_bytes(new.encode())
 

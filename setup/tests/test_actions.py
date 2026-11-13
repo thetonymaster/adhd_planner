@@ -695,6 +695,22 @@ def test_update_vaults_asks_once_per_vault_with_the_exact_text_and_lists_the_not
         assert note.read_text() == NEW_HUB
 
 
+def test_update_vaults_leaves_a_hub_saved_while_the_prompt_was_open(ctx):
+    v = hub_vault(ctx, {"Projects/X.md": OLD_HUB})
+    note = v / "Projects" / "X.md"
+    saved = OLD_HUB.replace("keep me", "edited during the prompt")
+
+    def confirm(q):
+        if q.startswith("Replace the Tasks section"):
+            note.write_text(saved, encoding="utf-8")
+        return True
+
+    ctx = changed(ctx, yes=False, confirm=confirm)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert note.read_text(encoding="utf-8") == saved
+    assert f"Changed since it was listed, left unchanged: {note}" in ctx.lines
+
+
 def test_update_vaults_declined_hub_prompt_writes_nothing(ctx):
     v, asked = hub_vault(ctx, {"Projects/X.md": OLD_HUB}), []
     ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) and False)
@@ -758,14 +774,14 @@ def test_update_vaults_keeps_separate_hub_backups_for_a_vault_outside_home(ctx, 
     v = tmp_path / "elsewhere" / "one"
     for folder in ("Projects", "Areas"):
         (v / folder).mkdir(parents=True)
-        (v / folder / "X.md").write_text(OLD_HUB + f"<!-- {folder} -->\n")
+        (v / folder / "X.md").write_text(OLD_HUB + f"<!-- {folder} -->\n", encoding="utf-8")
     vaults_json(ctx).parent.mkdir(parents=True)
     vaults_json(ctx).write_text(json.dumps({"default": "one", "vaults": {"one": {"path": str(v)}}}))
     assert actions.update_vaults(ctx, fake_fetch()) == 0
     for folder in ("Projects", "Areas"):
-        assert BLOCK in (v / folder / "X.md").read_text()
+        assert BLOCK in (v / folder / "X.md").read_text(encoding="utf-8")
         [saved] = (ctx.home / ".claude" / "backups").glob(f"*/one/{folder}/X.md")
-        assert saved.read_text() == OLD_HUB + f"<!-- {folder} -->\n"
+        assert saved.read_text(encoding="utf-8") == OLD_HUB + f"<!-- {folder} -->\n"
 
 
 def test_update_vaults_keeps_crlf_in_a_hub(ctx):
