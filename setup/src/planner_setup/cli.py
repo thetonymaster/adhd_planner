@@ -31,7 +31,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--permissions", action="store_true", help="also allow Bash(obsidian:*)")
     p = sub.add_parser("vault")
     p.add_argument("--vault", type=Path)
-    sub.add_parser("update-vaults", help="add the task board to every registered vault: Tasks.base views + board plugin")
+    sub.add_parser("update-vaults", help="bring every registered vault up to date: Tasks.base board views, "
+                   "priority and due in Templates/Task.md, board plugin")
     p = sub.add_parser("add-vault", help="register another vault in ~/.config/adhd-planner/vaults.json")
     p.add_argument("name", help="kebab-case, e.g. work")
     p.add_argument("--path", type=Path, required=True)

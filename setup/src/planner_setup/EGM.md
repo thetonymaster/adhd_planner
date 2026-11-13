@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `planner-setup` installer package. It installs the `adhd-planner` marketplace plugins through the `claude` CLI, merges vault paths and permissions into `~/.claude/settings.json`, edits the vault registry (`vaults.json`), seeds a starter vault, brings existing vaults up to the task board (board views in `Tasks.base`, the pinned Kanban Bases View Obsidian plugin), and copies an example `CLAUDE.md`. `cli.py` exposes the same actions two ways: a `questionary` menu (no arguments) and argparse subcommands.
+The `planner-setup` installer package. It installs the `adhd-planner` marketplace plugins through the `claude` CLI, merges vault paths and permissions into `~/.claude/settings.json`, edits the vault registry (`vaults.json`), seeds a starter vault, brings existing vaults up to date (board views in `Tasks.base`, `priority` and `due` in `Templates/Task.md`, the pinned Kanban Bases View Obsidian plugin), and copies an example `CLAUDE.md`. `cli.py` exposes the same actions two ways: a `questionary` menu (no arguments) and argparse subcommands.
 
 Layering, top to bottom:
 
@@ -33,7 +33,7 @@ Layering, top to bottom:
 - `install(ctx, plugins) -> int`: adds the marketplace if missing, then runs `claude plugin install <p>@adhd-planner` for each plugin not yet installed.
 - `configure(ctx, vault, permissions) -> int`: merges `settings.desired(...)` into `settings.json`.
 - `seed_vault(ctx, vault, fetch=board_plugin.download) -> int`: copies `examples/vault-starter` to `vault`, renames `_claude/` to `.claude/`, then offers the board plugin (`_board_plugin`) and prints `RELOAD` when it is in place. A failed plugin install is reported but still returns 0.
-- `update_vaults(ctx, fetch=board_plugin.download) -> int`: for every vault `_registered_vaults` returns (each `vaults.json` vault; without one, the single vault `_current_vault` names, as `vault`), skipping missing folders: `_merge_tasks_base` then `_board_plugin`, with backups under `<backup_dir>/<vault name>/`. Prints `RELOAD` unless dry run. Returns 1 when any plugin install failed, else 0.
+- `update_vaults(ctx, fetch=board_plugin.download) -> int`: for every vault `_registered_vaults` returns (each `vaults.json` vault; without one, the single vault `_current_vault` names, as `vault`), skipping missing folders: `_merge_tasks_base`, then `_add_priority_keys` (adds the missing of `priority: p3` and `due:` to `Templates/Task.md`'s frontmatter; no template or no frontmatter: one message, nothing written), then `_board_plugin`, with backups under `<backup_dir>/<vault name>/`. Prints `RELOAD` unless dry run. Returns 1 when any plugin install failed, else 0.
 - `_merge_tasks_base(ctx, vault, backups)`: `board_plugin.merge_base` on `<vault>/Tasks.base` (read as bytes, so CRLF survives). `added`: backs up and writes without asking; `unchanged`: says so; `conflict`: asks to replace the file with the starter's (backup kept). No `Tasks.base`: says so and adds nothing.
 - `_board_plugin(ctx, vault, fetch, backups) -> bool | None`: True when the pinned plugin is in place now, False when `install_plugin` failed, None when skipped (declined or dry run). Asks only when the vault's copy is not `PLUGIN_VERSION`.
 - `RELOAD`: the "reload Obsidian; allow community plugins" line.
@@ -82,7 +82,7 @@ Layering, top to bottom:
 
 ## Invariants
 
-- **Confirm before writing.** Every writing action prints the planned change first, then writes only with `--yes` or a yes from `ctx.confirm`. `--dry-run` prints `Would ...` (`install`: `would run: claude ...`) and returns 0 without writing. Two writes in `update_vaults` are announced but not asked, as `docs/setup.md` describes: appending the board views to a `Tasks.base` (`added`), and enabling an already-pinned plugin copy in `community-plugins.json`. The questions are the plugin download and replacing a conflicting `Tasks.base`.
+- **Confirm before writing.** Every writing action prints the planned change first, then writes only with `--yes` or a yes from `ctx.confirm`. `--dry-run` prints `Would ...` (`install`: `would run: claude ...`) and returns 0 without writing. Three writes in `update_vaults` are announced but not asked, as `docs/setup.md` describes: appending the board views to a `Tasks.base` (`added`), adding `priority` / `due` to `Templates/Task.md`, and enabling an already-pinned plugin copy in `community-plugins.json`. The questions are the plugin download and replacing a conflicting `Tasks.base`.
 - **Exit codes.** 0 = done, nothing to do, or dry run; `status` also returns 0 when `claude` is missing or its state cannot be read. 1 = declined, `claude` failed (`install`), a board plugin install failed (`update_vaults`; `seed_vault` reports it and returns 0), a conflict, or a `SystemExit(<message>)` from a bad file (`files.load_json`, `settings._child`) or missing examples (`paths.examples()`), printed to stderr. 2 = invalid input (vault name not kebab-case, zone not an exact IANA name, `$ADHD_PLANNER_VAULTS` not absolute, menu without a TTY).
 - **Bad files stop setup, unchanged.** Invalid JSON, a non-object top level, or a settings key of the wrong type raises `SystemExit` with a message ending "nothing was changed". Do not replace these with defaults.
 - **Never clobber.** `seed_vault` leaves an existing path alone. `claude_md` keeps an existing `~/.claude/CLAUDE.md`. `merge` changes only the keys `desired` names and appends to permission lists without duplicates.
@@ -107,7 +107,7 @@ Layering, top to bottom:
 - **Subprocess:** `claude plugin marketplace list|add`, `claude plugin list|install` (300 s timeout per call, exit 124 on timeout).
 - **Network:** `board_plugin.download` fetches the three release assets from `https://github.com/xiwcx/obsidian-bases-kanban/releases/download/0.10.6/` (`seed_vault`, `update_vaults`).
 - **Writes `~/.claude/settings.json`** (`configure`) and **`vaults.json`** (`add_vault`, `set_timezone`), each with a backup under `~/.claude/backups/<timestamp>/`.
-- **Writes into vaults** (`seed_vault`, `update_vaults`): `<vault>/Tasks.base`, `<vault>/.obsidian/plugins/kanban-bases-view/{manifest.json,main.js,styles.css}` and `<vault>/.obsidian/community-plugins.json`; `update_vaults` backs them up under `~/.claude/backups/<timestamp>/<vault name>/`.
+- **Writes into vaults** (`seed_vault`, `update_vaults`): `<vault>/Tasks.base`, `<vault>/Templates/Task.md` (`update_vaults` only), `<vault>/.obsidian/plugins/kanban-bases-view/{manifest.json,main.js,styles.css}` and `<vault>/.obsidian/community-plugins.json`; `update_vaults` backs them up under `~/.claude/backups/<timestamp>/<vault name>/`.
 - **Creates directories:** the starter vault tree (`seed_vault`, `shutil.copytree`), the plugin folder, a temp staging dir for downloads, and the parents of `~/.claude/CLAUDE.md` and of `vaults.json`.
 - **Copies** `examples/CLAUDE.md` to `~/.claude/CLAUDE.md` (`claude_md`).
 - **Reads** the environment (`VAULT`, `ADHD_PLANNER_VAULTS`), `Path.home()`, `Path.cwd()`, and package metadata (`direct_url.json`).

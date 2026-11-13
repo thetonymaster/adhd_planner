@@ -24,7 +24,8 @@ planning in Claude Code and Cowork. It ships three plugins (`planner`, `tasks`, 
 - setup: [./setup/EGM.md](./setup/EGM.md) - The `planner-setup` uv project: installs the plugins,
   merges `pluginConfigs` and permissions into `~/.claude/settings.json`, manages `vaults.json`,
   seeds a vault from `examples/vault-starter`, and (`update-vaults`) adds the task board to existing
-  vaults: Board views in `Tasks.base` plus the pinned Obsidian plugin `kanban-bases-view`.
+  vaults: Board views in `Tasks.base` plus the pinned Obsidian plugin `kanban-bases-view`, and
+  `priority` / `due` in `Templates/Task.md`.
 - scripts: [./scripts/EGM.md](./scripts/EGM.md) - `build-plugin.sh`: validates, tests and zips
   `plugins/planner` into `planner.plugin`.
 
