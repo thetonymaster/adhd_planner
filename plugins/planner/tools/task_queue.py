@@ -44,7 +44,7 @@ PRIORITY_DETAIL = "expected p0..p5, read as p3"
 DUE_DETAIL = "expected YYYY-MM-DD, read as no due date"
 
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_OPEN_ITEM = re.compile(r"^\s*- \[ \] (?=\S)(.*)$")
+_OPEN_ITEM = re.compile(r"^\s*- \[ \][ \t]+(\S.*)$")
 _ESTIMATE = re.compile(r"\s*\(~\s*(\d+(?:\.\d+)?)\s*(min|h)\)\s*$")
 _COMMENT = re.compile(r"(^|\s)#.*$")
 _KEY = re.compile(r"^([A-Za-z_][\w-]*):(.*)$")

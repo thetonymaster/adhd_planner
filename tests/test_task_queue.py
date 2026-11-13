@@ -205,6 +205,10 @@ class NextReadingTest(Base):
         self.assertEqual(r["minutes"], 10)
         self.assertEqual(r["title"], "t: Real")
 
+    def test_several_spaces_after_the_box_still_count(self):
+        r = self.row(note(next_lines=["- [ ]   spaced item (~30 min)"]))
+        self.assertEqual((r["minutes"], r["title"]), (30, "t: spaced item"))
+
     def test_section_ends_at_the_next_heading(self):
         r = self.row(note(next_lines=["- [ ] In (~10 min)"],
                           body_after="## Open loops\n- [ ] Not in (~50 min)\n"))
