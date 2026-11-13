@@ -30,11 +30,13 @@ If your Obsidian vault is connected (a folder named `vault`, or `$VAULT` / `~/va
 with `Tasks/` and `Daily/`), the planning skills use it too: morning-startup and
 plan-day write the Top 3 and the timed plan into today's daily note, capture-triage
 also empties the vault inbox, break-down-task writes subtasks into the task note,
-plan-week pulls open Next items from task notes, and eod-shutdown reads the day's log,
-parks the current task and seeds tomorrow's note. With two or more vaults registered in
+and eod-shutdown reads the day's log, parks the current task and seeds tomorrow's note.
+Attended runs of plan-week, plan-day, morning-startup and eod-shutdown take their
+vault tasks from `task_queue.py`, one row per task in rank order; unattended runs
+still do not read the vault. With two or more vaults registered in
 `~/.config/adhd-planner/vaults.json`, the six day-planning skills (morning-startup,
-plan-day, plan-week, eod-shutdown, capture-triage, break-down-task) pull each vault's
-current task and inbox, label items `<vault>:<slug>`, and write each item back to its own
+plan-day, plan-week, eod-shutdown, capture-triage, break-down-task) use every vault in play
+(the ranked list from `task_queue.py` across them, and each vault's inbox), label items `<vault>:<slug>`, and write each item back to its own
 vault; items from no vault (calendar, the planner's `inbox.md`) go to the current vault
 (the `Vault:` line). Without a vault nothing changes.
 Scheduled (unattended) runs never touch the vault. The skills also use
