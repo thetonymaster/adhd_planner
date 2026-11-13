@@ -134,6 +134,9 @@ without mentioning it: the planner works without it.
 
 In this skill:
 
+- If `<planner-path>/tools/task_queue.py` is missing, the folder's tools
+  predate this plugin version: say so, offer `planner:setup`, and stop. Do not
+  build the task list by hand.
 - **Step 1, evidence of the day:** in every vault, read today's daily note
   `## Log` and the current task note's `## Log` and `## Next`. Use what's there (focus or session
   lines, if any tool wrote them) to suggest what got done instead of asking
@@ -148,6 +151,16 @@ In this skill:
   and for the current task of every other vault that had work today, check off
   the Next items the user confirmed done and add a `## Log` line; don't reorder
   or rewrite the rest.
+- **Step 6, tomorrow's tasks:** run the queue command,
+  `cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" --date <tomorrow>`,
+  with one quoted `--vault` per vault in play (`<name>` is the vault's name in
+  `vaults.json`, or `vault` when there is one unregistered vault) and no output
+  file, then read the path on the tool's last output line, `Wrote <path>`, and
+  that file only. Offer its first ten rows as candidates for the Top 3, with
+  `(overdue)` beside a row that has `overdue`; say how many rows were not
+  shown, and tell the user the `not_placed` rows (each with its reason and
+  detail) and the warnings. Add the rows the user confirms to the task list
+  that step 6 passes to `plan_day.py` for tomorrow.
 - **Step 6:** in each vault's daily note for today, write that vault's part of
   the shutdown summary (done, migrated, tomorrow's Top 3) under `## Shutdown`,
   creating it just above `## Log`. Write each vault's picks for tomorrow's Top 3

@@ -155,8 +155,18 @@ without mentioning it: the planner works without it.
 
 In this skill:
 
-- **Inputs:** when no task list is given, offer the open Next items of every
-  vault's current task as the task list.
+- If `<planner-path>/tools/task_queue.py` is missing, the folder's tools
+  predate this plugin version: say so, offer `planner:setup`, and stop. Do not
+  build the task list by hand.
+- **Inputs:** when no task list is given, run the queue command,
+  `cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" --date <target date>`,
+  with one quoted `--vault` per vault in play (`<name>` is the vault's name in
+  `vaults.json`, or `vault` when there is one unregistered vault) and no output
+  file, then read the path on the tool's last output line, `Wrote <path>`, and
+  that file only. Offer its first ten rows as the task list, with `(overdue)`
+  beside a row that has `overdue`; say how many rows were not shown, and tell
+  the user the `not_placed` rows (each with its reason and detail) and the
+  warnings.
 - **After step 3:** in each vault's daily note for the target date, write the
   blocks of the timed checklist that belong to that vault under `## Plan`,
   creating that section above `## Brain dump` if needed.

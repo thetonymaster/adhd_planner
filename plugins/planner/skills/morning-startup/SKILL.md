@@ -54,7 +54,8 @@ for events the user confirmed in this conversation.
      `tools/out/tasks-<yesterday>.json` (then that file is last night's capture-triage
      output, not an earlier morning's merged pool);
    - today's share of the week plan, `tools/out/week-tasks-<today>.json` (from plan-week).
-   Use whichever exist, drop repeated titles, and write the merged pool to
+   Use whichever exist, leaving out week-plan rows marked `"source": "vault"`,
+   drop repeated titles, and write the merged pool to
    `tools/out/tasks-<today>.json` as `[{"title": …, "minutes": …}]`: step 4 reads that file.
    Confirm the **Top 3** for today with the user (or take the top do/schedule items).
 
@@ -136,10 +137,27 @@ without mentioning it: the planner works without it.
 
 In this skill:
 
-- **Step 2, candidates for the Top 3:** add the open Next items of every
-  vault's current task (and of any task note the user names) to the pool,
-  titled as above. Prefer them over generic inbox items when the user is
-  mid-task.
+- If `<planner-path>/tools/task_queue.py` is missing, the folder's tools
+  predate this plugin version: say so, offer `planner:setup`, and stop. Do not
+  build the task list by hand.
+- **Step 2, candidates for the Top 3:** run the queue command,
+  `cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" --date <today>`,
+  with one quoted `--vault` per vault in play (`<name>` is the vault's name in
+  `vaults.json`, or `vault` when there is one unregistered vault) and no output
+  file, then read the path on the tool's last output line, `Wrote <path>`, and
+  that file only. Add the rows the user confirms from its first ten rows (and
+  the row of any task note the user names) to the pool, with the titles the
+  tool wrote, showing `(overdue)` beside a row that has `overdue`; say how many
+  rows were not shown, and tell the user the `not_placed` rows (each with its
+  reason and detail) and the warnings.
+- **Step 2, older week plans:** a week-plan row with no `source` key whose
+  title starts with the label of a task note that exists in a vault in play
+  may have been written before the ranked list existed. List these rows and
+  ask the user once whether to leave them out. For each row say what the
+  ranked list holds for that task: in `tasks`, in `not_placed` with its
+  reason, or in neither. Say a row is the same as a queue row only when the
+  two titles are equal; do not call a row covered or duplicated otherwise.
+  Keep any row the user wants kept.
 - **Step 3:** break-down-task writes the subtasks into the task note; don't
   write them again here.
 - **After step 4:** in each vault's daily note for today, write the confirmed
@@ -180,7 +198,8 @@ and that it must not wait for input:
 > otherwise it is an earlier run's merged pool),
 > `tools/out/tasks-<yesterday>.json` (only if `tools/out/triage-<yesterday>.md` exists and is
 > at least as new as `tools/out/tasks-<yesterday>.json`) and `tools/out/week-tasks-<today>.json`, whichever
-> exist, drop repeated titles, and write the merged pool to `tools/out/tasks-<today>.json`.
+> exist, leaving out week-plan rows marked `"source":
+> "vault"`, drop repeated titles, and write the merged pool to `tools/out/tasks-<today>.json`.
 > 3) Break any big task into subtasks → `tools/out/day-tasks-<today>.json`.
 > 4) `cd "<planner-path>" && python3 tools/plan_day.py --tasks tools/out/tasks-<today>.json --busy
 > tools/out/busy.json --date <today>`.
