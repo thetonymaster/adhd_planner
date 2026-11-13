@@ -362,7 +362,12 @@ def _replace_hub_tasks(ctx: Ctx, vault: Path, backups: Path) -> None:
         ctx.say(f"Kept the Tasks section in {len(todo)} note(s) in {vault}.")
         return
     for note, new in todo:
-        if note.read_bytes() != listed[note]:
+        try:
+            now = note.read_bytes()
+        except FileNotFoundError:
+            ctx.say(f"No longer there, skipped: {note}")
+            continue
+        if now != listed[note]:
             ctx.say(f"Changed since it was listed, left unchanged: {note}")
             continue
         files.backup(note, backups / note.parent.name, home=ctx.home)

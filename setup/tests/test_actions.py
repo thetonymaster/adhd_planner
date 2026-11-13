@@ -711,6 +711,22 @@ def test_update_vaults_leaves_a_hub_saved_while_the_prompt_was_open(ctx):
     assert f"Changed since it was listed, left unchanged: {note}" in ctx.lines
 
 
+def test_update_vaults_skips_a_hub_deleted_while_the_prompt_was_open(ctx):
+    v = hub_vault(ctx, {"Areas/X.md": OLD_HUB, "Projects/X.md": OLD_HUB})
+    gone, kept = v / "Areas" / "X.md", v / "Projects" / "X.md"
+
+    def confirm(q):
+        if q.startswith("Replace the Tasks section"):
+            gone.unlink()
+        return True
+
+    ctx = changed(ctx, yes=False, confirm=confirm)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert not gone.exists()
+    assert kept.read_text(encoding="utf-8") == NEW_HUB
+    assert f"No longer there, skipped: {gone}" in ctx.lines
+
+
 def test_update_vaults_declined_hub_prompt_writes_nothing(ctx):
     v, asked = hub_vault(ctx, {"Projects/X.md": OLD_HUB}), []
     ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) and False)
