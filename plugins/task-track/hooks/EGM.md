@@ -98,11 +98,17 @@ state live in [../types/EGM.md](../types/EGM.md).
   it first makes `.pomo.lock.break-<owner>` with `mkdir`, re-reads the lock, and removes
   it only if it is still that stale one, so a fresh lock another breaker already made is
   never taken; a marker 30 s old (its breaker died) is removed. The holder re-reads its
-  owner file before a rollover's notes, the timer write and the focus notes, and writes
-  nothing once it no longer holds the lock. A lock gone by the time it is looked at was
-  just released, so `mkdir` is retried at once. Only `mkdir` failing again with no lock
-  there (no `Tasks/` folder, no shell) makes the session say so once and run unlocked
-  rather than freeze the timer: timer writes are then not serialized.
+  owner file between reading and writing each note (task Log, daily note, a rollover's
+  notes) and before the timer write, and stops once it no longer holds the lock, leaving
+  that focus unlogged. A lock gone by the time it is looked at was just released, so
+  `mkdir` is retried at once; only `mkdir` failing `LOCK_TRIES` times in a row with no lock
+  ever there (no `Tasks/` folder, no shell) makes the session say so once and run
+  unlocked rather than freeze the timer: timer writes are then not serialized.
+- Known gap (needs an OS-level lock, which the mod runtime has no API to hold): every
+  check above is separate from the write it guards. A holder that stalls past
+  `LOCK_STALE_MS` exactly between its owner check and a write can still write once after
+  losing the lock, and a breaker that stalls between its re-read and its `rm` can remove
+  a lock released and retaken meanwhile.
 - Within one session, timer changes, flushes and `load`'s vault switch run one after
   another (`inPomoOrder`), so a session never waits on its own lock and no operation
   runs half on one vault and half on another. A flush whose vault changed while it

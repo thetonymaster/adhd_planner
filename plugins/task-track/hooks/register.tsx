@@ -370,14 +370,22 @@ async function dailyText($: EngineInterface, path: string, date: string): Promis
   return `---\ndate: ${date}\ntags: [daily]\n---\n# ${date}\n\n## Log\n`
 }
 
-/** Appends one focus line to the task's Log (when its note exists) and to that day's daily note. */
-async function writeFocus($: EngineInterface, slug: string, taskPath: string, date: string, time: string, spent: string): Promise<void> {
+/**
+ * Appends one focus line to the task's Log (when its note exists) and to that day's daily note. Each note is read
+ * and written back with the lease checked in between, so a holder that stalled and lost the lock never writes
+ * over a newer note; false when it stopped for that (the focus stays unlogged).
+ */
+async function writeFocus($: EngineInterface, lease: Lease, slug: string, taskPath: string, date: string, time: string, spent: string): Promise<boolean> {
   if (await $.fs.exists(taskPath)) {
     const taskText = await $.fs.read(taskPath)
+    if (!(await lease.isHeld())) return false
     await $.fs.write(taskPath, insertInSection(taskText, 'Log', `- [[${date}]] ${time} — ${spent}`))
   }
   const daily = `${await currentVault($)}/Daily/${date}.md`
-  await $.fs.write(daily, insertInSection(await dailyText($, daily, date), 'Log', `- ${time} [[${slug}]] ${spent}`))
+  const dailyBefore = await dailyText($, daily, date)
+  if (!(await lease.isHeld())) return false
+  await $.fs.write(daily, insertInSection(dailyBefore, 'Log', `- ${time} [[${slug}]] ${spent}`))
+  return true
 }
 
 /**
@@ -402,10 +410,13 @@ function isCalendarDay(day: string): boolean {
  * A finished day's focus that no session wrote (it ran past midnight, or crashed): written to that day's notes.
  * Runs under the timer lock (changePomoHeld), so only one session rolls a day over and writes it.
  */
-async function flushDay($: EngineInterface, d: DayTotals): Promise<void> {
+async function flushDay($: EngineInterface, lease: Lease, d: DayTotals): Promise<boolean> {
   const root = await currentVault($)
   // Validate before any write: a bad value is skipped and reported, the good slugs are still written once.
-  if (!isCalendarDay(d.day)) return reportPomoValue($, d.day, 'a date')
+  if (!isCalendarDay(d.day)) {
+    await reportPomoValue($, d.day, 'a date')
+    return true
+  }
   for (const slug of Object.keys(d.dayMs)) {
     const logged = d.logged[slug] ?? { ms: 0, blocks: 0 }
     const pending = { ms: (d.dayMs[slug] ?? 0) - logged.ms, blocks: (d.dayBlocks[slug] ?? 0) - logged.blocks }
@@ -414,8 +425,9 @@ async function flushDay($: EngineInterface, d: DayTotals): Promise<void> {
       await reportPomoValue($, slug, 'a task slug')
       continue
     }
-    await writeFocus($, slug, taskNotePath(root, slug), d.day, 'end of day', focusText(pending))
+    if (!(await writeFocus($, lease, slug, taskNotePath(root, slug), d.day, 'end of day', focusText(pending)))) return false
   }
+  return true
 }
 
 /** A hold on the timer lock: `isHeld` turns false once another session broke it as stale. */
@@ -478,12 +490,13 @@ async function breakStaleLock($: EngineInterface, lock: string, seen: SeenLock, 
  * Runs `fn` holding the cross-session lock on the timer file: a folder made with `mkdir`, which only one
  * process can create. Busy: waits LOCK_WAIT_MS up to LOCK_TRIES times, then resolves null (the round is skipped).
  * A stale lock is broken by one session (breakStaleLock). A lock gone by the time it is looked at was just
- * released: mkdir is retried at once. Only mkdir failing twice with no lock there means it can't work here
- * (no Tasks folder, no shell): said once per session, and `fn` runs unlocked rather than freezing the timer.
+ * released: mkdir is retried at once. Only mkdir failing LOCK_TRIES times in a row with no lock ever there means
+ * it can't work here (no Tasks folder, no shell): said once per session, and `fn` runs unlocked rather than
+ * freezing the timer. Any lock seen in between is contention: the normal waits apply, and the round may be skipped.
  */
 async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<T>): Promise<T | null> {
   const lock = `${await currentVault($)}/Tasks/.pomo.lock`
-  let isVanished = false
+  let vanished = 0
   for (let attempt = 1; attempt <= LOCK_TRIES; attempt++) {
     const now = await $.clock.now()
     const why = await host($, ['mkdir', lock])
@@ -499,8 +512,7 @@ async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise
     }
     const seen = await inspectLock($, lock)
     if (!seen) {
-      if (!isVanished) {
-        isVanished = true
+      if (++vanished < LOCK_TRIES) {
         attempt--
         continue
       }
@@ -510,7 +522,7 @@ async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise
       }
       return fn({ isHeld: async () => true })
     }
-    isVanished = false
+    vanished = 0
     if (now - seen.at >= LOCK_STALE_MS) {
       await breakStaleLock($, lock, seen, now)
       continue
@@ -547,8 +559,7 @@ async function changePomoHeld($: EngineInterface, lease: Lease, change: (f: Pomo
   const { file, finished } = rollDay(current, await today($))
   if (finished) {
     // Fenced like the write below: a holder that lost its lock must not write the finished day's notes.
-    if (!(await lease.isHeld())) return null
-    await flushDay($, finished)
+    if (!(await lease.isHeld()) || !(await flushDay($, lease, finished))) return null
     await saveDay($, finished)
   }
   const next = change(file)
@@ -678,8 +689,7 @@ async function flushFocusHeld($: EngineInterface, lease: Lease, slug: string, pa
   if (pending.ms < MIN_LOGGED_MS) return
   const written = { ms: before.dayMs[slug] ?? 0, blocks: before.dayBlocks[slug] ?? 0 }
   const { time } = stamp(new Date(await $.clock.now()), await currentZone($))
-  if (!(await lease.isHeld())) return
-  await writeFocus($, slug, path, before.day, time, focusText(pending))
+  if (!(await writeFocus($, lease, slug, path, before.day, time, focusText(pending)))) return
   await changePomoHeld($, lease, file => (file.day === before.day ? markLogged(file, slug, written) : file))
 }
 

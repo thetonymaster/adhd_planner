@@ -424,13 +424,14 @@ describe('controls', () => {
 })
 
 /** An in-memory vault beneath the plugin's $.fs calls. */
-function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void; failCommand?: (argv: readonly string[]) => string | undefined; dirs?: Record<string, number> } = {}) {
+function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void; afterRead?: (path: string) => void; failCommand?: (argv: readonly string[]) => string | undefined; dirs?: Record<string, number> } = {}) {
   let mtime = 1000
   const mtimes: Record<string, number> = Object.fromEntries(Object.keys(files).map(k => [k, mtime]))
   const missing = (path: string) => ({ deny: `ENOENT: ${path}` })
   on('fs.read', ($, e) => {
     if (opts.unreadable?.includes(e.path)) return { deny: `EACCES: ${e.path}` }
     const text = files[e.path]
+    if (text !== undefined) opts.afterRead?.(e.path)
     return text === undefined ? missing(e.path) : { value: text }
   })
   on('fs.write', ($, e) => {
@@ -882,6 +883,29 @@ describe('/pomo and the band controls', () => {
     expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
   })
 
+  test('a lock that vanishes after every failed mkdir is retried until it holds, never run unlocked', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    let busy = 2
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      // Twice in a row, another session holds the lock as this one's mkdir runs and releases it just after.
+      failCommand: argv => {
+        if (argv[0] !== 'mkdir' || argv[1] !== LOCK || busy === 0) return undefined
+        busy--
+        return `mkdir: ${LOCK}: File exists\n`
+      },
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    await run($, 'pomo', 'pause')
+    expect(logs.filter(l => l.includes('lock'))).toEqual([])
+    expect(busy).toBe(0)
+    expect(shared(files).pausedAt).toBe(NOW)
+  })
+
   test('two sessions breaking the same stale lock: the late one never takes the fresh lock the first made', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     const clock = mock.clock(on, { now: NOW })
@@ -1245,6 +1269,31 @@ describe('focus reaches the notes', () => {
     expect(files['/v/Daily/2026-10-13.md'] ?? '').toContain('end of day [[other]] focus 20m')
     expect(files['/v/Daily/2026-10-14.md']).toBeUndefined()
     expect(parsePomo(files[POMO] ?? '')?.day).toBe('2026-10-14')
+  })
+
+  test('a holder that loses its lock after reading a note never writes over the newer note', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const OWNER = '/v/Tasks/.pomo.lock/owner'
+    const NEWER = `${NOTE}- [[2026-10-13]] 09:41 — written by the session that took over\n`
+    let isArmed = false
+    // This session stalls after reading the note; another breaks its lock as stale, takes it and writes the note.
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, {
+      afterRead: path => {
+        if (path !== PATH || !isArmed) return
+        isArmed = false
+        files[OWNER] = JSON.stringify({ by: 'other-session', at: T0 + 40 * MIN })
+        files[PATH] = NEWER
+      },
+    })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    isArmed = true
+    await $.session.end(end)
+    expect(files[PATH]).toBe(NEWER)
+    expect(files['/v/Daily/2026-10-13.md']).toBeUndefined()
+    expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
   })
 
   test('two overlapping flushes of one task in one session log its focus once', async ($, on) => {
