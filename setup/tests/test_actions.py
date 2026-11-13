@@ -519,3 +519,92 @@ def test_update_vaults_keeps_separate_backups_for_vaults_outside_home(ctx, tmp_p
         assert base.read_text() == PERSONAL_BASE + f"# {name}\n"
         [manifest] = (ctx.home / ".claude" / "backups").glob(f"*/{name}/{PLUGIN_ID}/manifest.json")
         assert json.loads(manifest.read_text())["vault"] == name
+
+
+OLD_TASK = "---\nstatus: parked\nup: \"[[]]\"\nrepo:\nstarted: {{date}}\n---\n# {{title}}\n"
+NEW_TASK = "---\nstatus: parked\nup: \"[[]]\"\npriority: p3\ndue:\nrepo:\nstarted: {{date}}\n---\n# {{title}}\n"
+
+
+def task_vault(ctx, template=OLD_TASK):
+    """One registered vault with a Tasks.base and, unless template is None, a Templates/Task.md."""
+    v = board_vaults(ctx)["personal"]
+    vaults_json(ctx).write_text(json.dumps({"default": "personal", "vaults": {
+        "personal": {"path": "~/vaults/personal"}}}))
+    if template is not None:
+        (v / "Templates").mkdir()
+        (v / "Templates" / "Task.md").write_bytes(template.encode())
+    return v
+
+
+def test_update_vaults_adds_priority_and_due_to_the_task_template(ctx):
+    v = task_vault(ctx)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Templates" / "Task.md").read_text() == NEW_TASK
+    assert f"Add priority, due to {v / 'Templates' / 'Task.md'}." in text(ctx)
+    [saved] = (ctx.home / ".claude" / "backups").glob("*/personal/vaults/personal/Templates/Task.md")
+    assert saved.read_text() == OLD_TASK
+
+
+def test_update_vaults_adds_due_after_an_existing_priority(ctx):
+    v = task_vault(ctx, OLD_TASK.replace("repo:\n", "priority: p1\nrepo:\n"))
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Templates" / "Task.md").read_text() == NEW_TASK.replace("p3", "p1")
+    assert f"Add due to {v / 'Templates' / 'Task.md'}." in text(ctx)
+
+
+def test_update_vaults_leaves_a_template_with_both_keys(ctx):
+    v = task_vault(ctx, NEW_TASK)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Templates" / "Task.md").read_text() == NEW_TASK
+    assert f"{v / 'Templates' / 'Task.md'} already has priority and due." in text(ctx)
+    assert not list((ctx.home / ".claude" / "backups").glob("*/personal/vaults/personal/Templates/Task.md"))
+
+
+def test_update_vaults_puts_priority_after_status_without_up(ctx):
+    v = task_vault(ctx, "---\nstatus: parked\nrepo:\n---\n")
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Templates" / "Task.md").read_text() == "---\nstatus: parked\npriority: p3\ndue:\nrepo:\n---\n"
+
+
+def test_update_vaults_puts_priority_first_without_up_or_status(ctx):
+    v = task_vault(ctx, "---\nrepo:\n---\n")
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Templates" / "Task.md").read_text() == "---\npriority: p3\ndue:\nrepo:\n---\n"
+
+
+def test_update_vaults_skips_a_template_without_frontmatter_and_goes_on(ctx):
+    v = task_vault(ctx, "# {{title}}\n")
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Templates" / "Task.md").read_text() == "# {{title}}\n"
+    assert f"{v / 'Templates' / 'Task.md'} has no frontmatter; priority and due not added." in text(ctx)
+    assert installed_version(v) == PLUGIN_VERSION
+
+
+def test_update_vaults_skips_a_vault_without_a_task_template_and_goes_on(ctx):
+    v = task_vault(ctx, None)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert f"{v} has no Templates/Task.md; priority and due not added." in text(ctx)
+    assert not (v / "Templates").exists() and installed_version(v) == PLUGIN_VERSION
+
+
+def test_update_vaults_adds_the_template_keys_without_a_prompt(ctx):
+    v, asked = task_vault(ctx), []
+    ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) and False)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Templates" / "Task.md").read_text() == NEW_TASK
+    assert asked == [DOWNLOAD_Q.format(v)]
+
+
+def test_update_vaults_dry_run_leaves_the_task_template(ctx):
+    v = task_vault(ctx)
+    before = snapshot(ctx.home)
+    ctx = changed(ctx, dry_run=True)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert snapshot(ctx.home) == before
+    assert f"Would add priority, due to {v / 'Templates' / 'Task.md'}." in text(ctx)
+
+
+def test_update_vaults_keeps_crlf_in_the_task_template(ctx):
+    v = task_vault(ctx, OLD_TASK.replace("\n", "\r\n"))
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Templates" / "Task.md").read_bytes() == NEW_TASK.replace("\n", "\r\n").encode()

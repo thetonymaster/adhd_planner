@@ -226,8 +226,55 @@ def _merge_tasks_base(ctx: Ctx, vault: Path, backups: Path) -> None:
         ctx.say(f"Kept {base}; copy the Board and {board_plugin.DONE_VIEW_NAME} views from {starter} by hand.")
 
 
+def _with_priority_keys(text: str) -> tuple[str, list[str]] | None:
+    """text with `priority: p3` and `due:` added to its frontmatter where missing, and the keys added;
+    None when text has no frontmatter. priority goes after up: (else status:, else first); due right after it."""
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip("\r\n") != "---":
+        return None
+    end = next((i for i in range(1, len(lines)) if lines[i].rstrip("\r\n") == "---"), None)
+    if end is None:
+        return None
+    eol = lines[0][3:]  # the file's own line ending: CRLF stays CRLF
+    front = lines[1:end]
+
+    def at(key: str) -> int | None:
+        return next((i for i, line in enumerate(front) if line.startswith(f"{key}:")), None)
+
+    added = []
+    if at("priority") is None:
+        anchor = at("up") if at("up") is not None else at("status")
+        front.insert(0 if anchor is None else anchor + 1, f"priority: p3{eol}")
+        added.append("priority")
+    if at("due") is None:
+        front.insert(at("priority") + 1, f"due:{eol}")
+        added.append("due")
+    return "".join(lines[:1] + front + lines[end:]), added
+
+
+def _add_priority_keys(ctx: Ctx, vault: Path, backups: Path) -> None:
+    template = vault / "Templates" / "Task.md"
+    if not template.exists():
+        ctx.say(f"{vault} has no Templates/Task.md; priority and due not added.")
+        return
+    text = template.read_bytes().decode()  # bytes, not read_text: keep CRLF line endings as they are
+    result = _with_priority_keys(text)
+    if result is None:
+        ctx.say(f"{template} has no frontmatter; priority and due not added.")
+        return
+    new, added = result
+    if not added:
+        ctx.say(f"{template} already has priority and due.")
+        return
+    ctx.say(("Would add" if ctx.dry_run else "Add") + f" {', '.join(added)} to {template}.")
+    if not ctx.dry_run:
+        files.backup(template, backups, home=ctx.home)
+        template.write_bytes(new.encode())
+
+
 def update_vaults(ctx: Ctx, fetch: Callable[[str], bytes] = board_plugin.download) -> int:
-    """Brings vaults made before the task board up to date: board views in Tasks.base, the board plugin installed."""
+    """Brings vaults made before the task board and task priority up to date: board views in Tasks.base,
+    priority and due in Templates/Task.md, the board plugin installed."""
     backups = files.backup_dir(ctx.home)
     failed = False
     for name, vault in _registered_vaults(ctx):
@@ -237,6 +284,7 @@ def update_vaults(ctx: Ctx, fetch: Callable[[str], bytes] = board_plugin.downloa
         # One folder per vault: files.backup keeps only the file name for paths outside home, so two such
         # vaults' Tasks.base (and plugin folders) would otherwise land on the same backup path.
         _merge_tasks_base(ctx, vault, backups / name)
+        _add_priority_keys(ctx, vault, backups / name)
         failed |= _board_plugin(ctx, vault, fetch, backups / name) is False
     if not ctx.dry_run:
         ctx.say(RELOAD)
