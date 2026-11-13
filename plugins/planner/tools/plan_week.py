@@ -36,7 +36,7 @@ ABBR = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import planner_config  # noqa: E402
-from planner_config import monday_of, plan_days  # noqa: E402,F401
+from planner_config import plan_days  # noqa: E402
 
 try:
     CFG = planner_config.load()

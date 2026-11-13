@@ -20,12 +20,12 @@ Claude saved and write JSON that Claude passes on. The one exception is
 |---|---|---|
 | `triage.py` | `parse [--inbox]`, `apply --decisions F [--inbox] [--date]`, `carry --items F [--inbox]` | capture-triage, eod-shutdown, morning-startup, schedule-workflow, setup |
 | `plan_day.py` | `--tasks F [--busy F] [--date] [--work] [--lunch] [--work-min] [--break-min] [--long-min] [--long-every] [--out-dir]` | plan-day, morning-startup, eod-shutdown, setup |
-| `plan_week.py` | `--tasks F [--busy F] [--week-start] [--work] [--lunch] [--load 0.75] [--include-weekend] [--out-dir]` | plan-week |
+| `plan_week.py` | `--tasks F [--busy F] [--week-start] [--work] [--lunch] [--load 0.75] [--include-weekend] [--out-dir] [--keep-order]` | plan-week |
 | `make_daily.py` | `--events F [--date] [--tasks F] [--start 6] [--end 23] [--out]` | daily-page, morning-startup, eod-shutdown, setup |
 | `make_insert.py` | `<page>\|all [--size a5\|a6] [--out]`, `--list` | blank-page, setup |
 | `habits.py` | `list`, `log [--done ids] [--date]`, `status [--days 7]`, `week [--date]` | habit-tracker, setup |
 | `add_event.py` | `spec.json [--json out]` | add-event |
-| `task_queue.py` | `--vault NAME=PATH [--vault ...] [--week-start D \| --date D] [--include-weekend] [--out F]` | none yet (the planning skills adopt it) |
+| `task_queue.py` | `--vault NAME=PATH [--vault ...] [--week-start D \| --date D] [--include-weekend] [--out F]` | plan-week, plan-day, morning-startup, eod-shutdown |
 | `setup_check.py` | no arguments; read-only checklist | setup |
 
 Library modules:

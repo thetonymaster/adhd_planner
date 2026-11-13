@@ -226,6 +226,15 @@ def _merge_tasks_base(ctx: Ctx, vault: Path, backups: Path) -> None:
         ctx.say(f"Kept {base}; copy the Board and {board_plugin.DONE_VIEW_NAME} views from {starter} by hand.")
 
 
+def _read_utf8(ctx: Ctx, path: Path) -> str | None:
+    """path's text, or None after saying it is skipped when it is not UTF-8 (one bad note must not stop the run)."""
+    try:
+        return path.read_bytes().decode()  # bytes, not read_text: keep CRLF line endings as they are
+    except UnicodeDecodeError:
+        ctx.say(f"Skipped {path}: not UTF-8.")
+        return None
+
+
 def _with_priority_keys(text: str) -> tuple[str, list[str]] | None:
     """text with `priority: p3` and `due:` added to its frontmatter where missing, and the keys added;
     None when text has no frontmatter. priority goes after up: (else status:, else first); due right after it."""
@@ -257,7 +266,9 @@ def _add_priority_keys(ctx: Ctx, vault: Path, backups: Path) -> None:
     if not template.exists():
         ctx.say(f"{vault} has no Templates/Task.md; priority and due not added.")
         return
-    text = template.read_bytes().decode()  # bytes, not read_text: keep CRLF line endings as they are
+    text = _read_utf8(ctx, template)
+    if text is None:
+        return
     result = _with_priority_keys(text)
     if result is None:
         ctx.say(f"{template} has no frontmatter; priority and due not added.")
@@ -276,11 +287,16 @@ def _add_priority_keys(ctx: Ctx, vault: Path, backups: Path) -> None:
 ORIGINAL_HUB_TASKS = "Tasks link here via `up:` — see the backlinks pane, or [[Tasks.base]]."
 
 
+def _tasks_heading(lines: list[str]) -> int | None:
+    """Index of the `## Tasks` line; None without one."""
+    return next((i for i, line in enumerate(lines) if line.rstrip("\r\n") == "## Tasks"), None)
+
+
 def _hub_block() -> str:
     """The Base block: the starter Project template from its `## Tasks` heading's next line to the end, trimmed."""
     starter = paths.examples() / "vault-starter" / "Templates" / "Project.md"
     lines = starter.read_text().splitlines(keepends=True)
-    heading = next((i for i, line in enumerate(lines) if line.rstrip("\r\n") == "## Tasks"), None)
+    heading = _tasks_heading(lines)
     if heading is None:
         raise SystemExit(f"{starter} has no `## Tasks` heading; nothing was changed.")
     return "".join(lines[heading + 1:]).strip()
@@ -288,7 +304,7 @@ def _hub_block() -> str:
 
 def _tasks_body(lines: list[str]) -> tuple[int, int] | None:
     """(first, end) line indexes of the `## Tasks` section body, up to the next `#`/`##` heading; None without one."""
-    heading = next((i for i, line in enumerate(lines) if line.rstrip("\r\n") == "## Tasks"), None)
+    heading = _tasks_heading(lines)
     if heading is None:
         return None
     end = next((i for i in range(heading + 1, len(lines)) if lines[i].startswith(("# ", "## "))), len(lines))
@@ -311,7 +327,9 @@ def _replace_hub_tasks(ctx: Ctx, vault: Path, backups: Path) -> None:
     edited: list[Path] = []
     done = 0  # notes whose Tasks section already is the Base block
     for note in _hub_notes(vault):
-        text = note.read_bytes().decode()  # bytes, not read_text: keep CRLF line endings as they are
+        text = _read_utf8(ctx, note)
+        if text is None:
+            continue
         lines = text.splitlines(keepends=True)
         body = _tasks_body(lines)
         if body is None:

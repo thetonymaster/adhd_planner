@@ -19,6 +19,16 @@ def flat(text):
     return re.sub(r"\s+", " ", re.sub(r"(?m)^>\s?", "", text))
 
 
+SHARED_BLOCK = re.compile(r"<!-- shared: where-this-runs -->.*?<!-- /shared: where-this-runs -->", re.S)
+
+
+def outside_shared(text):
+    """text without its shared `where-this-runs` block; fails when the block is missing."""
+    rest, n = SHARED_BLOCK.subn("", text)
+    assert n == 1, f"expected one shared where-this-runs block, found {n}"
+    return rest
+
+
 class PlanWeekTest(unittest.TestCase):
     def test_hands_off_week_tasks_files(self):
         text = skill("plan-week")
@@ -30,8 +40,9 @@ class PlanWeekTest(unittest.TestCase):
 
     def test_vault_run_uses_the_queue_and_keeps_its_order(self):
         text = flat(skill("plan-week"))
-        self.assertIn('tools/task_queue.py --vault "<name>=<vault-path>"', text)
-        self.assertIn("Wrote <path>", text)
+        own = flat(outside_shared(skill("plan-week")))
+        self.assertIn('tools/task_queue.py --vault "<name>=<vault-path>"', own)
+        self.assertIn("Wrote <path>", own)
         self.assertIn("--keep-order", text)
         self.assertIn("not_placed", text)
         self.assertNotIn("--out", text)
@@ -56,9 +67,10 @@ class DailySkillsQueueTest(unittest.TestCase):
         for name in self.DAILY:
             with self.subTest(skill=name):
                 text = flat(skill(name))
-                self.assertIn('tools/task_queue.py --vault "<name>=<vault-path>"', text)
-                self.assertIn("--date <", text)
-                self.assertIn("Wrote <path>", text)
+                own = flat(outside_shared(skill(name)))
+                self.assertIn('tools/task_queue.py --vault "<name>=<vault-path>"', own)
+                self.assertIn("--date <", own)
+                self.assertIn("Wrote <path>", own)
                 self.assertNotIn("--out", text)
 
     def test_daily_skills_show_ten_rows_and_what_was_left_out(self):

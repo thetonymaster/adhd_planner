@@ -580,6 +580,20 @@ def test_update_vaults_skips_a_template_without_frontmatter_and_goes_on(ctx):
     assert installed_version(v) == PLUGIN_VERSION
 
 
+def test_update_vaults_skips_a_task_template_that_is_not_utf8_and_goes_on(ctx):
+    v = task_vault(ctx, None)
+    (v / "Templates").mkdir()
+    template = v / "Templates" / "Task.md"
+    template.write_bytes(b"---\nstatus: parked\n\xff\n---\n")
+    (v / "Projects").mkdir()
+    (v / "Projects" / "X.md").write_bytes(OLD_HUB.encode())
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert template.read_bytes() == b"---\nstatus: parked\n\xff\n---\n"
+    assert [l for l in ctx.lines if str(template) in l] == [f"Skipped {template}: not UTF-8."]
+    assert (v / "Projects" / "X.md").read_text() == NEW_HUB
+    assert installed_version(v) == PLUGIN_VERSION
+
+
 def test_update_vaults_skips_a_vault_without_a_task_template_and_goes_on(ctx):
     v = task_vault(ctx, None)
     assert actions.update_vaults(ctx, fake_fetch()) == 0
@@ -639,6 +653,17 @@ def test_update_vaults_leaves_and_lists_a_hub_with_other_tasks_text(ctx):
     assert actions.update_vaults(ctx, fake_fetch()) == 0
     assert (v / "Projects" / "Edited.md").read_text() == edited
     assert f"Left unchanged (its Tasks section has other text): {v / 'Projects' / 'Edited.md'}" in ctx.lines
+
+
+def test_update_vaults_skips_a_hub_that_is_not_utf8_and_goes_on(ctx):
+    v = hub_vault(ctx, {"Projects/X.md": OLD_HUB})
+    bad = v / "Projects" / "A bad.md"
+    bad.write_bytes(b"## Tasks\n\xff\xfe\n")
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert bad.read_bytes() == b"## Tasks\n\xff\xfe\n"
+    assert (v / "Projects" / "X.md").read_text() == NEW_HUB
+    assert [l for l in ctx.lines if str(bad) in l] == [f"Skipped {bad}: not UTF-8."]
+    assert installed_version(v) == PLUGIN_VERSION
 
 
 def test_update_vaults_ignores_a_hub_without_a_tasks_section(ctx):

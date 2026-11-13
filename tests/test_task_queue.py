@@ -205,6 +205,10 @@ class NextReadingTest(Base):
         self.assertEqual(r["minutes"], 10)
         self.assertEqual(r["title"], "t: Real")
 
+    def test_several_spaces_after_the_box_still_count(self):
+        r = self.row(note(next_lines=["- [ ]   spaced item (~30 min)"]))
+        self.assertEqual((r["minutes"], r["title"]), (30, "t: spaced item"))
+
     def test_section_ends_at_the_next_heading(self):
         r = self.row(note(next_lines=["- [ ] In (~10 min)"],
                           body_after="## Open loops\n- [ ] Not in (~50 min)\n"))
@@ -249,6 +253,18 @@ class FrontmatterTest(Base):
         r = self.row(note(priority="p2   # above normal", due="  # YYYY-MM-DD, or empty"))
         self.assertEqual(r["priority"], "p2")
         self.assertNotIn("deadline", r)
+
+    def test_unquoted_value_drops_a_trailing_comment(self):
+        self.assertEqual(self.row(note(priority="p1 # note"))["priority"], "p1")
+
+    def test_quoted_alias_keeps_its_hash(self):
+        self.assertEqual(self.row(note(aliases='"Fix #42 crash"'))["name"], "Fix #42 crash")
+
+    def test_quoted_up_keeps_its_hash(self):
+        self.assertEqual(self.row(note(up="[[Projects/Hub #2|x]]"))["hub"], "Hub #2")
+
+    def test_quoted_value_then_a_comment(self):
+        self.assertEqual(self.row(note(aliases='"Fix #42" # why'))["name"], "Fix #42")
 
     def test_aliases_inline_list(self):
         self.assertEqual(self.row(note(aliases="[First one, Second]"))["name"], "First one")

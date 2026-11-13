@@ -12,7 +12,7 @@ the two PDF generators, which need `reportlab`.
 | `make_insert.py` | blank-page |
 | `habits.py` | habit-tracker |
 | `add_event.py` | add-event |
-| `task_queue.py` | ranked list of open task notes across vaults (read-only; vault paths passed with `--vault`) |
+| `task_queue.py` | plan-week, plan-day, morning-startup, eod-shutdown |
 | `setup_check.py` | setup |
 | `planner_common.py` | shared A5 drawing primitives (reportlab) |
 
