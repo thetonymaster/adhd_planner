@@ -107,6 +107,10 @@ export function serializePomo(f: PomoFile): string {
 /** Starts a new day's totals when `day` moved on; the finished day comes back once. */
 export function rollDay(f: PomoFile, day: string): { file: PomoFile; finished?: DayTotals } {
   if (f.day === day) return { file: f }
+  // A focus claim in flight would be dropped with logged already advanced past it, losing that focus if the
+  // holder then fails or is gone. Wait: the holder releases it, or recoverStaleClaims undoes it within
+  // CLAIM_STALE_MS. Focus credited meanwhile counts toward the old day.
+  if (Object.keys(f.loggingBy).length > 0) return { file: f }
   const hadTime = Object.values(f.dayMs).some(ms => ms > 0)
   const finished = hadTime && f.day ? { day: f.day, dayMs: f.dayMs, dayBlocks: f.dayBlocks, logged: f.logged } : undefined
   // A pause left over the rollover ends its block or break: resuming would credit the night.

@@ -184,6 +184,17 @@ describe('shared pomodoro', () => {
     expect(rollDay(rolled.file, '2026-10-13').finished).toBeUndefined()
   })
 
+  test('a new day waits while a focus claim is in flight; once it is undone the day rolls with that focus unlogged', () => {
+    const claim = { by: 'gone', from: { ms: 0, blocks: 0 }, at: 1000 }
+    const claimed = { ...markLogged({ ...emptyPomo('2026-10-12'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 30 * MIN }, dayBlocks: { 'set-up-vault': 1 } }, 'set-up-vault'), loggingBy: { 'set-up-vault': claim } }
+    const waiting = rollDay(claimed, '2026-10-13')
+    expect(waiting.file).toBe(claimed)
+    expect(waiting.finished).toBeUndefined()
+    const rolled = rollDay(recoverStaleClaims(claimed, 1000 + CLAIM_STALE_MS), '2026-10-13')
+    expect(rolled.finished?.logged).toEqual({ 'set-up-vault': { ms: 0, blocks: 0 } })
+    expect(rolled.file.day).toBe('2026-10-13')
+  })
+
   test('a half-written or foreign file reads as null, never as an empty timer', () => {
     expect(parsePomo('{"version":1,"slug":"x"')).toBeNull()
     expect(parsePomo('{"version":2}')).toBeNull()
@@ -1127,6 +1138,33 @@ describe('focus reaches the notes', () => {
     const after = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
     expect(unlogged(after, 'set-up-vault')).toEqual({ ms: 0, blocks: 0 })
     expect(after.loggingBy).toEqual({})
+  })
+
+  test('a claim left just before midnight is not lost at the rollover: its focus reaches the old day once it goes stale', async ($, on) => {
+    const MIDNIGHT = new Date(2026, 9, 14, 0, 0).getTime()
+    const POMO = '/v/Tasks/.pomo.json'
+    const OLD_DAILY = '/v/Daily/2026-10-13.md'
+    // A session claimed all 30m a minute before midnight, then exited before writing the notes.
+    const claim = { by: 'gone-session', from: { ms: 0, blocks: 0 }, at: MIDNIGHT - MIN }
+    const left = { ...markLogged(today(30 * MIN), 'set-up-vault'), loggingBy: { 'set-up-vault': claim } }
+    let now = MIDNIGHT + MIN / 2
+    on('clock.now', () => ({ value: now }))
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(left) })
+    on('store.set', () => ({ value: undefined }))
+    const shared = () => parsePomo(files[POMO] ?? '') ?? emptyPomo('')
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    // 30 s after midnight the claim is 90 s old: still in flight, so the day waits instead of dropping it with the old totals.
+    await run($, 'note', 'after midnight')
+    expect(shared().day).toBe('2026-10-13')
+    expect(shared().loggingBy).toEqual({ 'set-up-vault': claim })
+    now = MIDNIGHT + 2 * MIN
+    await $.session.end(end)
+    // 3 min old: undone, so the rollover writes the 30m to the old day's note.
+    expect(files[OLD_DAILY] ?? '').toContain('[[set-up-vault]] focus 30m (1 pomodoro)')
+    expect(shared().day).toBe('2026-10-14')
+    expect(shared().loggingBy).toEqual({})
   })
 
   test('two overlapping flushes of one task in one session log its focus once', async ($, on) => {

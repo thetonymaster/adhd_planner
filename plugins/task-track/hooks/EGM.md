@@ -101,7 +101,9 @@ state live in [../types/EGM.md](../types/EGM.md).
   `from`) while it is still this session's; a successful write drops it.
 - Claims never released (the session exited, the file stayed unreadable) are undone
   by `changePomo` through `recoverStaleClaims` once `CLAIM_STALE_MS` (2 min) old, before
-  `rollDay`, so their focus is written later, including at rollover. Written twice
+  `rollDay`, so their focus is written later. `rollDay` waits while any claim is live,
+  so a claim left just before midnight reaches the old day's notes once it is released
+  or undone; focus credited in that wait (at most 2 min) counts toward the old day. Written twice
   instead of lost: a claim whose notes were written but whose release never landed,
   or whose holder stalled past 2 min (e.g. sleep mid-write) and then resumed; a
   timeout cannot fence a resumed holder's note writes. Known gap: two sessions that both read the file before either claim
