@@ -87,6 +87,8 @@ type Cached<T> = { mtimeMs: number; value: T }
 const noteCache = new Map<string, Cached<Candidate>>()
 /** The board's fields of each task note by note path, same rule. */
 const boardCache = new Map<string, Cached<BoardNote>>()
+/** Per slug, the tail of this session's focus flushes (see flushFocus). */
+const flushing = new Map<string, Promise<void>>()
 
 function readSettings(options: PluginOptions): Settings {
   return {
@@ -542,7 +544,16 @@ function dropClaim(file: PomoFile, slug: string): PomoFile {
  * never released (the session exited, the file stayed unreadable) is undone by changePomo after CLAIM_STALE_MS.
  * Known gap: two sessions that read the file before either claim lands can both pass their read-back.
  */
-async function flushFocus($: EngineInterface, slug: string, path: string): Promise<void> {
+function flushFocus($: EngineInterface, slug: string, path: string): Promise<void> {
+  // One slug's flushes run one after another in this session: two overlapping ones would both read the
+  // file before either claim lands, and with the same `at` each would take the other's claim for its own.
+  const run = (flushing.get(slug) ?? Promise.resolve()).then(() => flushFocusOnce($, slug, path))
+  // The queue only orders; each caller still gets its own flush's error from `run`.
+  flushing.set(slug, run.then(() => undefined, () => undefined))
+  return run
+}
+
+async function flushFocusOnce($: EngineInterface, slug: string, path: string): Promise<void> {
   const before = await changePomo($, file => file)
   if (!before || before.loggingBy[slug]) return
   const pending = unlogged(before, slug)

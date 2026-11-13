@@ -85,7 +85,8 @@ export const CLAIM_STALE_MS = 2 * MINUTE
 /**
  * `f` with every claim at least CLAIM_STALE_MS old undone: its slug's logged goes back to what it was
  * before the claim, so the next flush writes that focus instead of it being lost. The same `f` when none is.
- * A claim whose notes were written but whose release never landed is written twice: preferred to losing it.
+ * Written twice instead of lost: a claim whose notes were written but whose release never landed, or whose
+ * holder stalled past CLAIM_STALE_MS (e.g. the machine slept mid-write) and then resumed its write.
  */
 export function recoverStaleClaims(f: PomoFile, now: number): PomoFile {
   const stale = Object.entries(f.loggingBy).filter(([, c]) => now - c.at >= CLAIM_STALE_MS)

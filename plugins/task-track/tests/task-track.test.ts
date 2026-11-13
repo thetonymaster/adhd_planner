@@ -1129,6 +1129,22 @@ describe('focus reaches the notes', () => {
     expect(after.loggingBy).toEqual({})
   })
 
+  test('two overlapping flushes of one task in one session log its focus once', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const DAILY = '/v/Daily/2026-10-13.md'
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    // /pomo stop and session end both flush set-up-vault; the frozen clock gives both claims the same `at`.
+    await Promise.all([run($, 'pomo', 'stop'), $.session.end(end)])
+    const count = (text: string | undefined) => (text ?? '').split('focus 30m').length - 1
+    expect(count(files[PATH])).toBe(1)
+    expect(count(files[DAILY])).toBe(1)
+    expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 0, blocks: 0 })
+  })
+
   test('recoverStaleClaims undoes only claims older than CLAIM_STALE_MS', () => {
     const now = T0 + 60 * MIN
     const fresh = { by: 'a', from: { ms: 1, blocks: 0 }, at: now - CLAIM_STALE_MS + 1 }

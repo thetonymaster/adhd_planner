@@ -101,12 +101,17 @@ state live in [../types/EGM.md](../types/EGM.md).
   `from`) while it is still this session's; a successful write drops it.
 - Claims never released (the session exited, the file stayed unreadable) are undone
   by `changePomo` through `recoverStaleClaims` once `CLAIM_STALE_MS` (2 min) old, before
-  `rollDay`, so their focus is written later, including at rollover. A claim whose
-  notes were written but whose release never landed is then written twice (preferred
-  to losing it). Known gap: two sessions that both read the file before either claim
+  `rollDay`, so their focus is written later, including at rollover. Written twice
+  instead of lost: a claim whose notes were written but whose release never landed,
+  or whose holder stalled past 2 min (e.g. sleep mid-write) and then resumed; a
+  timeout cannot fence a resumed holder's note writes. Known gap: two sessions that both read the file before either claim
   lands can both pass their read-back and both write; closing it needs a
   cross-session lock. `flushDay` (day rollover) has no per-slug claim yet, so two
   sessions rolling the day at once can log the same focus twice.
+- Within one session, `flushFocus` runs one slug's flushes one after another (a
+  per-slug promise queue, `flushing`), so overlapping triggers (`/pomo stop`, task
+  switch, session end) never claim the same focus twice; each caller still gets its
+  own flush's error.
 - `.pomo.json` is never replaced when it exists but cannot be read or parsed this
   round; that round is skipped. A day or slug in it that can't name a note is reported
   (band problem + `$.ui.log`) and skipped, never thrown.
