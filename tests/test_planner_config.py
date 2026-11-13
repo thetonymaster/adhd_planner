@@ -4,6 +4,7 @@ Run: python3 -m unittest tests.test_planner_config
 Script tests copy the tools into a temp planner folder, because plan_day.py and
 plan_week.py read calendars.json and write out/ next to themselves.
 """
+import datetime as dt
 import json
 import pathlib
 import shutil
@@ -106,6 +107,18 @@ class LoadTest(unittest.TestCase):
         for lunch in (False, 0):
             with self.assertRaises(planner_config.ConfigError, msg=repr(lunch)):
                 self.load({"lunch": lunch})
+
+
+class PlanDaysTest(unittest.TestCase):
+    """plan_days lives here so plan_week.py and the ranked queue share one rule."""
+
+    def test_the_weekend_plans_next_week(self):
+        D = dt.date.fromisoformat
+        self.assertEqual(planner_config.plan_days(D("2026-10-17"), None, False),
+                         (D("2026-10-19"), ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"]))
+
+    def test_monday_of_a_sunday_is_the_monday_before(self):
+        self.assertEqual(planner_config.monday_of(dt.date(2026, 10, 18)), dt.date(2026, 10, 12))
 
 
 class ScriptTest(unittest.TestCase):

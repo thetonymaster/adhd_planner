@@ -33,6 +33,7 @@ ABBR = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import planner_config  # noqa: E402
+from planner_config import monday_of, plan_days  # noqa: E402,F401
 
 try:
     CFG = planner_config.load()
@@ -72,25 +73,6 @@ def load_busy_by_day(path):
             mins[d] = mins.get(d, 0) + max(0, e - s)
             titles.setdefault(d, []).append(ev.get("summary", "(busy)"))
     return mins, titles
-
-
-def monday_of(date):
-    return date - dt.timedelta(days=date.weekday())
-
-
-def plan_days(today, week_start, include_weekend):
-    """(Monday, ISO dates to plan). No week_start: this week from today on, or
-    next week on a Saturday or Sunday. An explicit week_start plans all of it."""
-    n_days = 7 if include_weekend else 5
-    if week_start is None:
-        week_start = monday_of(today)
-        if today.weekday() >= 5:
-            week_start += dt.timedelta(days=7)
-        first = max(today, week_start)
-    else:
-        first = week_start
-    days = [week_start + dt.timedelta(days=i) for i in range(n_days)]
-    return week_start, [d.isoformat() for d in days if d >= first]
 
 
 def distribute(tasks, day_dates, capacity):

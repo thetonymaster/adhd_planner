@@ -4,6 +4,7 @@ A key missing from the file falls back to DEFAULTS (the values every planner had
 before these keys existed). Command-line flags on plan_day.py / plan_week.py win
 over the file. "lunch": null (or "") means no protected lunch.
 """
+import datetime as dt
 import json
 import os
 import re
@@ -76,3 +77,22 @@ def load(path=PATH):
         "lunch": None if lunch is None or lunch == "" else parse_range(lunch, "lunch", path),
         "pomodoro": pomodoro,
     }
+
+
+def monday_of(date):
+    return date - dt.timedelta(days=date.weekday())
+
+
+def plan_days(today, week_start, include_weekend):
+    """(Monday, ISO dates to plan). No week_start: this week from today on, or
+    next week on a Saturday or Sunday. An explicit week_start plans all of it."""
+    n_days = 7 if include_weekend else 5
+    if week_start is None:
+        week_start = monday_of(today)
+        if today.weekday() >= 5:
+            week_start += dt.timedelta(days=7)
+        first = max(today, week_start)
+    else:
+        first = week_start
+    days = [week_start + dt.timedelta(days=i) for i in range(n_days)]
+    return week_start, [d.isoformat() for d in days if d >= first]
