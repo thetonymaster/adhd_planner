@@ -106,6 +106,16 @@ class TaskLifecycleTest(unittest.TestCase):
         self.assertIn("writes `priority: p3` without asking", text)
         self.assertIn("one working day", text)
 
+    def test_task_note_sets_priority_or_due_with_a_log_line(self):
+        text = flat(task_skill("task-note"))
+        self.assertIn("`priority`", text)
+        self.assertIn("`due`", text)
+        self.assertIn("`p0`..`p5`", text)
+        self.assertIn("priority p3 → p1", text)
+        self.assertIn("due (none) → 2026-11-20", text)
+        self.assertIn("→ (none)", text)
+        self.assertIn("writes nothing", text)
+
     def test_task_finish_sets_done_and_finished_and_clears_sessions(self):
         text = flat(task_skill("task-finish"))
         for phrase in ("status: done", "finished: <today>", "Tasks/.session/", "Tasks/.active", "finished: <outcome>"):
