@@ -10,8 +10,8 @@ import {
   isRunning,
   onBreak,
   emptyPomo,
+  LOCK_STALE_MS,
   markLogged,
-  recoverStaleClaims,
   parsePomo,
   pause,
   pomoDots,
@@ -59,6 +59,9 @@ const POLL_MS = 15_000
 const TICK_MS = 60_000
 /** Less focus than this waits for the next flush instead of writing a line of its own. */
 const MIN_LOGGED_MS = 5 * 60_000
+/** Waits for a timer lock another session holds: changes take milliseconds, so this is a short collision. */
+const LOCK_TRIES = 5
+const LOCK_WAIT_MS = 40
 /** This session, for telling which one announced a break. New on every load. */
 const SESSION = Math.random().toString(36).slice(2, 10)
 
@@ -87,8 +90,10 @@ type Cached<T> = { mtimeMs: number; value: T }
 const noteCache = new Map<string, Cached<Candidate>>()
 /** The board's fields of each task note by note path, same rule. */
 const boardCache = new Map<string, Cached<BoardNote>>()
-/** Per slug, the tail of this session's focus flushes (see flushFocus). */
-const flushing = new Map<string, Promise<void>>()
+/** The tail of this session's timer changes (see inPomoOrder). */
+let pomoOrder: Promise<unknown> = Promise.resolve()
+/** Said once per session: the timer lock can't be made here, so changes run unlocked. */
+let isLockFailureTold = false
 
 function readSettings(options: PluginOptions): Settings {
   return {
@@ -218,7 +223,10 @@ async function load($: EngineInterface): Promise<TaskView | null> {
   // Credit the old task on the old vault's timer before this session moves to the new vault's.
   const isVaultChange = vault !== '' && root !== vault
   if (prev && isVaultChange) await flushFocus($, prev.slug, prev.path)
-  vault = root
+  // In timer order: a timer change or flush already queued runs wholly on the old vault, never half on each.
+  await inPomoOrder(async () => {
+    vault = root
+  })
   await update($, projectList, () => projectTasks(states.find(s => s.vault.path === root)?.candidates ?? [], dir, home))
   zone = zoneFor(config, (await $.env.get('TZ')) ?? '')
   await update($, source, () => picked?.reason ?? 'global')
@@ -392,7 +400,7 @@ function isCalendarDay(day: string): boolean {
 
 /**
  * A finished day's focus that no session wrote (it ran past midnight, or crashed): written to that day's notes.
- * Follow-up: no per-slug claim here yet (see flushFocus), so two sessions rolling the day at once can log it twice.
+ * Runs under the timer lock (changePomoHeld), so only one session rolls a day over and writes it.
  */
 async function flushDay($: EngineInterface, d: DayTotals): Promise<void> {
   const root = await currentVault($)
@@ -410,16 +418,99 @@ async function flushDay($: EngineInterface, d: DayTotals): Promise<void> {
   }
 }
 
+/** A hold on the timer lock: `isHeld` turns false once another session broke it as stale. */
+type Lease = { isHeld: () => Promise<boolean> }
+
+/** Runs a command on the host: '' when it exits 0, else why not. */
+async function host($: EngineInterface, argv: readonly string[]): Promise<string> {
+  return $.process
+    .run(argv)
+    .then(r => (r.exitCode === 0 ? '' : `exit ${r.exitCode}: ${r.stderr.trim()}`))
+    .catch((err: unknown) => (err instanceof Error ? err.message : String(err)))
+}
+
+/** The `at` of a lock's owner file, or undefined when it is not one (half-written). */
+function ownerTime(text: string): number | undefined {
+  try {
+    const at = (JSON.parse(text) as { at?: unknown } | null)?.at
+    return typeof at === 'number' ? at : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** A lock whose owner (or, before its owner file landed, its folder) is LOCK_STALE_MS old: its session died holding it. */
+async function isStaleLock($: EngineInterface, lock: string, now: number): Promise<boolean> {
+  const owner = await $.fs.read(`${lock}/owner`).catch(() => undefined)
+  const at = owner === undefined ? undefined : ownerTime(owner)
+  if (typeof at === 'number') return now - at >= LOCK_STALE_MS
+  const stat = await $.fs.stat(lock).catch(() => undefined)
+  return stat !== undefined && now - stat.mtimeMs >= LOCK_STALE_MS
+}
+
 /**
- * Read fresh, roll the day, change, write back. Skips the round when the file is unreadable.
- * A finished day's unwritten focus goes to the notes before the rolled file replaces it:
+ * Runs `fn` holding the cross-session lock on the timer file: a folder made with `mkdir`, which only one
+ * process can create. Busy: waits LOCK_WAIT_MS up to LOCK_TRIES times, then resolves null (the round is skipped).
+ * A stale lock is moved aside (one mover wins) and removed. When `mkdir` fails for another reason (no Tasks
+ * folder, no shell), says so once per session and runs unlocked rather than freezing the timer.
+ */
+async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<T>): Promise<T | null> {
+  const lock = `${await currentVault($)}/Tasks/.pomo.lock`
+  for (let attempt = 1; attempt <= LOCK_TRIES; attempt++) {
+    const now = await $.clock.now()
+    const why = await host($, ['mkdir', lock])
+    if (!why) {
+      const mine = JSON.stringify({ by: SESSION, at: now })
+      await $.fs.write(`${lock}/owner`, mine)
+      const lease = { isHeld: async () => (await $.fs.read(`${lock}/owner`).catch(() => '')) === mine }
+      try {
+        return await fn(lease)
+      } finally {
+        if (await lease.isHeld()) await host($, ['rm', '-rf', lock])
+      }
+    }
+    if (!(await $.fs.exists(lock))) {
+      if (!isLockFailureTold) {
+        isLockFailureTold = true
+        $.ui.log(`task-track: can't make the timer lock ${lock} (${why}); changing the timer unlocked, so two sessions may log the same focus.`)
+      }
+      return fn({ isHeld: async () => true })
+    }
+    if (await isStaleLock($, lock, now)) {
+      const aside = `${lock}.stale-${SESSION}`
+      if (!(await host($, ['mv', lock, aside]))) await host($, ['rm', '-rf', aside])
+      continue
+    }
+    if (attempt < LOCK_TRIES) await $.clock.sleep(LOCK_WAIT_MS)
+  }
+  return null
+}
+
+/** Runs `fn` after every timer change this session started before it: a session never waits on its own lock. */
+function inPomoOrder<T>(fn: () => Promise<T>): Promise<T> {
+  const run = pomoOrder.then(fn)
+  pomoOrder = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+/**
+ * Read fresh, roll the day, change, write back, holding the timer lock (null: unreadable, or locked by another
+ * session this round). A finished day's unwritten focus goes to the notes before the rolled file replaces it:
  * a failed write then repeats on the next round instead of losing the time.
  */
 async function changePomo($: EngineInterface, change: (f: PomoFile) => PomoFile): Promise<PomoFile | null> {
+  await currentVault($)
+  return inPomoOrder(async () => (await withPomoLock($, lease => changePomoHeld($, lease, change))) ?? null)
+}
+
+/** changePomo's body, for a caller already holding the lock; skips the write once the lease is lost. */
+async function changePomoHeld($: EngineInterface, lease: Lease, change: (f: PomoFile) => PomoFile): Promise<PomoFile | null> {
   const current = await readPomo($)
   if (!current) return null
-  // Claims of sessions that never finished come undone first, so a rollover writes their focus too.
-  const { file, finished } = rollDay(recoverStaleClaims(current, await $.clock.now()), await today($))
+  const { file, finished } = rollDay(current, await today($))
   if (finished) {
     await flushDay($, finished)
     await saveDay($, finished)
@@ -429,6 +520,8 @@ async function changePomo($: EngineInterface, change: (f: PomoFile) => PomoFile)
     await update($, pomo, () => current)
     return current
   }
+  // Fenced: a session that stalled past LOCK_STALE_MS and lost its lock must not write over the new holder.
+  if (!(await lease.isHeld())) return null
   await writePomo($, next)
   return next
 }
@@ -502,7 +595,7 @@ async function runPomo($: EngineInterface, action: PomoAction): Promise<string> 
     out.t = t
     return 'error' in t ? file : snapshotTask(t.file, view.slug, checkedTitles(view.next))
   })
-  if (!f) return `Can't read ${await pomoPath($)}: unreadable or not a timer file. Nothing changed.`
+  if (!f) return `Can't change ${await pomoPath($)}: unreadable, not a timer file, or locked by another session. Nothing changed.`
   const t = out.t
   if (!t) throw new Error(`runPomo(${action}): changePomo returned a file without running the change`)
   if ('error' in t) return t.error
@@ -525,67 +618,33 @@ async function pressPomo($: EngineInterface, action: PomoAction): Promise<void> 
   $.ui.toast(await runPomo($, action))
 }
 
-const sameLogged = (a: { ms: number; blocks: number } | undefined, b: { ms: number; blocks: number } | undefined) =>
-  (a?.ms ?? 0) === (b?.ms ?? 0) && (a?.blocks ?? 0) === (b?.blocks ?? 0)
-
-/** `file` with no claim on `slug`'s focus, so the claim map only holds writes in flight. */
-function dropClaim(file: PomoFile, slug: string): PomoFile {
-  const { [slug]: _dropped, ...rest } = file.loggingBy
-  return { ...file, loggingBy: rest }
-}
-
 /**
- * Writes today's not-yet-logged focus on `slug` to its task Log and the daily note, logged once across sessions.
- * No compare-and-set on the file, so, as with the block announcer's notifiedBy: claim the focus in the timer
- * first (marked logged, loggingBy[slug] = this session's claim), read it back, and write the notes only if the
- * claim survived. Claims are per slug: another session's claim on a different task does not void this one.
- * A slug with a live claim is left to its holder: replacing it could strand the holder's minutes if its write
- * then failed. A failed write, or a read-back that finds the file unreadable, hands the claim back; a claim
- * never released (the session exited, the file stayed unreadable) is undone by changePomo after CLAIM_STALE_MS.
- * Known gap: two sessions that read the file before either claim lands can both pass their read-back.
+ * Writes today's not-yet-logged focus on `slug` to its task Log and that day's daily note, then marks it logged,
+ * all under the timer lock, so two sessions never write the same minutes. A failed note write leaves the focus
+ * unlogged for the next try. A crash between the note write and the mark writes it again later: twice, never lost.
+ * One session's flushes run in order (inPomoOrder). A flush queued while load() moved this session to another
+ * vault is skipped: timer and daily-note paths follow `vault`, so it would mix the two; its focus stays unlogged
+ * on the old vault's timer for that vault's next flush.
  */
-function flushFocus($: EngineInterface, slug: string, path: string): Promise<void> {
-  // One slug's flushes run one after another in this session: two overlapping ones would both read the
-  // file before either claim lands, and with the same `at` each would take the other's claim for its own.
-  // Every timer and daily-note path goes through `vault` when used. A flush queued behind another can start
-  // after load() moved this session to a new vault; it would then claim the new vault's timer while writing
-  // `path` in the old one. Skip it instead: its focus stays unlogged on the old vault's timer for its next flush.
-  const queuedIn = vault
-  const run = (flushing.get(slug) ?? Promise.resolve()).then(() => (vault === queuedIn ? flushFocusOnce($, slug, path) : undefined))
-  // The queue only orders; each caller still gets its own flush's error from `run`.
-  flushing.set(slug, run.then(() => undefined, () => undefined))
-  return run
+async function flushFocus($: EngineInterface, slug: string, path: string): Promise<void> {
+  const queuedIn = await currentVault($)
+  await inPomoOrder(async () => {
+    if (vault !== queuedIn) return
+    await withPomoLock($, lease => flushFocusHeld($, lease, slug, path))
+  })
 }
 
-async function flushFocusOnce($: EngineInterface, slug: string, path: string): Promise<void> {
-  const before = await changePomo($, file => file)
-  if (!before || before.loggingBy[slug]) return
+async function flushFocusHeld($: EngineInterface, lease: Lease, slug: string, path: string): Promise<void> {
+  // Rolls the day first if it moved on, so `before` holds the day its totals belong to.
+  const before = await changePomoHeld($, lease, file => file)
+  if (!before) return
   const pending = unlogged(before, slug)
   if (pending.ms < MIN_LOGGED_MS) return
-  const previous = before.logged[slug] ?? { ms: 0, blocks: 0 }
   const written = { ms: before.dayMs[slug] ?? 0, blocks: before.dayBlocks[slug] ?? 0 }
-  const claim = { by: SESSION, from: previous, at: await $.clock.now() }
-  // Only what was read: focus added meanwhile stays unlogged; a day rolled over or any claim on the slug is left alone.
-  const isUnclaimed = (file: PomoFile) => file.day === before.day && !file.loggingBy[slug] && sameLogged(file.logged[slug], previous)
-  const isOurs = (file: PomoFile) =>
-    file.day === before.day && file.loggingBy[slug]?.by === SESSION && file.loggingBy[slug]?.at === claim.at && sameLogged(file.logged[slug], written)
-  const handBack = (file: PomoFile) => (isOurs(file) ? dropClaim(markLogged(file, slug, previous), slug) : file)
-  const claimed = await changePomo($, file => (isUnclaimed(file) ? { ...markLogged(file, slug, written), loggingBy: { ...file.loggingBy, [slug]: claim } } : file))
-  if (!claimed) return
-  const check = await readPomo($)
-  if (!check) {
-    await changePomo($, handBack)
-    return
-  }
-  if (!isOurs(check)) return
-  const { date, time } = stamp(new Date(await $.clock.now()), await currentZone($))
-  try {
-    await writeFocus($, slug, path, date, time, focusText(pending))
-  } catch (err) {
-    await changePomo($, handBack)
-    throw err
-  }
-  await changePomo($, file => (isOurs(file) ? dropClaim(file, slug) : file))
+  const { time } = stamp(new Date(await $.clock.now()), await currentZone($))
+  if (!(await lease.isHeld())) return
+  await writeFocus($, slug, path, before.day, time, focusText(pending))
+  await changePomoHeld($, lease, file => (file.day === before.day ? markLogged(file, slug, written) : file))
 }
 
 /** Every minute: move the shared clock; the session that announces a block is the one whose write stuck. */

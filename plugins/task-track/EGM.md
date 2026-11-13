@@ -44,7 +44,8 @@ with `/note`, `/done`, `/openloop` without a model turn. Manifest:
 
 ## Side Effects
 
-- Writes task notes, daily notes and `Tasks/.pomo.json` in the session's vault (and
+- Writes task notes, daily notes and `Tasks/.pomo.json` in the session's vault, every
+  timer write under the lock folder `Tasks/.pomo.lock` (made with `mkdir`, removed after;
   can leave a `Tasks/.pomo.json.<id>.tmp` when `mv` fails), reads `Templates/Daily.md`,
   appends pane notes to the session as user messages, and writes `focus:*` keys in the
   plugin store (details in [hooks/EGM.md](./hooks/EGM.md)).

@@ -28,12 +28,8 @@ Type declarations for the `task-track` mod, referenced from the manifest
   `isLongBreak`, `pausedAt`, `isStopped`), activity (`lastActiveAt`,
   `blockActivity`, `blockSnapshot`), announcement (`lastNotifiedBlock`,
   `notifiedBy`), and day totals (`day`, `dayMs`, `dayBlocks`, `blocksDone`,
-  `creditedUntil`, `logged`, `loggingBy`). `loggingBy` is a per-slug claim map
-  (`Record<string, FocusClaim>`) for writing that slug's focus to the notes;
-  `emptyPomo` defaults it to `{}`, `parsePomo` keeps only well-formed claims (an older
-  file's string claim is dropped), `rollDay` resets it.
-- `FocusClaim` — `{ by, from, at }`: session `by` advanced `logged[slug]` from `from`
-  at epoch ms `at`. `from` is what a hand-back or stale recovery restores.
+  `creditedUntil`, `logged`). Writers hold the timer lock (see
+  [../hooks/EGM.md](../hooks/EGM.md)); the file itself carries no lock or claim fields.
 - Module augmentation `declare module 'claude-code'` → `PluginState['task-track']`:
   `task`, `problem`, `pomo`, `isBandHidden`, `isLoopsOpen`, `isLogOpen`, `source`,
   `vaultName`, `configError`, `toldBreakUntil`, `toldMvFailed`, `projectList`,

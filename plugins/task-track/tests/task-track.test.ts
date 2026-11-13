@@ -3,7 +3,7 @@ import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
 import { cells, codeSpans, fitCells, heading, insertInSection, logEntry, logOrder, parseNote, splitEstimate, stamp, toggleNext } from '../hooks/note'
-import { advance, blockMinutes, CLAIM_STALE_MS, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, recoverStaleClaims, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
+import { advance, blockMinutes, emptyPomo, LOCK_STALE_MS, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
 import { boardNote, buildBoard, fitColumn } from '../hooks/board'
@@ -182,17 +182,6 @@ describe('shared pomodoro', () => {
     expect(rolled.finished).toEqual({ day: '2026-10-12', dayMs: { 'set-up-vault': 47 * MIN }, dayBlocks: { 'set-up-vault': 1 }, logged: {} })
     expect(rolled.file.dayMs).toEqual({})
     expect(rollDay(rolled.file, '2026-10-13').finished).toBeUndefined()
-  })
-
-  test('a new day waits while a focus claim is in flight; once it is undone the day rolls with that focus unlogged', () => {
-    const claim = { by: 'gone', from: { ms: 0, blocks: 0 }, at: 1000 }
-    const claimed = { ...markLogged({ ...emptyPomo('2026-10-12'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 30 * MIN }, dayBlocks: { 'set-up-vault': 1 } }, 'set-up-vault'), loggingBy: { 'set-up-vault': claim } }
-    const waiting = rollDay(claimed, '2026-10-13')
-    expect(waiting.file).toBe(claimed)
-    expect(waiting.finished).toBeUndefined()
-    const rolled = rollDay(recoverStaleClaims(claimed, 1000 + CLAIM_STALE_MS), '2026-10-13')
-    expect(rolled.finished?.logged).toEqual({ 'set-up-vault': { ms: 0, blocks: 0 } })
-    expect(rolled.file.day).toBe('2026-10-13')
   })
 
   test('a half-written or foreign file reads as null, never as an empty timer', () => {
@@ -435,7 +424,7 @@ describe('controls', () => {
 })
 
 /** An in-memory vault beneath the plugin's $.fs calls. */
-function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void } = {}) {
+function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void; failCommand?: (argv: readonly string[]) => string | undefined } = {}) {
   let mtime = 1000
   const mtimes: Record<string, number> = Object.fromEntries(Object.keys(files).map(k => [k, mtime]))
   const missing = (path: string) => ({ deny: `ENOENT: ${path}` })
@@ -450,9 +439,53 @@ function fakeVault(on: On, files: Record<string, string>, session: { id?: string
     opts.afterWrite?.(e.path)
     return { value: undefined }
   })
+  // Directories made by `mkdir` (the timer lock); a file's parent folders exist implicitly.
+  const dirs = new Set<string>()
+  const under = (dir: string) => Object.keys(files).filter(k => k.startsWith(`${dir}/`))
   on('fs.exists', ($, e) => ({
-    value: e.path in files || Object.keys(files).some(k => k.startsWith(`${e.path}/`)),
+    value: e.path in files || dirs.has(e.path) || under(e.path).length > 0,
   }))
+  // The commands the plugin runs on the host: mkdir (fails when the path exists), mv [-f] and rm -rf.
+  const exit = (exitCode: number, stderr = '') => ({ value: { exitCode, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } })
+  on('process.run', ($, e) => {
+    const refused = opts.failCommand?.(e.argv)
+    if (refused !== undefined) return exit(1, refused)
+    const [cmd, ...rest] = e.argv
+    const paths = rest.filter(a => !a.startsWith('-'))
+    if (cmd === 'mkdir' && paths.length === 1) {
+      const [dir] = paths as [string]
+      if (dirs.has(dir) || dir in files || under(dir).length > 0) return exit(1, `mkdir: ${dir}: File exists\n`)
+      dirs.add(dir)
+      return exit(0)
+    }
+    if (cmd === 'mv' && paths.length === 2) {
+      const [from, to] = paths as [string, string]
+      if (from in files) {
+        files[to] = files[from] as string
+        mtimes[to] = ++mtime
+        delete files[from]
+        opts.afterWrite?.(to)
+        return exit(0)
+      }
+      if (!dirs.has(from) && under(from).length === 0) return exit(1, `mv: ${from}: No such file or directory\n`)
+      if (dirs.has(to) || to in files || under(to).length > 0) return exit(1, `mv: ${to}: exists\n`)
+      dirs.delete(from)
+      dirs.add(to)
+      for (const k of under(from)) {
+        files[to + k.slice(from.length)] = files[k] as string
+        delete files[k]
+      }
+      return exit(0)
+    }
+    if (cmd === 'rm' && paths.length === 1) {
+      const [path] = paths as [string]
+      dirs.delete(path)
+      delete files[path]
+      for (const k of under(path)) delete files[k]
+      return exit(0)
+    }
+    return exit(127, `fake host: no ${e.argv.join(' ')}\n`)
+  })
   on('fs.stat', ($, e) => {
     const text = files[e.path]
     if (text === undefined) return missing(e.path)
@@ -719,8 +752,11 @@ describe('/pomo and the band controls', () => {
   })
 
   test('a failed rename is named once per session, and the write still lands', async ($, on) => {
-    const files = setup(on, running())
-    on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: 'mv: rename failed\n', isStdoutTruncated: false, isStderrTruncated: false } }))
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      failCommand: argv => (argv[0] === 'mv' && argv.at(-1) === POMO ? 'mv: rename failed\n' : undefined),
+    })
     const logs: string[] = []
     on('ui.log', ($, e) => {
       logs.push(e.text)
@@ -734,8 +770,86 @@ describe('/pomo and the band controls', () => {
 
   test('an unreadable timer file is named and left alone', async ($, on) => {
     const files = setup(on, '{"version":1,"slug":"x"')
-    expect((await run($, 'pomo', 'pause')).text).toBe("Can't read /v/Tasks/.pomo.json: unreadable or not a timer file. Nothing changed.")
+    expect((await run($, 'pomo', 'pause')).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
     expect(files[POMO]).toBe('{"version":1,"slug":"x"')
+  })
+
+  const LOCK = '/v/Tasks/.pomo.lock'
+  const owner = (by: string, at: number) => JSON.stringify({ by, at })
+
+  test('a timer change holds the lock while it writes and leaves none behind', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const ran: string[] = []
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      afterWrite: path => {
+        if (path === POMO) ran.push(`pomo written, lock ${LOCK}/owner ${`${LOCK}/owner` in files ? 'held' : 'free'}`)
+      },
+      failCommand: argv => {
+        ran.push(argv.join(' '))
+        return undefined
+      },
+    })
+    await run($, 'pomo', 'pause')
+    expect(ran.filter(r => r.includes(LOCK))).toEqual([`mkdir ${LOCK}`, `pomo written, lock ${LOCK}/owner held`, `rm -rf ${LOCK}`])
+    expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
+    expect(shared(files).pausedAt).toBe(NOW)
+  })
+
+  test('a lock another session holds makes the change wait, then skip the round untouched', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: NOW })
+    const theirs = owner('other-session', NOW)
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: theirs })
+    const pausing = run($, 'pomo', 'pause')
+    await clock.advance(1000)
+    expect((await pausing).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
+    expect(shared(files).pausedAt).toBe(0)
+    expect(files[`${LOCK}/owner`]).toBe(theirs)
+  })
+
+  test('a lock left by a session that died is broken, and the change goes through', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', NOW - LOCK_STALE_MS) })
+    await run($, 'pomo', 'pause')
+    expect(shared(files).pausedAt).toBe(NOW)
+    expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
+  })
+
+  test('a session whose lock was broken under it does not write over the new holder', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const theirs = owner('other-session', NOW)
+    let isTaken = false
+    // Right after this session takes the lock, another session breaks it as stale and takes it.
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      afterWrite: path => {
+        if (path !== `${LOCK}/owner` || isTaken) return
+        isTaken = true
+        files[path] = theirs
+      },
+    })
+    await run($, 'pomo', 'pause')
+    expect(shared(files).pausedAt).toBe(0)
+    expect(files[`${LOCK}/owner`]).toBe(theirs)
+  })
+
+  test('a lock that cannot be made at all is named once, and changes still land', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      failCommand: argv => (argv[0] === 'mkdir' ? 'mkdir: Permission denied\n' : undefined),
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    await run($, 'pomo', 'pause')
+    await run($, 'pomo', 'resume')
+    expect(logs.filter(l => l.includes('lock'))).toEqual([`task-track: can't make the timer lock ${LOCK} (exit 1: mkdir: Permission denied); changing the timer unlocked, so two sessions may log the same focus.`])
+    expect(shared(files).pausedAt).toBe(0)
   })
 
   test('the band shows the buttons for the state, and ⏸ pauses the shared file', async ($, on) => {
@@ -773,7 +887,7 @@ describe('/pomo and the band controls', () => {
     mock.clock(on, { now: NOW })
     const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { unreadable: [POMO] })
     const before = files[POMO]
-    expect((await run($, 'pomo', 'stop')).text).toBe("Can't read /v/Tasks/.pomo.json: unreadable or not a timer file. Nothing changed.")
+    expect((await run($, 'pomo', 'stop')).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
     expect(files[POMO]).toBe(before)
   })
 
@@ -1015,156 +1129,38 @@ describe('focus reaches the notes', () => {
     expect(unlogged(parsePomo(files['/v/Tasks/.pomo.json'] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
   })
 
-  test('two sessions flushing the same focus at the same moment log it once', async ($, on) => {
+  test('a flush that finds another session holding the lock writes nothing and leaves the focus unlogged', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
-    mock.clock(on, { now: T0 + 40 * MIN })
+    const clock = mock.clock(on, { now: T0 + 40 * MIN })
     const POMO = '/v/Tasks/.pomo.json'
-    const DAILY = '/v/Daily/2026-10-13.md'
-    let isRaced = false
-    // The other session read the same unlogged focus; its claim lands right after this session's
-    // first write to the timer, and it writes its focus line because its read-back saw its own claim.
-    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, {
-      afterWrite: path => {
-        if (path !== POMO || isRaced) return
-        isRaced = true
-        files[POMO] = serializePomo({ ...markLogged(today(30 * MIN), 'set-up-vault'), loggingBy: { 'set-up-vault': { by: 'other-session', from: { ms: 0, blocks: 0 }, at: T0 + 40 * MIN } } })
-        files[PATH] = insertInSection(files[PATH] ?? '', 'Log', '- [[2026-10-13]] 09:40 — focus 30m (1 pomodoro)')
-        files[DAILY] = insertInSection(files[DAILY] ?? '## Log\n', 'Log', '- 09:40 [[set-up-vault]] focus 30m (1 pomodoro)')
-      },
-    })
+    const LOCK_OWNER = '/v/Tasks/.pomo.lock/owner'
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) })
     coreEnd(on)
     await run($, 'openloop', 'load the task')
-    await $.session.end(end)
-    const count = (text: string | undefined) => (text ?? '').split('focus 30m').length - 1
-    expect(count(files[PATH])).toBe(1)
-    expect(count(files[DAILY])).toBe(1)
-    expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 0, blocks: 0 })
-  })
-
-  test('a claimed focus whose note write fails is handed back unlogged', async ($, on) => {
-    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
-    mock.clock(on, { now: T0 + 40 * MIN })
-    const before = { ...today(30 * MIN), dayMs: { 'set-up-vault': 30 * MIN }, logged: { 'set-up-vault': { ms: 5 * MIN, blocks: 0 } } }
-    on('fs.write', { path: '/v/Daily/2026-10-13.md' }, ($, e) => ({ deny: `EACCES: ${e.path}` }))
-    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, '/v/Tasks/.pomo.json': serializePomo(before) })
-    coreEnd(on)
-    await run($, 'openloop', 'load the task')
-    await $.session.end(end)
-    const after = parsePomo(files['/v/Tasks/.pomo.json'] ?? '') ?? emptyPomo('')
-    expect(after.logged['set-up-vault']).toEqual({ ms: 5 * MIN, blocks: 0 })
-    expect(after.loggingBy).toEqual({})
-  })
-
-  test('a failed note write leaves logged alone once another session took over the claim', async ($, on) => {
-    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
-    mock.clock(on, { now: T0 + 40 * MIN })
-    const POMO = '/v/Tasks/.pomo.json'
-    const DAILY = '/v/Daily/2026-10-13.md'
-    const before = { ...today(30 * MIN), logged: { 'set-up-vault': { ms: 5 * MIN, blocks: 0 } } }
-    const taken = { ...markLogged(before, 'set-up-vault'), loggingBy: { 'set-up-vault': { by: 'other-session', from: { ms: 5 * MIN, blocks: 0 }, at: T0 + 40 * MIN } } }
-    const files: Record<string, string> = { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(before) }
-    // The other session's claim lands after this session's read-back, just before its daily-note write fails.
-    on('fs.write', { path: DAILY }, ($, e) => {
-      files[POMO] = serializePomo(taken)
-      return { deny: `EACCES: ${e.path}` }
-    })
-    fakeVault(on, files)
-    coreEnd(on)
-    await run($, 'openloop', 'load the task')
-    await $.session.end(end)
-    const after = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
-    expect(after.logged['set-up-vault']).toEqual({ ms: 30 * MIN, blocks: 1 })
-    expect(after.loggingBy).toEqual(taken.loggingBy)
-  })
-
-  test("another session's claim on a different task does not void this task's claim", async ($, on) => {
-    const OTHER_TASK_CLAIM = { by: 'other-session', from: { ms: 0, blocks: 0 }, at: T0 + 40 * MIN }
-    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
-    mock.clock(on, { now: T0 + 40 * MIN })
-    const POMO = '/v/Tasks/.pomo.json'
-    const DAILY = '/v/Daily/2026-10-13.md'
-    let isRaced = false
-    // The other session flushes 'other-task': it reads the file after this session's claim, keeps it, adds its own.
-    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, {
-      afterWrite: path => {
-        if (path !== POMO || isRaced) return
-        isRaced = true
-        const ours = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
-        files[POMO] = serializePomo({ ...ours, logged: { ...ours.logged, 'other-task': { ms: 20 * MIN, blocks: 0 } }, loggingBy: { ...ours.loggingBy, 'other-task': OTHER_TASK_CLAIM } })
-      },
-    })
-    coreEnd(on)
-    await run($, 'openloop', 'load the task')
-    await $.session.end(end)
-    expect(files[PATH]).toContain('— focus 30m (1 pomodoro)')
-    expect(files[DAILY] ?? '').toContain('[[set-up-vault]] focus 30m (1 pomodoro)')
-    const after = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
-    expect(after.loggingBy).toEqual({ 'other-task': OTHER_TASK_CLAIM })
-  })
-
-  test("a live claim by another session is not replaced, even when more focus has accrued since", async ($, on) => {
-    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
-    mock.clock(on, { now: T0 + 40 * MIN })
-    const POMO = '/v/Tasks/.pomo.json'
-    const DAILY = '/v/Daily/2026-10-13.md'
-    // The other session claimed 10m a moment ago and is still writing it; 20m more accrued since.
-    const claim = { by: 'other-session', from: { ms: 0, blocks: 0 }, at: T0 + 40 * MIN - 1000 }
-    const before = { ...today(30 * MIN), logged: { 'set-up-vault': { ms: 10 * MIN, blocks: 0 } }, loggingBy: { 'set-up-vault': claim } }
-    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(before) })
-    coreEnd(on)
-    await run($, 'openloop', 'load the task')
-    await $.session.end(end)
+    files[LOCK_OWNER] = JSON.stringify({ by: 'other-session', at: T0 + 40 * MIN })
+    const ending = $.session.end(end)
+    await clock.advance(1000)
+    await ending
     expect(files[PATH]).not.toContain('— focus')
-    expect(files[DAILY]).toBeUndefined()
-    const after = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
-    expect(after.logged['set-up-vault']).toEqual({ ms: 10 * MIN, blocks: 0 })
-    expect(after.loggingBy).toEqual({ 'set-up-vault': claim })
+    expect(files['/v/Daily/2026-10-13.md']).toBeUndefined()
+    expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
   })
 
-  test('a claim left by a session that is gone is undone, and its focus is written again', async ($, on) => {
+  test("a flush after midnight writes yesterday's unlogged focus to yesterday's notes, not today's", async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
-    mock.clock(on, { now: T0 + 40 * MIN })
+    mock.clock(on, { now: new Date(2026, 9, 14, 0, 5).getTime() })
     const POMO = '/v/Tasks/.pomo.json'
-    const DAILY = '/v/Daily/2026-10-13.md'
-    // A session claimed all 30m three minutes ago, then exited before writing the notes.
-    const stale = { by: 'gone-session', from: { ms: 0, blocks: 0 }, at: T0 + 37 * MIN }
-    const before = { ...markLogged(today(30 * MIN), 'set-up-vault'), loggingBy: { 'set-up-vault': stale } }
-    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(before) })
-    coreEnd(on)
-    await run($, 'openloop', 'load the task')
-    await $.session.end(end)
-    expect(files[PATH]).toContain('— focus 30m (1 pomodoro)')
-    expect(files[DAILY] ?? '').toContain('[[set-up-vault]] focus 30m (1 pomodoro)')
-    const after = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
-    expect(unlogged(after, 'set-up-vault')).toEqual({ ms: 0, blocks: 0 })
-    expect(after.loggingBy).toEqual({})
-  })
-
-  test('a claim left just before midnight is not lost at the rollover: its focus reaches the old day once it goes stale', async ($, on) => {
-    const MIDNIGHT = new Date(2026, 9, 14, 0, 0).getTime()
-    const POMO = '/v/Tasks/.pomo.json'
-    const OLD_DAILY = '/v/Daily/2026-10-13.md'
-    // A session claimed all 30m a minute before midnight, then exited before writing the notes.
-    const claim = { by: 'gone-session', from: { ms: 0, blocks: 0 }, at: MIDNIGHT - MIN }
-    const left = { ...markLogged(today(30 * MIN), 'set-up-vault'), loggingBy: { 'set-up-vault': claim } }
-    let now = MIDNIGHT + MIN / 2
-    on('clock.now', () => ({ value: now }))
-    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
-    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(left) })
+    // Two tasks left focus on the 13th; this session flushes one of them on the 14th.
+    const yesterday = { ...emptyPomo('2026-10-13'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 30 * MIN, other: 20 * MIN }, dayBlocks: { 'set-up-vault': 1, other: 0 } }
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, '/v/Tasks/other.md': NOTE, [POMO]: serializePomo(yesterday) })
     on('store.set', () => ({ value: undefined }))
-    const shared = () => parsePomo(files[POMO] ?? '') ?? emptyPomo('')
     coreEnd(on)
     await run($, 'openloop', 'load the task')
-    // 30 s after midnight the claim is 90 s old: still in flight, so the day waits instead of dropping it with the old totals.
-    await run($, 'note', 'after midnight')
-    expect(shared().day).toBe('2026-10-13')
-    expect(shared().loggingBy).toEqual({ 'set-up-vault': claim })
-    now = MIDNIGHT + 2 * MIN
     await $.session.end(end)
-    // 3 min old: undone, so the rollover writes the 30m to the old day's note.
-    expect(files[OLD_DAILY] ?? '').toContain('[[set-up-vault]] focus 30m (1 pomodoro)')
-    expect(shared().day).toBe('2026-10-14')
-    expect(shared().loggingBy).toEqual({})
+    expect(files['/v/Daily/2026-10-13.md'] ?? '').toContain('end of day [[set-up-vault]] focus 30m (1 pomodoro)')
+    expect(files['/v/Daily/2026-10-13.md'] ?? '').toContain('end of day [[other]] focus 20m')
+    expect(files['/v/Daily/2026-10-14.md']).toBeUndefined()
+    expect(parsePomo(files[POMO] ?? '')?.day).toBe('2026-10-14')
   })
 
   test('two overlapping flushes of one task in one session log its focus once', async ($, on) => {
@@ -1181,24 +1177,6 @@ describe('focus reaches the notes', () => {
     expect(count(files[PATH])).toBe(1)
     expect(count(files[DAILY])).toBe(1)
     expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 0, blocks: 0 })
-  })
-
-  test('recoverStaleClaims undoes only claims older than CLAIM_STALE_MS', () => {
-    const now = T0 + 60 * MIN
-    const fresh = { by: 'a', from: { ms: 1, blocks: 0 }, at: now - CLAIM_STALE_MS + 1 }
-    const old = { by: 'b', from: { ms: 2, blocks: 0 }, at: now - CLAIM_STALE_MS }
-    const f = { ...emptyPomo('2026-10-13'), logged: { x: { ms: 9, blocks: 1 }, y: { ms: 8, blocks: 1 } }, loggingBy: { x: fresh, y: old } }
-    const r = recoverStaleClaims(f, now)
-    expect(r.logged).toEqual({ x: { ms: 9, blocks: 1 }, y: { ms: 2, blocks: 0 } })
-    expect(r.loggingBy).toEqual({ x: fresh })
-    const none = { ...f, loggingBy: { x: fresh } }
-    expect(recoverStaleClaims(none, now)).toBe(none)
-  })
-
-  test('parsePomo keeps only well-formed claims', () => {
-    const good = { by: 's', from: { ms: 1, blocks: 0 }, at: 5 }
-    const text = serializePomo({ ...emptyPomo('2026-10-13'), loggingBy: { a: good, b: 'old-string-claim', c: { by: 's' } } as never })
-    expect(parsePomo(text)?.loggingBy).toEqual({ a: good })
   })
 
   test('a daily note that exists but cannot be read is left alone', async ($, on) => {

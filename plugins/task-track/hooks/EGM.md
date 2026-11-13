@@ -44,8 +44,7 @@ state live in [../types/EGM.md](../types/EGM.md).
   `parsePomo`, `serializePomo`, `rollDay`, `advance`, `touch`, `shouldTouch`,
   `start`, `pause`, `resume`, `stop`, `toggle`, `pomoState`, `onBreak`, `isRunning`,
   `blockMinutes`, `pomoDots`, `unlogged`, `markLogged`, `snapshotTask`,
-  `recordActivity`, `recoverStaleClaims`, `TOUCH_EVERY_MS`, `MAX_ACTIVITY`,
-  `CLAIM_STALE_MS`; types `PomoConfig`,
+  `recordActivity`, `TOUCH_EVERY_MS`, `MAX_ACTIVITY`, `LOCK_STALE_MS`; types `PomoConfig`,
   `PomoEvent`, `PomoState`, `Transition`, `DayTotals`.
 - `summary.ts` — what a finished block got done: `blockSummary`, `checkedTitles`,
   `logSince`, `summaryPrompt`, `SUMMARY_SYSTEM`; type `NoteRead`.
@@ -90,33 +89,30 @@ state live in [../types/EGM.md](../types/EGM.md).
   keeps the block alive, but never start one. A `/pomo` prompt is not activity. Writes
   are throttled to once a minute except on a task change or when a block can start
   (`shouldTouch`).
+- Every read-change-write of `.pomo.json` holds the cross-session timer lock
+  `<vault>/Tasks/.pomo.lock`: a folder made with `mkdir` (only one process can create
+  it) holding an `owner` file `{ by: SESSION, at }`. A busy lock is retried
+  `LOCK_TRIES` (5) times `LOCK_WAIT_MS` (40 ms) apart, then the round is skipped
+  (`changePomo` returns null; `/pomo` says it is locked). A lock whose owner (or, with
+  no owner yet, whose folder) is `LOCK_STALE_MS` (30 s) old is moved aside (one mover
+  wins) and removed. The holder re-reads its owner file before writing the timer or
+  the notes and writes nothing once it no longer holds the lock. If `mkdir` fails for
+  another reason (no `Tasks/` folder, no shell), the session says so once and runs
+  unlocked rather than freezing the timer.
+- Within one session, timer changes, flushes and `load`'s vault switch run one after
+  another (`inPomoOrder`), so a session never waits on its own lock and no operation
+  runs half on one vault and half on another. A flush whose vault changed while it
+  waited is skipped; its focus stays unlogged on the old vault's timer.
 - Focus is credited once per session (`creditedUntil`, `logged`); less than 5 minutes
-  waits for the next flush. `flushFocus` claims before it writes, like the block
-  announcer: it skips a slug that already has a claim (the holder writes it), else
-  marks `logged[slug]` and sets `loggingBy[slug] = { by: SESSION, from, at }` only if
-  the day and `logged[slug]` are still what it read and no claim landed, reads the
-  file back, and writes the notes only if that claim is still there. Claims are per
-  slug, so a claim on another task never cancels this one. A failed note write, or a
-  read-back that finds the file unreadable, hands the claim back (`logged[slug]` =
-  `from`) while it is still this session's; a successful write drops it.
-- Claims never released (the session exited, the file stayed unreadable) are undone
-  by `changePomo` through `recoverStaleClaims` once `CLAIM_STALE_MS` (2 min) old, before
-  `rollDay`, so their focus is written later. `rollDay` waits while any claim is live,
-  so a claim left just before midnight reaches the old day's notes once it is released
-  or undone; focus credited in that wait (at most 2 min) counts toward the old day. Written twice
-  instead of lost: a claim whose notes were written but whose release never landed,
-  or whose holder stalled past 2 min (e.g. sleep mid-write) and then resumed; a
-  timeout cannot fence a resumed holder's note writes. Known gap: two sessions that both read the file before either claim
-  lands can both pass their read-back and both write; closing it needs a
-  cross-session lock. `flushDay` (day rollover) has no per-slug claim yet, so two
-  sessions rolling the day at once can log the same focus twice.
-- Within one session, `flushFocus` runs one slug's flushes one after another (a
-  per-slug promise queue, `flushing`), so overlapping triggers (`/pomo stop`, task
-  switch, session end) never claim the same focus twice; each caller still gets its
-  own flush's error. A queued flush whose vault changed while it waited (overlapping
-  `load`s across a vault switch) is skipped: timer and daily-note paths follow the
-  module's `vault`, so it would claim the new vault's timer while writing the old
-  vault's note. Its focus stays unlogged on the old vault's timer for its next flush.
+  waits for the next flush. `flushFocus`, under the lock: rolls the day if it moved on,
+  writes the slug's unlogged focus to its task Log and that day's (`before.day`) daily
+  note, then marks it logged. A failed note write leaves it unlogged for the next try.
+  A crash between the note write and the mark, or a holder that stalled past
+  `LOCK_STALE_MS` and resumed mid-write, writes it twice; it is never lost.
+- The day rolls over under the lock too, so one session writes a finished day's
+  unlogged focus (`flushDay`) and the others find the day already rolled.
+- The lock is a local-filesystem lock: two machines syncing one vault (iCloud,
+  Obsidian Sync) do not see each other's `mkdir` in time and can still both write.
 - `.pomo.json` is never replaced when it exists but cannot be read or parsed this
   round; that round is skipped. A day or slug in it that can't name a note is reported
   (band problem + `$.ui.log`) and skipped, never thrown.
@@ -125,6 +121,8 @@ state live in [../types/EGM.md](../types/EGM.md).
 
 ## Side Effects
 
+- Creates and removes the lock folder `<vault>/Tasks/.pomo.lock` (and its `owner` file)
+  with `mkdir` / `rm -rf`, and moves a stale one aside with `mv`.
 - Writes `<vault>/Tasks/.pomo.json` via a temp file named with `SESSION` (new on every
   module load) and `mv -f`; when `mv` fails, writes directly, logs once, and leaves the
   `.tmp` file behind.

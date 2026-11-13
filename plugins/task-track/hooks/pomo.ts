@@ -1,7 +1,7 @@
 // The shared Pomodoro: one JSON file every session reads and writes (vault/Tasks/.pomo.json).
 // Timestamps, not counters: each session derives the same block progress from the same
 // numbers, so two sessions never double-count, and a restart resumes mid-block. Pure: no IO.
-import type { FocusClaim, PomoFile } from '../types'
+import type { PomoFile } from '../types'
 
 export type PomoConfig = {
   focusMinutes: number
@@ -52,7 +52,6 @@ export function emptyPomo(day: string): PomoFile {
     dayMs: {},
     dayBlocks: {},
     logged: {},
-    loggingBy: {},
   }
 }
 
@@ -61,44 +60,14 @@ export function parsePomo(text: string): PomoFile | null {
   try {
     const value = JSON.parse(text) as Partial<PomoFile> | null
     if (!value || value.version !== 1 || typeof value.slug !== 'string') return null
-    const parsed = { ...emptyPomo(String(value.day ?? '')), ...value } as PomoFile
-    // Well-formed claims only: an older file's string claim (or a half-written one) claims nothing.
-    const claims = value.loggingBy && typeof value.loggingBy === 'object' && !Array.isArray(value.loggingBy) ? value.loggingBy : {}
-    return { ...parsed, loggingBy: Object.fromEntries(Object.entries(claims).filter(([, c]) => isFocusClaim(c))) }
+    return { ...emptyPomo(String(value.day ?? '')), ...value } as PomoFile
   } catch {
     return null
   }
 }
 
-function isFocusClaim(c: unknown): c is FocusClaim {
-  if (!c || typeof c !== 'object') return false
-  const { by, from, at } = c as Partial<FocusClaim>
-  return typeof by === 'string' && typeof at === 'number' && !!from && typeof from.ms === 'number' && typeof from.blocks === 'number'
-}
-
-/**
- * How long a focus claim may stay in flight. Writing two notes takes well under a second, so a claim
- * this old belongs to a session that exited or lost the file between claiming and writing.
- */
-export const CLAIM_STALE_MS = 2 * MINUTE
-
-/**
- * `f` with every claim at least CLAIM_STALE_MS old undone: its slug's logged goes back to what it was
- * before the claim, so the next flush writes that focus instead of it being lost. The same `f` when none is.
- * Written twice instead of lost: a claim whose notes were written but whose release never landed, or whose
- * holder stalled past CLAIM_STALE_MS (e.g. the machine slept mid-write) and then resumed its write.
- */
-export function recoverStaleClaims(f: PomoFile, now: number): PomoFile {
-  const stale = Object.entries(f.loggingBy).filter(([, c]) => now - c.at >= CLAIM_STALE_MS)
-  if (stale.length === 0) return f
-  const logged = { ...f.logged }
-  const loggingBy = { ...f.loggingBy }
-  for (const [slug, claim] of stale) {
-    logged[slug] = claim.from
-    delete loggingBy[slug]
-  }
-  return { ...f, logged, loggingBy }
-}
+/** How old the timer lock may get: holding it takes milliseconds, so older means its session died holding it. */
+export const LOCK_STALE_MS = 30_000
 
 export function serializePomo(f: PomoFile): string {
   return `${JSON.stringify(f, null, 2)}\n`
@@ -107,17 +76,13 @@ export function serializePomo(f: PomoFile): string {
 /** Starts a new day's totals when `day` moved on; the finished day comes back once. */
 export function rollDay(f: PomoFile, day: string): { file: PomoFile; finished?: DayTotals } {
   if (f.day === day) return { file: f }
-  // A focus claim in flight would be dropped with logged already advanced past it, losing that focus if the
-  // holder then fails or is gone. Wait: the holder releases it, or recoverStaleClaims undoes it within
-  // CLAIM_STALE_MS. Focus credited meanwhile counts toward the old day.
-  if (Object.keys(f.loggingBy).length > 0) return { file: f }
   const hadTime = Object.values(f.dayMs).some(ms => ms > 0)
   const finished = hadTime && f.day ? { day: f.day, dayMs: f.dayMs, dayBlocks: f.dayBlocks, logged: f.logged } : undefined
   // A pause left over the rollover ends its block or break: resuming would credit the night.
   const unpaused = f.pausedAt
     ? { blockStartedAt: 0, breakUntil: 0, creditedUntil: f.lastActiveAt, blockOpenedAt: 0, blockSnapshot: {}, blockActivity: [] }
     : {}
-  return { file: { ...f, ...unpaused, day, dayMs: {}, dayBlocks: {}, logged: {}, loggingBy: {}, blocksDone: 0, lastNotifiedBlock: 0, isStopped: false, pausedAt: 0 }, finished }
+  return { file: { ...f, ...unpaused, day, dayMs: {}, dayBlocks: {}, logged: {}, blocksDone: 0, lastNotifiedBlock: 0, isStopped: false, pausedAt: 0 }, finished }
 }
 
 /** The break running at `now`, or null: none, or it is over. */

@@ -56,7 +56,7 @@ code from each other: each is installed and versioned on its own.
 ## Global Side Effects
 
 - User's Obsidian vault: task notes (including `status:` flips by `park_on_end.py` at
-  session end), `Tasks/.active`, `Tasks/.session/*`, `Tasks/.pomo.json`, daily notes
+  session end), `Tasks/.active`, `Tasks/.session/*`, `Tasks/.pomo.json` (and its lock folder `Tasks/.pomo.lock`), daily notes
   (`Daily/<date>.md` focus lines from task-track).
 - task-track's `/task` pane "Open in Obsidian" button runs `open obsidian://open?path=…`.
 - User's planner folder: `inbox.md`, `inbox-archive.md`, `habits-log.json`, and `tools/out/`
