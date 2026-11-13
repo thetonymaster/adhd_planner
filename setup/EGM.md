@@ -8,7 +8,8 @@ The `planner-setup` installer. It is a uv project with one runtime dependency, `
 - writes the `pluginConfigs` vault paths and optional permissions into `~/.claude/settings.json`;
 - manages `~/.config/adhd-planner/vaults.json`;
 - seeds a vault from the repo's `examples/vault-starter/`;
-- adds the task board to vaults: merges the Board and Done (7 days) views into each vault's `Tasks.base` and installs the pinned community Obsidian plugin `kanban-bases-view` (xiwcx/obsidian-bases-kanban 0.10.6) from its GitHub release (`src/planner_setup/board_plugin.py`, `update-vaults` and the vault starter).
+- adds the task board to vaults: merges the Board and Done (7 days) views into each vault's `Tasks.base` and installs the pinned community Obsidian plugin `kanban-bases-view` (xiwcx/obsidian-bases-kanban 0.10.6) from its GitHub release (`src/planner_setup/board_plugin.py`, `update-vaults` and the vault starter);
+- adds `priority: p3` and `due:` to an existing vault's `Templates/Task.md` when missing (`update-vaults`, no prompt).
 
 The user-facing documentation for all of this is [`docs/setup.md`](../docs/setup.md). Keep it in step with this directory.
 
