@@ -98,6 +98,8 @@ let isLockFailureTold = false
 let isFlockMissing = false
 /** Said once per session: the OS lock helper can't be used, so the folder lock is. */
 let isFlockFallbackTold = false
+/** Said once per session: the helper runs but can't open the lock file, so timer changes wait. */
+let isFlockOpenFailureTold = false
 
 function readSettings(options: PluginOptions): Settings {
   return {
@@ -536,8 +538,10 @@ async function tryFlock<T>($: EngineInterface, file: string, fn: () => Promise<T
 /**
  * Runs `fn` holding the cross-session lock on the timer file: an OS `flock` on `Tasks/.pomo.flock` held by a helper
  * process (FLOCK_HELPER). Busy: waits LOCK_WAIT_MS up to LOCK_TRIES times, then resolves null (the round is
- * skipped). Where the helper can't run (no perl) or can't open the file, uses the folder lock (withDirLock) and
- * says so once per session: that lock can be broken under a session paused mid-write.
+ * skipped). Where perl can't start, uses the folder lock (withDirLock), said once per session: perl is a property of
+ * the machine, so every session there uses the folder lock and they still exclude each other; that lock can be
+ * broken under a session paused mid-write. Where perl runs but can't open the lock file, the round is skipped (said
+ * once): other sessions here hold the OS lock, which a folder lock would not exclude.
  */
 async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<T>): Promise<T | null> {
   if (!isFlockMissing) {
@@ -545,8 +549,16 @@ async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise
     for (let attempt = 1; attempt <= LOCK_TRIES; attempt++) {
       const r = await tryFlock($, file, () => fn({ isHeld: async () => true }))
       if (r.kind === 'ran') return r.value
+      if (r.kind === 'unavailable' && !r.isNoHelper) {
+        // perl runs here, so other sessions on this machine use the OS lock: a folder lock would not exclude them.
+        if (!isFlockOpenFailureTold) {
+          isFlockOpenFailureTold = true
+          $.ui.log(`task-track: can't take the timer lock ${file} (${r.why}); the timer is left unchanged until it can.`)
+        }
+        return null
+      }
       if (r.kind === 'unavailable') {
-        isFlockMissing = r.isNoHelper
+        isFlockMissing = true
         if (!isFlockFallbackTold) {
           isFlockFallbackTold = true
           $.ui.log(`task-track: can't run the OS lock helper (${r.why}); using the folder lock ${await currentVault($)}/Tasks/.pomo.lock, which a session paused mid-write can lose.`)

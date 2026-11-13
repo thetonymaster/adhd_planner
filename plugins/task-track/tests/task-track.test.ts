@@ -424,7 +424,7 @@ describe('controls', () => {
 })
 
 /** An in-memory vault beneath the plugin's $.fs calls. */
-function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void; afterRead?: (path: string) => void; failCommand?: (argv: readonly string[]) => string | undefined; dirs?: Record<string, number>; flocked?: readonly string[]; noPerl?: boolean; events?: string[] } = {}) {
+function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void; afterRead?: (path: string) => void; failCommand?: (argv: readonly string[]) => string | undefined; dirs?: Record<string, number>; flocked?: readonly string[]; noPerl?: boolean; flockError?: string; events?: string[] } = {}) {
   let mtime = 1000
   const mtimes: Record<string, number> = Object.fromEntries(Object.keys(files).map(k => [k, mtime]))
   const missing = (path: string) => ({ deny: `ENOENT: ${path}` })
@@ -496,6 +496,10 @@ function fakeVault(on: On, files: Record<string, string>, session: { id?: string
   on('process.spawn', async function* ($, e) {
     if (e.argv[0] !== 'perl' || opts.noPerl) return { deny: `spawn ${e.argv[0]} ENOENT` }
     const file = e.argv.at(-1) ?? ''
+    if (opts.flockError) {
+      yield { stream: 'stdout' as const, text: `error: ${opts.flockError}\n` }
+      return { value: { code: 2, signal: null } }
+    }
     if (flocks.has(file)) {
       yield { stream: 'stdout' as const, text: 'busy\n' }
       return { value: { code: 75, signal: null } }
@@ -831,6 +835,29 @@ describe('/pomo and the band controls', () => {
     const pausing = run($, 'pomo', 'pause')
     await clock.advance(1000)
     expect((await pausing).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
+    expect(shared(files).pausedAt).toBe(0)
+  })
+
+  test("a lock file the helper can't open skips the round, said once, and never uses the folder lock", async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const ran: string[] = []
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      flockError: 'Permission denied',
+      failCommand: argv => {
+        ran.push(argv.join(' '))
+        return undefined
+      },
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    expect((await run($, 'pomo', 'pause')).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
+    await run($, 'pomo', 'pause')
+    expect(logs.filter(l => l.includes('lock'))).toEqual([`task-track: can't take the timer lock ${FLOCK} (exit 2: error: Permission denied); the timer is left unchanged until it can.`])
+    expect(ran.filter(r => r.startsWith('mkdir'))).toEqual([])
     expect(shared(files).pausedAt).toBe(0)
   })
 

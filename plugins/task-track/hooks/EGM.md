@@ -99,9 +99,12 @@ state live in [../types/EGM.md](../types/EGM.md).
   retried `LOCK_TRIES` (5) times `LOCK_WAIT_MS` (40 ms) apart, then the round is skipped
   (`changePomo` returns null; `/pomo` says it is locked). The helper is killed (lock
   released) when the work ends, thrown or not.
+- Where the helper runs but can't open the lock file, the round is skipped (said once):
+  other sessions on the machine hold the OS lock, which a folder lock would not exclude.
 - Fallback, said once per session: where the helper can't start (no `perl`; remembered
-  for the session) or can't open the lock file, the folder lock `<vault>/Tasks/.pomo.lock`
-  is used (`withDirLock`): a folder made with `mkdir` holding an `owner` file
+  for the session) the folder lock `<vault>/Tasks/.pomo.lock` is used (`withDirLock`).
+  `perl` is a property of the machine, so all sessions there use the folder lock and
+  still exclude each other (sessions on different machines are out of scope). The folder lock: a folder made with `mkdir` holding an `owner` file
   `{ by: SESSION, at }`, broken by one session once 30 s old (`LOCK_STALE_MS`) via a
   `.pomo.lock.break-<owner>` marker and a re-read; the holder re-checks its owner file
   between reading and writing each note and before the timer write. A lock that exists
