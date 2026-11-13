@@ -766,7 +766,11 @@ async function flushFocusHeld($: EngineInterface, lease: Lease, slug: string, pa
   const written = { ms: before.dayMs[slug] ?? 0, blocks: before.dayBlocks[slug] ?? 0 }
   const { time } = stamp(new Date(await $.clock.now()), await currentZone($))
   if (!(await writeFocus($, lease, slug, path, before.day, time, focusText(pending)))) return
-  await changePomoHeld($, lease, file => (file.day === before.day ? markLogged(file, slug, written) : file))
+  // Marked on the day that was read, without rolling: if midnight passed during the note writes, a rollover here
+  // would hand flushDay these totals as unlogged and write them twice. The next timer change rolls the day.
+  const current = await readPomo($)
+  if (!current || current.day !== before.day || !(await lease.isHeld())) return
+  await writePomo($, markLogged(current, slug, written))
 }
 
 /** Every minute: move the shared clock; the session that announces a block is the one whose write stuck. */

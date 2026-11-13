@@ -121,7 +121,8 @@ state live in [../types/EGM.md](../types/EGM.md).
 - Focus is credited once per session (`creditedUntil`, `logged`); less than 5 minutes
   waits for the next flush. `flushFocus`, under the lock: rolls the day if it moved on,
   writes the slug's unlogged focus to its task Log and that day's (`before.day`) daily
-  note, then marks it logged. A failed note write leaves it unlogged for the next try.
+  note, then marks it logged on the day it read, without rolling the day (a rollover
+  there, after midnight passed mid-write, would write the same focus again). A failed note write leaves it unlogged for the next try.
   A crash between the note write and the mark, or a holder that stalled past
   `LOCK_STALE_MS` and resumed mid-write, writes it twice; it is never lost.
 - The day rolls over under the lock too, so one session writes a finished day's

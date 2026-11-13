@@ -1422,6 +1422,26 @@ describe('focus reaches the notes', () => {
     expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
   })
 
+  test('midnight passing while a flush writes its notes does not write that focus again at the rollover', async ($, on) => {
+    const POMO = '/v/Tasks/.pomo.json'
+    let now = new Date(2026, 9, 13, 23, 59, 50).getTime()
+    on('clock.now', () => ({ value: now }))
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    // The clock crosses midnight right after the flush writes the task note.
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, {
+      afterWrite: path => {
+        if (path === PATH && (files[PATH] ?? '').includes('— focus')) now = new Date(2026, 9, 14, 0, 0, 5).getTime()
+      },
+    })
+    on('store.set', () => ({ value: undefined }))
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    await $.session.end(end)
+    const daily = files['/v/Daily/2026-10-13.md'] ?? ''
+    expect(daily.split('focus 30m').length - 1).toBe(1)
+    expect(daily).not.toContain('end of day')
+  })
+
   test('two overlapping flushes of one task in one session log its focus once', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: T0 + 40 * MIN })
