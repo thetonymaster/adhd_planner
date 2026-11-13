@@ -532,10 +532,14 @@ tasks, as now. `plan-day` and `eod-shutdown` do not read the week file.
 
 A week file written before this change has no `source` key on any row. Its
 vault rows are still titled `<vault>:<slug>: <item>` (or `<slug>: <item>` with
-one vault), the label the skills use now. So an attended run also leaves out
-an unmarked row whose label names a task note that exists in a vault in play;
-without this, the week of the upgrade would list a task twice or bring back one
-that is done. An unattended run cannot read the vault and keeps unmarked rows,
+one vault), the label the skills use now. A matching label does not prove a
+row came from a vault: a to-do the user typed as `foo: Call supplier` matches a
+note `foo.md` without being one of its Next items, and the queue would not
+bring it back. So an attended run does not drop these rows on its own. It
+lists each unmarked row whose label names a task note that exists in a vault in
+play and asks the user once whether to leave them out, saying that the ranked
+list already covers those tasks. Without the question, the week of the upgrade
+would list a task twice or bring back one that is done. An unattended run cannot read the vault and keeps unmarked rows,
 which is what it does before this change. The case ends with the next
 `plan-week` run, which rewrites the week files with the marker.
 
@@ -1110,9 +1114,11 @@ planned), and runs the command again when they differ. Each skill shows
     *   Add a bullet to the vault block's "In this skill" list, after the
         step 2 bullet: "**Step 2, older week plans:** a week-plan row with no
         `source` key whose title starts with the label of a task note that
-        exists in a vault in play was written before the ranked list existed.
-        Leave it out; the queue has rebuilt it." This bullet must not contain
-        the marker text, which a test counts at exactly two.
+        exists in a vault in play may have been written before the ranked list
+        existed. List these rows and ask the user once whether to leave them
+        out, saying the ranked list already covers those tasks; keep any row
+        the user wants kept." This bullet must not contain the marker text,
+        which a test counts at exactly two.
     *   Do not repeat the week file's path, the pool phrase or the
         `plan_day.py --tasks` command in the new text:
         `tests/test_skill_files.py` pins each at exactly two occurrences.
