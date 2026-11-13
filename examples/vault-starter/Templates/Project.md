@@ -27,4 +27,24 @@ views:
 ```
 
 ## Tasks
-Tasks link here via `up:` — see the backlinks pane, or [[Tasks.base]].
+```base
+filters:
+  and:
+    - file.inFolder("Tasks")
+    - up == this.file.asLink()
+    - status != "done"
+formulas:
+  prio: if(["p0", "p1", "p2", "p3", "p4", "p5"].contains(priority), priority, "p3")
+  first: priority == "p0"
+  soon: if(due, due <= today() + "7 days", false)
+  dueKey: if(formula.soon, due, date("9999-12-31"))
+views:
+  - type: table
+    name: Open tasks
+    order: [file.name, formula.prio, due, status]
+    sort:
+      - {property: formula.first, direction: DESC}
+      - {property: formula.soon, direction: DESC}
+      - {property: formula.dueKey, direction: ASC}
+      - {property: formula.prio, direction: ASC}
+```
