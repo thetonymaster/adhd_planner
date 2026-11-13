@@ -22,7 +22,7 @@ uvx --from ./setup planner-setup
 - **Install plugins**: `claude plugin marketplace add` + `claude plugin install` for the ones you tick.
 - **Settings**: writes `vaultPath` for `tasks` and `task-track`; optionally allows `Bash(obsidian:*)`.
 - **Vault starter**: creates a starter vault, only if the path doesn't exist, then offers the board plugin (see Task board in Obsidian).
-- **Update existing vaults (task board)**: adds the board, and the `priority` / `due` keys in the Task template, to vaults made before them (see Task board in Obsidian).
+- **Update existing vaults (task board)**: adds the board, the `priority` / `due` keys in the Task template, and the hub task list to vaults made before them (see Task board in Obsidian and Task priority and hub lists).
 - **Add another vault**: registers a second vault in `~/.config/adhd-planner/vaults.json` (see Several vaults).
 - **Timezone**: sets the zone times are stamped in (see Timezone).
 - **Example CLAUDE.md**: copies `examples/CLAUDE.md` only if you have no `~/.claude/CLAUDE.md`.
@@ -143,9 +143,21 @@ For every vault in `vaults.json` (or your one configured vault) it:
 
 - **Tasks.base**: appends the Board and Done (7 days) views to `views:`, keeping your other views, sorts and properties (and CRLF line endings). Nothing to do when both are already there. If a view with one of those names exists with other content, or `views:` isn't a plain 2-space list, it asks **"Replace Tasks.base in <vault>? (backup kept)"**; yes swaps in the starter's file, no leaves yours alone. A vault without `Tasks.base` is skipped.
 - **Task template**: adds whatever `Templates/Task.md` lacks of `priority: p3` (after the `up:` line; after `status:` without `up:`; first in the frontmatter with neither) and `due:` (directly after `priority:`), keeping CRLF line endings. No question: it only adds. Nothing to do when both are there. A vault without `Templates/Task.md`, or one whose file has no frontmatter, gets one line saying the keys were not added, and the update goes on. Existing task notes are not changed; a note without `priority` counts as `p3`.
+- **Hubs**: looks at `Templates/Project.md` and every `.md` directly in `Projects/` and `Areas/` (not in subfolders). A note whose `## Tasks` section holds only the original line ``Tasks link here via `up:` — see the backlinks pane, or [[Tasks.base]].`` is listed (`Tasks section to replace: <note>`), and the update asks once for the vault: **"Replace the Tasks section in <n> note(s) in <vault>? (backups kept)"**. Yes replaces that line with the task list (the Base block from the starter's `Templates/Project.md`), keeping CRLF line endings; no says so and changes nothing. A note whose Tasks section has any other text is listed as "Left unchanged" and never touched; notes that already have the task list are counted in one line, so a second run has nothing to do. Notes with no `## Tasks` heading are ignored.
 - **Plugin**: shows the source and asks **"Download xiwcx/obsidian-bases-kanban@0.10.6 into <vault>?"**, then downloads `manifest.json`, `main.js` and `styles.css` from that GitHub release into `<vault>/.obsidian/plugins/kanban-bases-view/` and adds `kanban-bases-view` to `.obsidian/community-plugins.json`, keeping the plugins already listed there. All three files are fetched before anything in the vault changes: offline or a failed download leaves the vault as it was (rerun later). Already at 0.10.6: no question, no download.
 
-Then **reload Obsidian** (or close and reopen the vault), and allow community plugins in Settings → Community plugins if restricted mode is on. `--dry-run` shows all of this and writes nothing; `--yes` answers both questions with yes. Changed files (`Tasks.base`, `Templates/Task.md`, plugin files) are backed up under `~/.claude/backups/<timestamp>/<vault name>/` first.
+Then **reload Obsidian** (or close and reopen the vault), and allow community plugins in Settings → Community plugins if restricted mode is on. `--dry-run` shows all of this, including both hub lists, and writes nothing; `--yes` answers every question with yes. Changed files (`Tasks.base`, `Templates/Task.md`, hub notes, plugin files) are backed up under `~/.claude/backups/<timestamp>/<vault name>/` first; a hub note goes into a folder named after its own folder (`Projects/`, `Areas/` or `Templates/`), so `Projects/X.md` and `Areas/X.md` never share a backup.
+
+## Task priority and hub lists
+
+Each task note can carry two optional frontmatter keys, which new notes get from `Templates/Task.md`:
+
+- `priority`: one of `p0` (do first, ahead of everything, including tasks with a due date), `p1` (high), `p2` (above normal), `p3` (normal, the default), `p4` (low: when there is room), `p5` (someday). Absent, empty or anything else (`P1`, `high`) counts as `p3`.
+- `due`: `YYYY-MM-DD`, a hard limit; empty means no date limit.
+
+To change a task's priority, ask `task-note` (for example "set <task> to p1"): it rewrites `priority:` and adds a Log line with the old and new value. Editing `priority:` in the note's frontmatter by hand works too. The next planner run and the hub list pick it up.
+
+A hub (a note in `Projects/` or `Areas/` made from `Templates/Project.md`) lists its open tasks under `## Tasks`: every task whose `up:` names that hub and whose `status` isn't `done`, with priority, due date and status. The order is `p0` tasks due within 7 days first, then other tasks due within 7 days by date, then the rest by priority. The planner's own order can differ in small ways (it uses the planning period, not a fixed 7 days). Hubs from before this list get it through `update-vaults` (see above).
 
 ## What each plugin needs
 

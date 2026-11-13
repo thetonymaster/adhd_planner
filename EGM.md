@@ -24,8 +24,9 @@ planning in Claude Code and Cowork. It ships three plugins (`planner`, `tasks`, 
 - setup: [./setup/EGM.md](./setup/EGM.md) - The `planner-setup` uv project: installs the plugins,
   merges `pluginConfigs` and permissions into `~/.claude/settings.json`, manages `vaults.json`,
   seeds a vault from `examples/vault-starter`, and (`update-vaults`) adds the task board to existing
-  vaults: Board views in `Tasks.base` plus the pinned Obsidian plugin `kanban-bases-view`, and
-  `priority` / `due` in `Templates/Task.md`.
+  vaults: Board views in `Tasks.base` plus the pinned Obsidian plugin `kanban-bases-view`,
+  `priority` / `due` in `Templates/Task.md`, and the ranked task list (a Base block) in the
+  `## Tasks` section of untouched hubs (`Projects/`, `Areas/`, `Templates/Project.md`).
 - scripts: [./scripts/EGM.md](./scripts/EGM.md) - `build-plugin.sh`: validates, tests and zips
   `plugins/planner` into `planner.plugin`.
 
@@ -76,7 +77,8 @@ packaged into the `setup` wheel), `tests/` (Python suite for the hooks and tools
   (each backed up under `~/.claude/backups/` first), runs `claude plugin marketplace add` /
   `claude plugin install` (no backup), copies `~/.claude/CLAUDE.md` only when it is absent (no
   backup), and can create a vault by copying `examples/vault-starter`. For the task board it edits
-  a vault's `Tasks.base`, `.obsidian/community-plugins.json` and `.obsidian/plugins/kanban-bases-view/`
+  a vault's `Tasks.base`, `.obsidian/community-plugins.json` and `.obsidian/plugins/kanban-bases-view/`,
+  and for task priority `Templates/Task.md` and untouched hub notes
   (backed up under `~/.claude/backups/<timestamp>/<vault name>/` by `update-vaults`), after
   downloading the plugin's 0.10.6 release assets from GitHub and checking each pinned SHA-256.
 - Permission outcomes for vault file tools (`tasks` PermissionRequest hook, allow-only).

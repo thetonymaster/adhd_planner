@@ -608,3 +608,142 @@ def test_update_vaults_keeps_crlf_in_the_task_template(ctx):
     v = task_vault(ctx, OLD_TASK.replace("\n", "\r\n"))
     assert actions.update_vaults(ctx, fake_fetch()) == 0
     assert (v / "Templates" / "Task.md").read_bytes() == NEW_TASK.replace("\n", "\r\n").encode()
+
+
+OLD_LINE = "Tasks link here via `up:` — see the backlinks pane, or [[Tasks.base]]."
+STARTER_PROJECT = (paths.examples() / "vault-starter" / "Templates" / "Project.md").read_text()
+BLOCK = STARTER_PROJECT.split("\n## Tasks\n", 1)[1].strip()
+OLD_HUB = f"---\nup: \"[[Home]]\"\n---\n# X\n\n## Why\n\n## Tasks\n{OLD_LINE}\n\n## Notes\nkeep me\n"
+NEW_HUB = OLD_HUB.replace(OLD_LINE, BLOCK)
+
+
+def hub_vault(ctx, hubs):
+    """One registered vault (see task_vault) plus the notes in hubs: {path relative to the vault: text}."""
+    v = task_vault(ctx, None)
+    for rel, body in hubs.items():
+        (v / rel).parent.mkdir(parents=True, exist_ok=True)
+        (v / rel).write_bytes(body.encode())
+    return v
+
+
+def test_update_vaults_replaces_the_original_hub_tasks_line(ctx):
+    v = hub_vault(ctx, {"Projects/X.md": OLD_HUB})
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Projects" / "X.md").read_text() == NEW_HUB
+    assert "```base" in NEW_HUB and "up == this.file.asLink()" in NEW_HUB
+
+
+def test_update_vaults_leaves_and_lists_a_hub_with_other_tasks_text(ctx):
+    edited = OLD_HUB.replace(OLD_LINE, OLD_LINE + "\n- my own list")
+    v = hub_vault(ctx, {"Projects/Edited.md": edited})
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Projects" / "Edited.md").read_text() == edited
+    assert f"Left unchanged (its Tasks section has other text): {v / 'Projects' / 'Edited.md'}" in ctx.lines
+
+
+def test_update_vaults_ignores_a_hub_without_a_tasks_section(ctx):
+    plain = "# Y\n\n## Why\nno tasks heading here\n"
+    v = hub_vault(ctx, {"Areas/Y.md": plain})
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Areas" / "Y.md").read_text() == plain
+    assert "Y.md" not in text(ctx)
+
+
+def test_update_vaults_ignores_a_hub_in_a_subfolder(ctx):
+    v = hub_vault(ctx, {"Projects/Old/Deep.md": OLD_HUB})
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Projects" / "Old" / "Deep.md").read_text() == OLD_HUB
+    assert "Deep.md" not in text(ctx)
+
+
+def hub_questions(asked):
+    return [q for q in asked if q.startswith("Replace the Tasks section")]
+
+
+def test_update_vaults_asks_once_per_vault_with_the_exact_text_and_lists_the_notes(ctx):
+    v, asked = hub_vault(ctx, {"Projects/X.md": OLD_HUB, "Areas/X.md": OLD_HUB}), []
+    ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) or True)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert hub_questions(asked) == [f"Replace the Tasks section in 2 note(s) in {v}? (backups kept)"]
+    for note in (v / "Projects" / "X.md", v / "Areas" / "X.md"):
+        assert f"Tasks section to replace: {note}" in ctx.lines
+        assert note.read_text() == NEW_HUB
+
+
+def test_update_vaults_declined_hub_prompt_writes_nothing(ctx):
+    v, asked = hub_vault(ctx, {"Projects/X.md": OLD_HUB}), []
+    ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) and False)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert len(hub_questions(asked)) == 1
+    assert (v / "Projects" / "X.md").read_text() == OLD_HUB
+    assert not list((ctx.home / ".claude" / "backups").rglob("X.md"))
+    assert f"Kept the Tasks section in 1 note(s) in {v}." in ctx.lines
+
+
+def test_update_vaults_yes_skips_the_hub_prompt(ctx):
+    v, asked = hub_vault(ctx, {"Projects/X.md": OLD_HUB}), []
+    ctx = changed(ctx, yes=True, confirm=lambda q: asked.append(q) or True)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert asked == [] and (v / "Projects" / "X.md").read_text() == NEW_HUB
+
+
+def test_update_vaults_does_not_ask_when_no_hub_has_the_original_line(ctx):
+    edited = OLD_HUB.replace(OLD_LINE, "- my own list")
+    hub_vault(ctx, {"Projects/Edited.md": edited, "Areas/Plain.md": "# Plain\n"})
+    asked = []
+    ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) or True)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert hub_questions(asked) == []
+
+
+def test_update_vaults_dry_run_lists_both_hub_groups_and_writes_nothing(ctx):
+    edited = OLD_HUB.replace(OLD_LINE, "- my own list")
+    v = hub_vault(ctx, {"Projects/X.md": OLD_HUB, "Projects/Edited.md": edited})
+    before, asked = snapshot(ctx.home), []
+    ctx = changed(ctx, dry_run=True, yes=False, confirm=lambda q: asked.append(q) or True)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert snapshot(ctx.home) == before and asked == []
+    assert f"Tasks section to replace: {v / 'Projects' / 'X.md'}" in ctx.lines
+    assert f"Left unchanged (its Tasks section has other text): {v / 'Projects' / 'Edited.md'}" in ctx.lines
+    assert f"Would ask to replace the Tasks section in 1 note(s) in {v} (backups kept)." in ctx.lines
+
+
+def test_update_vaults_second_run_after_yes_counts_the_hubs_and_writes_nothing(ctx):
+    v = hub_vault(ctx, {"Projects/X.md": OLD_HUB, "Areas/X.md": OLD_HUB})
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    before, asked = snapshot(ctx.home), []
+    ctx.lines.clear()
+    ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) or True)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert snapshot(ctx.home) == before and asked == []
+    hub_lines = [line for line in ctx.lines if "Tasks section" in line or "task list" in line]
+    assert hub_lines == [f"2 note(s) in {v} already have the task list."]
+
+
+def test_update_vaults_replaces_the_vaults_own_project_template_like_a_hub(ctx):
+    old = f"---\nstatus: active\n---\n# {{{{title}}}}\n\n## Tasks\n{OLD_LINE}\n"
+    v = hub_vault(ctx, {"Templates/Project.md": old})
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Templates" / "Project.md").read_text() == old.replace(OLD_LINE, BLOCK)
+    [saved] = (ctx.home / ".claude" / "backups").rglob("Templates/Project.md")
+    assert saved.read_text() == old
+
+
+def test_update_vaults_keeps_separate_hub_backups_for_a_vault_outside_home(ctx, tmp_path):
+    v = tmp_path / "elsewhere" / "one"
+    for folder in ("Projects", "Areas"):
+        (v / folder).mkdir(parents=True)
+        (v / folder / "X.md").write_text(OLD_HUB + f"<!-- {folder} -->\n")
+    vaults_json(ctx).parent.mkdir(parents=True)
+    vaults_json(ctx).write_text(json.dumps({"default": "one", "vaults": {"one": {"path": str(v)}}}))
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    for folder in ("Projects", "Areas"):
+        assert BLOCK in (v / folder / "X.md").read_text()
+        [saved] = (ctx.home / ".claude" / "backups").glob(f"*/one/{folder}/X.md")
+        assert saved.read_text() == OLD_HUB + f"<!-- {folder} -->\n"
+
+
+def test_update_vaults_keeps_crlf_in_a_hub(ctx):
+    v = hub_vault(ctx, {"Projects/X.md": OLD_HUB.replace("\n", "\r\n")})
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Projects" / "X.md").read_bytes() == NEW_HUB.replace("\n", "\r\n").encode()
