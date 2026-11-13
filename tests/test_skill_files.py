@@ -47,6 +47,34 @@ class PlanWeekTest(unittest.TestCase):
         self.assertIn("Rows from `task_queue.py` are not decomposed here.", flat(skill("plan-week")))
 
 
+class DailySkillsQueueTest(unittest.TestCase):
+    DAILY = ("plan-day", "morning-startup", "eod-shutdown")
+    CHECK = ("If `<planner-path>/tools/task_queue.py` is missing, the folder's tools predate this "
+             "plugin version: say so, offer `planner:setup`, and stop. Do not build the task list by hand.")
+
+    def test_daily_skills_run_the_queue_for_a_day(self):
+        for name in self.DAILY:
+            with self.subTest(skill=name):
+                text = flat(skill(name))
+                self.assertIn('tools/task_queue.py --vault "<name>=<vault-path>"', text)
+                self.assertIn("--date <", text)
+                self.assertIn("Wrote <path>", text)
+                self.assertNotIn("--out", text)
+
+    def test_daily_skills_show_ten_rows_and_what_was_left_out(self):
+        for name in self.DAILY:
+            with self.subTest(skill=name):
+                text = flat(skill(name))
+                self.assertIn("first ten rows", text)
+                self.assertIn("not_placed", text)
+                self.assertIn("(overdue)", text)
+
+    def test_daily_skills_check_for_a_stale_tools_folder_first(self):
+        for name in self.DAILY:
+            with self.subTest(skill=name):
+                self.assertIn("In this skill: - " + self.CHECK, flat(skill(name)))
+
+
 class MorningStartupTest(unittest.TestCase):
     POOL = r"write the merged pool to `tools/out/tasks-<today>\.json`"
 
@@ -70,6 +98,13 @@ class MorningStartupTest(unittest.TestCase):
         # Same day, no new captures: tasks-<today>.json may be this morning's merged pool, not triage output.
         self.assertIn("`tools/out/tasks-<today>.json` (only if `tools/out/triage-<today>.md` exists and is "
                       "at least as new as `tools/out/tasks-<today>.json`", flat(skill("morning-startup")))
+
+
+    def test_week_plan_vault_rows_are_left_out(self):
+        self.assertEqual(flat(skill("morning-startup")).count('"source": "vault"'), 2)
+
+    def test_older_week_plans_are_asked_about(self):
+        self.assertIn("older week plans", flat(skill("morning-startup")))
 
 
 class HabitTrackerTest(unittest.TestCase):
