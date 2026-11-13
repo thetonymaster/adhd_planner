@@ -123,8 +123,10 @@ without mentioning it: the planner works without it.
 - **Task notes** are `Tasks/<slug>.md`. Each vault's `Tasks/.active` holds the
   last task chosen there. In the current vault, first match wins: the task this
   session last started or switched to (the task-start or task-switch skill),
-  else the session-start `Current task:` line, else `.active`. That line is
-  written once at session start, so after a mid-session switch it names the old task.
+  else the session-start `Current task:` line (`Active task:` from tasks before
+  0.7.0), else `.active`. That line is written once at session start, so after a
+  mid-session switch it names the old task. Skip any pick whose note is
+  `status: done`; none left → ask which task.
   Open Next items are the unchecked `- [ ]` lines with text under `## Next`
   (skip empty placeholders). A trailing `(~N min)` is the item's estimate: take
   it as the minutes and drop it from the title. When an item goes into the
