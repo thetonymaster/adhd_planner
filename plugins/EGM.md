@@ -50,7 +50,9 @@ code from each other: each is installed and versioned on its own.
   project-tasks pane lists any non-`done` status other than `active` as parked.
 - Task priority, one note contract across plugins (spec:
   `docs/designs/task-priority-ranked-hubs.md`, Technical Plan §1–2). Frontmatter keys, both
-  optional plain scalars, written directly after `up:`: `priority:` is exactly one of `p0`
+  optional plain scalars, `priority:` written directly after `up:` (no `up:` → after
+  `status:`; neither → first frontmatter line) and `due:` directly after `priority:`
+  (`setup` `_with_priority_keys` and `task-note` follow this): `priority:` is exactly one of `p0`
   (do first, ahead of dated tasks) .. `p5` (someday), absent/empty/invalid read as `p3`
   (invalid values warned about); `due:` is `YYYY-MM-DD` or empty, a hard limit on placement,
   invalid read as no date (warned). Frontmatter is the lines between a first-line `---` and

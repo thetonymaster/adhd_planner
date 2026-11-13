@@ -59,8 +59,9 @@ Rules:
    empty to clear it. Invalid → writes nothing and replies
    `<slug>: not changed — priority takes p0..p5; due takes YYYY-MM-DD or empty to clear`.
 2. Edit the one frontmatter line (`priority: p1`, `due: 2026-11-20`, or `due:` to clear).
-   Missing key: add `priority:` on the line after `up:`; add `due:` after `priority:`, or
-   after `up:` when there is no `priority` line. No `up:` line → add the key as the last frontmatter line.
+   Missing key: add `priority:` on the line after `up:` (no `up:` → after `status:`; neither →
+   as the first frontmatter line); add `due:` on the line directly after `priority:`, or where
+   `priority:` would go when there is no `priority` line.
 3. Append to `## Log`, date and time as for "add a note", old value `(none)` when the key
    was missing or empty:
    - `- [[YYYY-MM-DD]] HH:MM — priority p3 → p1`
