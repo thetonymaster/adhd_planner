@@ -94,11 +94,15 @@ state live in [../types/EGM.md](../types/EGM.md).
   it) holding an `owner` file `{ by: SESSION, at }`. A busy lock is retried
   `LOCK_TRIES` (5) times `LOCK_WAIT_MS` (40 ms) apart, then the round is skipped
   (`changePomo` returns null; `/pomo` says it is locked). A lock whose owner (or, with
-  no owner yet, whose folder) is `LOCK_STALE_MS` (30 s) old is moved aside (one mover
-  wins) and removed. The holder re-reads its owner file before writing the timer or
-  the notes and writes nothing once it no longer holds the lock. If `mkdir` fails for
-  another reason (no `Tasks/` folder, no shell), the session says so once and runs
-  unlocked rather than freezing the timer.
+  no owner yet, whose folder) is `LOCK_STALE_MS` (30 s) old is broken by one session:
+  it first makes `.pomo.lock.break-<owner>` with `mkdir`, re-reads the lock, and removes
+  it only if it is still that stale one, so a fresh lock another breaker already made is
+  never taken; a marker 30 s old (its breaker died) is removed. The holder re-reads its
+  owner file before a rollover's notes, the timer write and the focus notes, and writes
+  nothing once it no longer holds the lock. A lock gone by the time it is looked at was
+  just released, so `mkdir` is retried at once. Only `mkdir` failing again with no lock
+  there (no `Tasks/` folder, no shell) makes the session say so once and run unlocked
+  rather than freeze the timer: timer writes are then not serialized.
 - Within one session, timer changes, flushes and `load`'s vault switch run one after
   another (`inPomoOrder`), so a session never waits on its own lock and no operation
   runs half on one vault and half on another. A flush whose vault changed while it
@@ -122,7 +126,8 @@ state live in [../types/EGM.md](../types/EGM.md).
 ## Side Effects
 
 - Creates and removes the lock folder `<vault>/Tasks/.pomo.lock` (and its `owner` file)
-  with `mkdir` / `rm -rf`, and moves a stale one aside with `mv`.
+  with `mkdir` / `rm -rf`; breaking a stale one also makes and removes a
+  `.pomo.lock.break-<owner>` folder.
 - Writes `<vault>/Tasks/.pomo.json` via a temp file named with `SESSION` (new on every
   module load) and `mv -f`; when `mv` fails, writes directly, logs once, and leaves the
   `.tmp` file behind.

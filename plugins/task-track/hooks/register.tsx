@@ -429,33 +429,61 @@ async function host($: EngineInterface, argv: readonly string[]): Promise<string
     .catch((err: unknown) => (err instanceof Error ? err.message : String(err)))
 }
 
-/** The `at` of a lock's owner file, or undefined when it is not one (half-written). */
-function ownerTime(text: string): number | undefined {
+/** A lock as read now: `key` names this one lock (its owner, else its folder's mtime), `at` when it was taken. */
+type SeenLock = { key: string; at: number }
+
+/** The owner file's `{ by, at }`, or undefined when it is not one (half-written, foreign). */
+function parseOwner(text: string): { by: string; at: number } | undefined {
   try {
-    const at = (JSON.parse(text) as { at?: unknown } | null)?.at
-    return typeof at === 'number' ? at : undefined
+    const o = JSON.parse(text) as { by?: unknown; at?: unknown } | null
+    if (typeof o?.by !== 'string' || typeof o.at !== 'number') return undefined
+    // `by` goes into a folder name: only a session id's characters.
+    return { by: /^[A-Za-z0-9_-]{1,64}$/.test(o.by) ? o.by : 'unknown', at: o.at }
   } catch {
     return undefined
   }
 }
 
-/** A lock whose owner (or, before its owner file landed, its folder) is LOCK_STALE_MS old: its session died holding it. */
-async function isStaleLock($: EngineInterface, lock: string, now: number): Promise<boolean> {
-  const owner = await $.fs.read(`${lock}/owner`).catch(() => undefined)
-  const at = owner === undefined ? undefined : ownerTime(owner)
-  if (typeof at === 'number') return now - at >= LOCK_STALE_MS
+/** The lock at `lock` now, or undefined when there is none. */
+async function inspectLock($: EngineInterface, lock: string): Promise<SeenLock | undefined> {
+  const text = await $.fs.read(`${lock}/owner`).catch(() => undefined)
+  const owner = text === undefined ? undefined : parseOwner(text)
+  if (owner) return { key: `${owner.by}-${owner.at}`, at: owner.at }
+  // No owner file yet (or half-written): the folder's own age.
   const stat = await $.fs.stat(lock).catch(() => undefined)
-  return stat !== undefined && now - stat.mtimeMs >= LOCK_STALE_MS
+  return stat ? { key: `unowned-${stat.mtimeMs}`, at: stat.mtimeMs } : undefined
+}
+
+/**
+ * Removes the stale lock `seen`, unless it is gone or another lock replaced it meanwhile. One breaker per stale
+ * lock: each first makes `<lock>.break-<key>` with mkdir, so two sessions that both saw it stale never both act,
+ * and the winner re-reads the lock before removing it, so a fresh lock made by an earlier breaker is left alone.
+ * A marker LOCK_STALE_MS old belongs to a breaker that died mid-break: removed, so the next round can break.
+ */
+async function breakStaleLock($: EngineInterface, lock: string, seen: SeenLock, now: number): Promise<void> {
+  const marker = `${lock}.break-${seen.key}`
+  if (await host($, ['mkdir', marker])) {
+    const stat = await $.fs.stat(marker).catch(() => undefined)
+    if (stat && now - stat.mtimeMs >= LOCK_STALE_MS) await host($, ['rm', '-rf', marker])
+    return
+  }
+  try {
+    if ((await inspectLock($, lock))?.key === seen.key) await host($, ['rm', '-rf', lock])
+  } finally {
+    await host($, ['rm', '-rf', marker])
+  }
 }
 
 /**
  * Runs `fn` holding the cross-session lock on the timer file: a folder made with `mkdir`, which only one
  * process can create. Busy: waits LOCK_WAIT_MS up to LOCK_TRIES times, then resolves null (the round is skipped).
- * A stale lock is moved aside (one mover wins) and removed. When `mkdir` fails for another reason (no Tasks
- * folder, no shell), says so once per session and runs unlocked rather than freezing the timer.
+ * A stale lock is broken by one session (breakStaleLock). A lock gone by the time it is looked at was just
+ * released: mkdir is retried at once. Only mkdir failing twice with no lock there means it can't work here
+ * (no Tasks folder, no shell): said once per session, and `fn` runs unlocked rather than freezing the timer.
  */
 async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<T>): Promise<T | null> {
   const lock = `${await currentVault($)}/Tasks/.pomo.lock`
+  let isVanished = false
   for (let attempt = 1; attempt <= LOCK_TRIES; attempt++) {
     const now = await $.clock.now()
     const why = await host($, ['mkdir', lock])
@@ -469,16 +497,22 @@ async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise
         if (await lease.isHeld()) await host($, ['rm', '-rf', lock])
       }
     }
-    if (!(await $.fs.exists(lock))) {
+    const seen = await inspectLock($, lock)
+    if (!seen) {
+      if (!isVanished) {
+        isVanished = true
+        attempt--
+        continue
+      }
       if (!isLockFailureTold) {
         isLockFailureTold = true
         $.ui.log(`task-track: can't make the timer lock ${lock} (${why}); changing the timer unlocked, so two sessions may log the same focus.`)
       }
       return fn({ isHeld: async () => true })
     }
-    if (await isStaleLock($, lock, now)) {
-      const aside = `${lock}.stale-${SESSION}`
-      if (!(await host($, ['mv', lock, aside]))) await host($, ['rm', '-rf', aside])
+    isVanished = false
+    if (now - seen.at >= LOCK_STALE_MS) {
+      await breakStaleLock($, lock, seen, now)
       continue
     }
     if (attempt < LOCK_TRIES) await $.clock.sleep(LOCK_WAIT_MS)
@@ -512,6 +546,8 @@ async function changePomoHeld($: EngineInterface, lease: Lease, change: (f: Pomo
   if (!current) return null
   const { file, finished } = rollDay(current, await today($))
   if (finished) {
+    // Fenced like the write below: a holder that lost its lock must not write the finished day's notes.
+    if (!(await lease.isHeld())) return null
     await flushDay($, finished)
     await saveDay($, finished)
   }

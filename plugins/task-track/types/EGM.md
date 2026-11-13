@@ -29,7 +29,8 @@ Type declarations for the `task-track` mod, referenced from the manifest
   `blockActivity`, `blockSnapshot`), announcement (`lastNotifiedBlock`,
   `notifiedBy`), and day totals (`day`, `dayMs`, `dayBlocks`, `blocksDone`,
   `creditedUntil`, `logged`). Writers hold the timer lock (see
-  [../hooks/EGM.md](../hooks/EGM.md)); the file itself carries no lock or claim fields.
+  [../hooks/EGM.md](../hooks/EGM.md)), except a session where the lock can't be made at
+  all, which writes unlocked after saying so; the file itself carries no lock fields.
 - Module augmentation `declare module 'claude-code'` → `PluginState['task-track']`:
   `task`, `problem`, `pomo`, `isBandHidden`, `isLoopsOpen`, `isLogOpen`, `source`,
   `vaultName`, `configError`, `toldBreakUntil`, `toldMvFailed`, `projectList`,

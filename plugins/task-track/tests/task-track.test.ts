@@ -424,7 +424,7 @@ describe('controls', () => {
 })
 
 /** An in-memory vault beneath the plugin's $.fs calls. */
-function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void; failCommand?: (argv: readonly string[]) => string | undefined } = {}) {
+function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void; failCommand?: (argv: readonly string[]) => string | undefined; dirs?: Record<string, number> } = {}) {
   let mtime = 1000
   const mtimes: Record<string, number> = Object.fromEntries(Object.keys(files).map(k => [k, mtime]))
   const missing = (path: string) => ({ deny: `ENOENT: ${path}` })
@@ -439,8 +439,10 @@ function fakeVault(on: On, files: Record<string, string>, session: { id?: string
     opts.afterWrite?.(e.path)
     return { value: undefined }
   })
-  // Directories made by `mkdir` (the timer lock); a file's parent folders exist implicitly.
-  const dirs = new Set<string>()
+  // Directories made by `mkdir` (the timer lock), with their mtimes; a file's parent folders exist implicitly.
+  // A folder made during the test is as new as can be: never stale.
+  const dirs = new Set<string>(Object.keys(opts.dirs ?? {}))
+  const dirTimes: Record<string, number> = { ...opts.dirs }
   const under = (dir: string) => Object.keys(files).filter(k => k.startsWith(`${dir}/`))
   on('fs.exists', ($, e) => ({
     value: e.path in files || dirs.has(e.path) || under(e.path).length > 0,
@@ -456,6 +458,7 @@ function fakeVault(on: On, files: Record<string, string>, session: { id?: string
       const [dir] = paths as [string]
       if (dirs.has(dir) || dir in files || under(dir).length > 0) return exit(1, `mkdir: ${dir}: File exists\n`)
       dirs.add(dir)
+      delete dirTimes[dir]
       return exit(0)
     }
     if (cmd === 'mv' && paths.length === 2) {
@@ -488,6 +491,9 @@ function fakeVault(on: On, files: Record<string, string>, session: { id?: string
   })
   on('fs.stat', ($, e) => {
     const text = files[e.path]
+    if (text === undefined && (dirs.has(e.path) || under(e.path).length > 0)) {
+      return { value: { kind: 'dir' as const, size: 0, mtimeMs: dirTimes[e.path] ?? Number.MAX_SAFE_INTEGER, isLink: false } }
+    }
     if (text === undefined) return missing(e.path)
     return { value: { kind: 'file' as const, size: text.length, mtimeMs: mtimes[e.path] ?? 0, isLink: false } }
   })
@@ -850,6 +856,84 @@ describe('/pomo and the band controls', () => {
     await run($, 'pomo', 'resume')
     expect(logs.filter(l => l.includes('lock'))).toEqual([`task-track: can't make the timer lock ${LOCK} (exit 1: mkdir: Permission denied); changing the timer unlocked, so two sessions may log the same focus.`])
     expect(shared(files).pausedAt).toBe(0)
+  })
+
+  test('a lock released between a failed mkdir and the look at it is retried, not taken as unlockable', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    let isReleased = false
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('other-session', NOW) }, {}, {
+      // The other session's mkdir'd lock makes ours fail; it releases the lock right after.
+      failCommand: argv => {
+        if (argv[0] !== 'mkdir' || argv[1] !== LOCK || isReleased) return undefined
+        isReleased = true
+        delete files[`${LOCK}/owner`]
+        return `mkdir: ${LOCK}: File exists\n`
+      },
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    await run($, 'pomo', 'pause')
+    expect(logs.filter(l => l.includes('lock'))).toEqual([])
+    expect(shared(files).pausedAt).toBe(NOW)
+    expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
+  })
+
+  test('two sessions breaking the same stale lock: the late one never takes the fresh lock the first made', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: NOW })
+    const fresh = owner('first-breaker', NOW)
+    let isBroken = false
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', NOW - LOCK_STALE_MS) }, {}, {
+      // Both sessions saw the stale lock; the first finishes breaking it and takes a fresh one just before this one acts.
+      failCommand: argv => {
+        const isBreaking = (argv[0] === 'mv' && argv.includes(LOCK)) || (argv[0] === 'mkdir' && (argv[1] ?? '').startsWith(`${LOCK}.break-`))
+        if (isBreaking && !isBroken) {
+          isBroken = true
+          files[`${LOCK}/owner`] = fresh
+        }
+        return undefined
+      },
+    })
+    const pausing = run($, 'pomo', 'pause')
+    await clock.advance(1000)
+    await pausing
+    expect(files[`${LOCK}/owner`]).toBe(fresh)
+    expect(shared(files).pausedAt).toBe(0)
+    expect(Object.keys(files).filter(k => k.startsWith(`${LOCK}.`))).toEqual([])
+  })
+
+  test("a session whose lock was broken under it does not write the finished day's notes at a rollover", async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const yesterday = { ...running(), day: '2026-10-12', dayMs: { 'set-up-vault': 30 * MIN } }
+    let isTaken = false
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(yesterday) }, {}, {
+      afterWrite: path => {
+        if (path !== `${LOCK}/owner` || isTaken) return
+        isTaken = true
+        files[path] = owner('other-session', NOW)
+      },
+    })
+    on('store.set', () => ({ value: undefined }))
+    await run($, 'pomo', 'pause')
+    expect(files['/v/Daily/2026-10-12.md']).toBeUndefined()
+    expect(shared(files).day).toBe('2026-10-12')
+  })
+
+  test('a break marker left by a session that died mid-break expires, and the stale lock is broken', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const staleAt = NOW - LOCK_STALE_MS
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', staleAt) }, {}, {
+      dirs: { [`${LOCK}.break-gone-session-${staleAt}`]: NOW - 2 * LOCK_STALE_MS },
+    })
+    await run($, 'pomo', 'pause')
+    expect(shared(files).pausedAt).toBe(NOW)
+    expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
   })
 
   test('the band shows the buttons for the state, and ⏸ pauses the shared file', async ($, on) => {
