@@ -12,6 +12,7 @@ the two PDF generators, which need `reportlab`.
 | `make_insert.py` | blank-page |
 | `habits.py` | habit-tracker |
 | `add_event.py` | add-event |
+| `task_queue.py` | ranked list of open task notes across vaults (read-only; vault paths passed with `--vault`) |
 | `setup_check.py` | setup |
 | `planner_common.py` | shared A5 drawing primitives (reportlab) |
 
@@ -24,7 +25,14 @@ scripts — they are your data, not part of the plugin:
   `work`, `lunch`, `pomodoro` — your day; `plan_day.py` and `plan_week.py` read them (flags override).
 - `habits.json` / `habits-log.json` — tracked habits and their daily marks.
 - `inbox.md` / `inbox-archive.md` — capture inbox and its archive.
-- `tools/out/` — generated PDFs, plans and task files (git-ignored).
+- `tools/out/` — generated PDFs, plans and task files (git-ignored), including
+  `task_queue.py`'s `queue-run-*.json` files, which it deletes after a day.
+
+`task_queue.py` is the one script that reads a vault, and only reads it:
+
+```
+python3 tools/task_queue.py --vault "vault=$HOME/vault" [--date 2026-11-18] [--out queue.json]
+```
 
 ## Quick start
 

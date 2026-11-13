@@ -11,7 +11,8 @@ The human guide is [README.md](./README.md).
 
 The scripts do file mechanics only. Judgment (triage buckets, estimates) and every
 calendar call (the Google Calendar MCP) stay with Claude: scripts read JSON that
-Claude saved and write JSON that Claude passes on.
+Claude saved and write JSON that Claude passes on. The one exception is
+`task_queue.py`, which reads task notes, read-only, from vault paths the skill passes.
 
 ## Interface
 
@@ -24,12 +25,15 @@ Claude saved and write JSON that Claude passes on.
 | `make_insert.py` | `<page>\|all [--size a5\|a6] [--out]`, `--list` | blank-page, setup |
 | `habits.py` | `list`, `log [--done ids] [--date]`, `status [--days 7]`, `week [--date]` | habit-tracker, setup |
 | `add_event.py` | `spec.json [--json out]` | add-event |
+| `task_queue.py` | `--vault NAME=PATH [--vault ...] [--week-start D \| --date D] [--include-weekend] [--out F]` | none yet (the planning skills adopt it) |
 | `setup_check.py` | no arguments; read-only checklist | setup |
 
 Library modules:
 
 - `planner_config.py`: `load(path=PATH) -> {timezone, work, lunch, pomodoro}`,
-  `parse_range`, `DEFAULTS`, `ConfigError`. Reads `calendars.json` beside it.
+  `parse_range`, `DEFAULTS`, `ConfigError`, `monday_of`, `plan_days(today,
+  week_start, include_weekend) -> (monday, [ISO days])` (shared by `plan_week.py`
+  and `task_queue.py`, so both plan the same days). Reads `calendars.json` beside it.
 - `planner_common.py`: A5/A6 drawing primitives on reportlab: `Sheet`,
   `new_canvas(path, size)`, palette constants (`INK`, `MUTED`, `LINE`, `ACCENT`,
   `ACCENT_SOFT`, `DOT`), `TAGS`, `MARGIN`, `A5`, `A6`, `mm`.
@@ -69,6 +73,12 @@ Seed data files (templates, copied by setup):
   exit 0. `habits-log.json` is written directly (not atomic).
 - `add_event.py` never calls the calendar; it prints `create_event` kwargs and a
   confirmation table for Claude to show first.
+- `task_queue.py` is the one tool that reads a vault: read-only, only from the
+  `--vault` paths the caller gives (it never resolves vaults itself), every
+  `Tasks/*.md` whose `status` is not `done`. Its ordering rule `sort_key(task, until)`
+  is the only coded copy. It exits 2 for a malformed, repeated, missing or
+  `Tasks/`-less `--vault`, else 0 (also when every task is in `not_placed`). Its last
+  output line is always `Wrote <path>`.
 - `setup_check.py` is read-only; it exits 1 when any check is a blocker, else 0.
 - Seeding by setup is additive: existing `calendars.json`, `habits.json`,
   `habits-log.json` and `inbox.md` are user data and are never overwritten. This is a
@@ -86,6 +96,11 @@ Seed data files (templates, copied by setup):
   `week-tasks-<date>.json` per planned day; on a re-run, deletes the
   `week-tasks-<date>.json` of any day that now has no tasks.
 - `make_daily.py`, `make_insert.py`: write PDFs to `tools/out/`.
+- `task_queue.py`: writes one `task-queue/1` JSON file (`format`, `first_day`,
+  `until`, `tasks`, `not_placed`, `warnings`): a new `tools/out/queue-run-<random>.json`
+  allocated with `tempfile.mkstemp` (two runs never share one), or `--out F`. On each
+  run it deletes `tools/out/queue-run-*.json` files more than a day old; other names
+  are left alone. Writes nothing in a vault.
 - `habits.py log`: rewrites `habits-log.json`.
 - `add_event.py --json`: writes the normalized kwargs file.
 - `tools/out/` and `__pycache__/` are git-ignored (`.gitignore`).
@@ -94,7 +109,7 @@ Seed data files (templates, copied by setup):
 
 - Run (repo root): `python3 -m unittest discover -s tests`
   (covers `test_triage`, `test_plan_day`, `test_plan_week`, `test_planner_config`,
-  `test_habits`, `test_pdf_hint`, and `test_skill_files` for the `tools/out/` file
+  `test_task_queue`, `test_setup_check`, `test_habits`, `test_pdf_hint`, and `test_skill_files` for the `tools/out/` file
   names the skills hand each other, among others).
 - Run: `claude plugin validate plugins/planner`
 - After changing anything here, rebuild the Cowork upload: `bash scripts/build-plugin.sh`
