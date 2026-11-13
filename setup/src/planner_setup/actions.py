@@ -287,11 +287,16 @@ def _add_priority_keys(ctx: Ctx, vault: Path, backups: Path) -> None:
 ORIGINAL_HUB_TASKS = "Tasks link here via `up:` — see the backlinks pane, or [[Tasks.base]]."
 
 
+def _tasks_heading(lines: list[str]) -> int | None:
+    """Index of the `## Tasks` line; None without one."""
+    return next((i for i, line in enumerate(lines) if line.rstrip("\r\n") == "## Tasks"), None)
+
+
 def _hub_block() -> str:
     """The Base block: the starter Project template from its `## Tasks` heading's next line to the end, trimmed."""
     starter = paths.examples() / "vault-starter" / "Templates" / "Project.md"
     lines = starter.read_text().splitlines(keepends=True)
-    heading = next((i for i, line in enumerate(lines) if line.rstrip("\r\n") == "## Tasks"), None)
+    heading = _tasks_heading(lines)
     if heading is None:
         raise SystemExit(f"{starter} has no `## Tasks` heading; nothing was changed.")
     return "".join(lines[heading + 1:]).strip()
@@ -299,7 +304,7 @@ def _hub_block() -> str:
 
 def _tasks_body(lines: list[str]) -> tuple[int, int] | None:
     """(first, end) line indexes of the `## Tasks` section body, up to the next `#`/`##` heading; None without one."""
-    heading = next((i for i, line in enumerate(lines) if line.rstrip("\r\n") == "## Tasks"), None)
+    heading = _tasks_heading(lines)
     if heading is None:
         return None
     end = next((i for i in range(heading + 1, len(lines)) if lines[i].startswith(("# ", "## "))), len(lines))
