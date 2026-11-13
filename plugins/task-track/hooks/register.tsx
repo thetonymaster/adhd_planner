@@ -94,6 +94,10 @@ const boardCache = new Map<string, Cached<BoardNote>>()
 let pomoOrder: Promise<unknown> = Promise.resolve()
 /** Said once per session: the timer lock can't be made here, so changes run unlocked. */
 let isLockFailureTold = false
+/** This session's host can't start the OS lock helper (no perl): the folder lock is used from then on. */
+let isFlockMissing = false
+/** Said once per session: the OS lock helper can't be used, so the folder lock is. */
+let isFlockFallbackTold = false
 
 function readSettings(options: PluginOptions): Settings {
   return {
@@ -492,7 +496,72 @@ async function breakStaleLock($: EngineInterface, lock: string, seen: SeenLock, 
 }
 
 /**
- * Runs `fn` holding the cross-session lock on the timer file: a folder made with `mkdir`, which only one
+ * The OS lock helper: takes an exclusive `flock` on its file and holds it until it is killed, or until the process
+ * that started it dies (it checks its parent every 200 ms). Prints `held`, or exits FLOCK_BUSY when another
+ * process holds the lock, or 2 when the file can't be opened. The kernel drops the lock with the process, so no
+ * session ever has to judge a lock stale and break it.
+ */
+const FLOCK_HELPER =
+  'use Fcntl qw(:flock); $|=1; open(my $f, ">>", $ARGV[0]) or do { print "error: $!\\n"; exit 2 }; ' +
+  'flock($f, LOCK_EX|LOCK_NB) or do { print "busy\\n"; exit 75 }; print "held\\n"; ' +
+  'my $p = getppid(); while (1) { select(undef, undef, undef, 0.2); exit 0 if getppid() != $p }'
+const FLOCK_BUSY = 75
+
+type FlockTry<T> = { kind: 'ran'; value: T } | { kind: 'busy' } | { kind: 'unavailable'; why: string; isNoHelper: boolean }
+
+/** Runs `fn` while the helper holds the OS lock on `file`; the helper is killed (the lock released) when it ends. */
+async function tryFlock<T>($: EngineInterface, file: string, fn: () => Promise<T>): Promise<FlockTry<T>> {
+  const child = $.process.spawn({ argv: ['perl', '-e', FLOCK_HELPER, file] })
+  try {
+    let out = ''
+    for (;;) {
+      const step = await child.next().then(
+        s => s,
+        (err: unknown) => (err instanceof Error ? err : new Error(String(err))),
+      )
+      if (step instanceof Error) return { kind: 'unavailable', why: step.message, isNoHelper: true }
+      if (step.done) {
+        if (step.value.code === FLOCK_BUSY) return { kind: 'busy' }
+        return { kind: 'unavailable', why: `exit ${step.value.code ?? step.value.signal}: ${out.trim()}`, isNoHelper: false }
+      }
+      if (step.value.stream === 'stdout') out += step.value.text
+      if (out.includes('held\n')) break
+    }
+    return { kind: 'ran', value: await fn() }
+  } finally {
+    await child.return({ code: null, signal: null })
+  }
+}
+
+/**
+ * Runs `fn` holding the cross-session lock on the timer file: an OS `flock` on `Tasks/.pomo.flock` held by a helper
+ * process (FLOCK_HELPER). Busy: waits LOCK_WAIT_MS up to LOCK_TRIES times, then resolves null (the round is
+ * skipped). Where the helper can't run (no perl) or can't open the file, uses the folder lock (withDirLock) and
+ * says so once per session: that lock can be broken under a session paused mid-write.
+ */
+async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<T>): Promise<T | null> {
+  if (!isFlockMissing) {
+    const file = `${await currentVault($)}/Tasks/.pomo.flock`
+    for (let attempt = 1; attempt <= LOCK_TRIES; attempt++) {
+      const r = await tryFlock($, file, () => fn({ isHeld: async () => true }))
+      if (r.kind === 'ran') return r.value
+      if (r.kind === 'unavailable') {
+        isFlockMissing = r.isNoHelper
+        if (!isFlockFallbackTold) {
+          isFlockFallbackTold = true
+          $.ui.log(`task-track: can't run the OS lock helper (${r.why}); using the folder lock ${await currentVault($)}/Tasks/.pomo.lock, which a session paused mid-write can lose.`)
+        }
+        return withDirLock($, fn)
+      }
+      if (attempt < LOCK_TRIES) await $.clock.sleep(LOCK_WAIT_MS)
+    }
+    return null
+  }
+  return withDirLock($, fn)
+}
+
+/**
+ * The fallback lock on the timer file where the OS lock helper can't run: a folder made with `mkdir`, which only one
  * process can create. Busy: waits LOCK_WAIT_MS up to LOCK_TRIES times, then resolves null (the round is skipped).
  * A stale lock is broken by one session (breakStaleLock). A lock confirmed gone by the time it is looked at was
  * just released: mkdir is retried at once. mkdir failing LOCK_TRIES times in a row with the lock confirmed gone
@@ -500,7 +569,7 @@ async function breakStaleLock($: EngineInterface, lock: string, seen: SeenLock, 
  * every mkdir and look: said once per session, and `fn` runs unlocked rather than freezing the timer. Any lock
  * seen in between, readable or not, is contention: the normal waits apply, and the round may be skipped.
  */
-async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<T>): Promise<T | null> {
+async function withDirLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<T>): Promise<T | null> {
   const lock = `${await currentVault($)}/Tasks/.pomo.lock`
   let vanished = 0
   for (let attempt = 1; attempt <= LOCK_TRIES; attempt++) {

@@ -68,7 +68,7 @@ packaged into the `setup` wheel), `tests/` (Python suite for the hooks and tools
 ## Global Side Effects
 
 - The user's Obsidian vault: task notes (including the SessionEnd hook's `status: parked` and
-  `parked: session ended` Log line), `Tasks/.active`, `Tasks/.session/<id>`, `Tasks/.pomo.json` (+ `.pomo.lock`),
+  `parked: session ended` Log line), `Tasks/.active`, `Tasks/.session/<id>`, `Tasks/.pomo.json` (+ `.pomo.flock`),
   daily-note Log lines.
 - The user's planner folder: copied tools, `inbox.md`, habit logs, `tools/out/` plans and PDFs.
 - `planner-setup` writes `~/.claude/settings.json` and `~/.config/adhd-planner/vaults.json`

@@ -89,29 +89,29 @@ state live in [../types/EGM.md](../types/EGM.md).
   keeps the block alive, but never start one. A `/pomo` prompt is not activity. Writes
   are throttled to once a minute except on a task change or when a block can start
   (`shouldTouch`).
-- Every read-change-write of `.pomo.json` holds the cross-session timer lock
-  `<vault>/Tasks/.pomo.lock`: a folder made with `mkdir` (only one process can create
-  it) holding an `owner` file `{ by: SESSION, at }`. A busy lock is retried
-  `LOCK_TRIES` (5) times `LOCK_WAIT_MS` (40 ms) apart, then the round is skipped
-  (`changePomo` returns null; `/pomo` says it is locked). A lock whose owner (or, with
-  no owner yet, whose folder) is `LOCK_STALE_MS` (30 s) old is broken by one session:
-  it first makes `.pomo.lock.break-<owner>` with `mkdir`, re-reads the lock, and removes
-  it only if it is still that stale one, so a fresh lock another breaker already made is
-  never taken; a marker 30 s old (its breaker died) is removed. The holder re-reads its
-  owner file between reading and writing each note (task Log, daily note, a rollover's
-  notes) and before the timer write, and stops once it no longer holds the lock, leaving
-  that focus unlogged. A lock confirmed gone (`fs.exists`) by the time it is looked at was
-  just released, so `mkdir` is retried at once; a lock that exists but can't be read or
-  stat'ed counts as held and is never broken. Only `mkdir` failing `LOCK_TRIES` times in a
-  row with the lock confirmed gone each time makes the session say so once and run
-  unlocked rather than freeze the timer: that is `mkdir` not working here (no `Tasks/`
-  folder, no shell) or, rarely, a lock taken and released between every `mkdir` and look.
-  Timer writes are then not serialized.
-- Known gap (needs an OS-level lock, which the mod runtime has no API to hold): every
-  check above is separate from the write it guards. A holder that stalls past
-  `LOCK_STALE_MS` exactly between its owner check and a write can still write once after
-  losing the lock, and a breaker that stalls between its re-read and its `rm` can remove
-  a lock released and retaken meanwhile.
+- Every read-change-write of `.pomo.json`, and each flush's note writes, hold the
+  cross-session timer lock: an exclusive OS `flock` on `<vault>/Tasks/.pomo.flock`, held
+  by a helper process (`perl`, `FLOCK_HELPER`, started with `$.process.spawn`). The helper
+  prints `held`, exits `FLOCK_BUSY` (75) when another process holds the lock, and exits
+  when killed or when the process that started it dies (it checks its parent every
+  200 ms); the kernel releases the lock with it. So a lock is never judged stale or
+  broken: a session paused mid-write (sleep) keeps it, and others wait. A busy lock is
+  retried `LOCK_TRIES` (5) times `LOCK_WAIT_MS` (40 ms) apart, then the round is skipped
+  (`changePomo` returns null; `/pomo` says it is locked). The helper is killed (lock
+  released) when the work ends, thrown or not.
+- Fallback, said once per session: where the helper can't start (no `perl`; remembered
+  for the session) or can't open the lock file, the folder lock `<vault>/Tasks/.pomo.lock`
+  is used (`withDirLock`): a folder made with `mkdir` holding an `owner` file
+  `{ by: SESSION, at }`, broken by one session once 30 s old (`LOCK_STALE_MS`) via a
+  `.pomo.lock.break-<owner>` marker and a re-read; the holder re-checks its owner file
+  between reading and writing each note and before the timer write. A lock that exists
+  but can't be inspected counts as held. Only `mkdir` failing `LOCK_TRIES` times in a row
+  with the lock confirmed gone each time runs unlocked (said once): timer writes are then
+  not serialized.
+- Known gap, folder-lock fallback only: each check there is separate from the write it
+  guards, so a holder that stalls past 30 s between its owner check and a write can
+  still write once after losing the lock, and a breaker that stalls between its re-read
+  and its `rm` can remove a lock released and retaken meanwhile.
 - Within one session, timer changes, flushes and `load`'s vault switch run one after
   another (`inPomoOrder`), so a session never waits on its own lock and no operation
   runs half on one vault and half on another. A flush whose vault changed while it
@@ -134,8 +134,10 @@ state live in [../types/EGM.md](../types/EGM.md).
 
 ## Side Effects
 
-- Creates and removes the lock folder `<vault>/Tasks/.pomo.lock` (and its `owner` file)
-  with `mkdir` / `rm -rf`; breaking a stale one also makes and removes a
+- Starts a `perl` helper per timer change (killed when it ends) that creates
+  `<vault>/Tasks/.pomo.flock` (an empty file, left in place) and holds a `flock` on it.
+  Fallback only: creates and removes the lock folder `<vault>/Tasks/.pomo.lock` (and its
+  `owner` file) with `mkdir` / `rm -rf`; breaking a stale one also makes and removes a
   `.pomo.lock.break-<owner>` folder.
 - Writes `<vault>/Tasks/.pomo.json` via a temp file named with `SESSION` (new on every
   module load) and `mv -f`; when `mv` fails, writes directly, logs once, and leaves the

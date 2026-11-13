@@ -28,7 +28,8 @@ Type declarations for the `task-track` mod, referenced from the manifest
   `isLongBreak`, `pausedAt`, `isStopped`), activity (`lastActiveAt`,
   `blockActivity`, `blockSnapshot`), announcement (`lastNotifiedBlock`,
   `notifiedBy`), and day totals (`day`, `dayMs`, `dayBlocks`, `blocksDone`,
-  `creditedUntil`, `logged`). Writers hold the timer lock (see
+  `creditedUntil`, `logged`). Writers hold the timer lock, an OS `flock` (the folder lock
+  where `perl` can't run; see
   [../hooks/EGM.md](../hooks/EGM.md)), except after `mkdir` fails 5 times in a row with
   the lock confirmed gone each time (`mkdir` can't work there, or rare churn), when the
   session writes unlocked after saying so; the file itself carries no lock fields.

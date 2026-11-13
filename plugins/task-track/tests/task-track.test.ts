@@ -424,7 +424,7 @@ describe('controls', () => {
 })
 
 /** An in-memory vault beneath the plugin's $.fs calls. */
-function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void; afterRead?: (path: string) => void; failCommand?: (argv: readonly string[]) => string | undefined; dirs?: Record<string, number> } = {}) {
+function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void; afterRead?: (path: string) => void; failCommand?: (argv: readonly string[]) => string | undefined; dirs?: Record<string, number>; flocked?: readonly string[]; noPerl?: boolean; events?: string[] } = {}) {
   let mtime = 1000
   const mtimes: Record<string, number> = Object.fromEntries(Object.keys(files).map(k => [k, mtime]))
   const missing = (path: string) => ({ deny: `ENOENT: ${path}` })
@@ -489,6 +489,27 @@ function fakeVault(on: On, files: Record<string, string>, session: { id?: string
       return exit(0)
     }
     return exit(127, `fake host: no ${e.argv.join(' ')}\n`)
+  })
+  // The OS lock helper (`perl … flock`): one holder per lock file, released when the stream is closed. Files in
+  // `flocked` are held by another session; `noPerl` is a host where perl can't start.
+  const flocks = new Set<string>(opts.flocked)
+  on('process.spawn', async function* ($, e) {
+    if (e.argv[0] !== 'perl' || opts.noPerl) return { deny: `spawn ${e.argv[0]} ENOENT` }
+    const file = e.argv.at(-1) ?? ''
+    if (flocks.has(file)) {
+      yield { stream: 'stdout' as const, text: 'busy\n' }
+      return { value: { code: 75, signal: null } }
+    }
+    flocks.add(file)
+    files[file] ??= ''
+    opts.events?.push(`flock held ${file}`)
+    try {
+      yield { stream: 'stdout' as const, text: 'held\n' }
+      return { value: { code: 0, signal: null } }
+    } finally {
+      flocks.delete(file)
+      opts.events?.push(`flock released ${file}`)
+    }
   })
   on('fs.stat', ($, e) => {
     if (opts.unreadable?.includes(e.path)) return { deny: `EACCES: ${e.path}` }
@@ -785,11 +806,62 @@ describe('/pomo and the band controls', () => {
   const LOCK = '/v/Tasks/.pomo.lock'
   const owner = (by: string, at: number) => JSON.stringify({ by, at })
 
-  test('a timer change holds the lock while it writes and leaves none behind', async ($, on) => {
+  const FLOCK = '/v/Tasks/.pomo.flock'
+
+  test('a timer change holds the OS lock while it writes, and releases it right after', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const events: string[] = []
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      events,
+      afterWrite: path => {
+        if (path === POMO) events.push('pomo written')
+      },
+    })
+    await run($, 'pomo', 'pause')
+    expect(events).toEqual([`flock held ${FLOCK}`, 'pomo written', `flock released ${FLOCK}`])
+    expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
+    expect(shared(files).pausedAt).toBe(NOW)
+  })
+
+  test('another session holding the OS lock makes the change wait, then skip the round untouched', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: NOW })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { flocked: [FLOCK] })
+    const pausing = run($, 'pomo', 'pause')
+    await clock.advance(1000)
+    expect((await pausing).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
+    expect(shared(files).pausedAt).toBe(0)
+  })
+
+  test("where perl can't run, the folder lock is used instead, said once", async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: NOW })
     const ran: string[] = []
     const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      noPerl: true,
+      failCommand: argv => {
+        ran.push(argv.join(' '))
+        return undefined
+      },
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    await run($, 'pomo', 'pause')
+    await run($, 'pomo', 'resume')
+    expect(logs.filter(l => l.includes('OS lock'))).toEqual([`task-track: can't run the OS lock helper (task-track: $.process.spawn: spawn perl ENOENT); using the folder lock ${LOCK}, which a session paused mid-write can lose.`])
+    expect(ran.filter(r => r === `mkdir ${LOCK}`)).toHaveLength(2)
+    expect(shared(files).pausedAt).toBe(0)
+  })
+
+  test('a timer change holds the lock while it writes and leaves none behind', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const ran: string[] = []
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { noPerl: true,
       afterWrite: path => {
         if (path === POMO) ran.push(`pomo written, lock ${LOCK}/owner ${`${LOCK}/owner` in files ? 'held' : 'free'}`)
       },
@@ -808,7 +880,7 @@ describe('/pomo and the band controls', () => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     const clock = mock.clock(on, { now: NOW })
     const theirs = owner('other-session', NOW)
-    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: theirs })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: theirs }, {}, { noPerl: true })
     const pausing = run($, 'pomo', 'pause')
     await clock.advance(1000)
     expect((await pausing).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
@@ -819,7 +891,7 @@ describe('/pomo and the band controls', () => {
   test('a lock left by a session that died is broken, and the change goes through', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: NOW })
-    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', NOW - LOCK_STALE_MS) })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', NOW - LOCK_STALE_MS) }, {}, { noPerl: true })
     await run($, 'pomo', 'pause')
     expect(shared(files).pausedAt).toBe(NOW)
     expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
@@ -831,7 +903,7 @@ describe('/pomo and the band controls', () => {
     const theirs = owner('other-session', NOW)
     let isTaken = false
     // Right after this session takes the lock, another session breaks it as stale and takes it.
-    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { noPerl: true,
       afterWrite: path => {
         if (path !== `${LOCK}/owner` || isTaken) return
         isTaken = true
@@ -846,7 +918,7 @@ describe('/pomo and the band controls', () => {
   test('a lock that cannot be made at all is named once, and changes still land', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: NOW })
-    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { noPerl: true,
       failCommand: argv => (argv[0] === 'mkdir' ? 'mkdir: Permission denied\n' : undefined),
     })
     const logs: string[] = []
@@ -856,7 +928,7 @@ describe('/pomo and the band controls', () => {
     })
     await run($, 'pomo', 'pause')
     await run($, 'pomo', 'resume')
-    expect(logs.filter(l => l.includes('lock'))).toEqual([`task-track: can't make the timer lock ${LOCK} (exit 1: mkdir: Permission denied); changing the timer unlocked, so two sessions may log the same focus.`])
+    expect(logs.filter(l => l.includes('make the timer lock'))).toEqual([`task-track: can't make the timer lock ${LOCK} (exit 1: mkdir: Permission denied); changing the timer unlocked, so two sessions may log the same focus.`])
     expect(shared(files).pausedAt).toBe(0)
   })
 
@@ -864,7 +936,7 @@ describe('/pomo and the band controls', () => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: NOW })
     let isReleased = false
-    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('other-session', NOW) }, {}, {
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('other-session', NOW) }, {}, { noPerl: true,
       // The other session's mkdir'd lock makes ours fail; it releases the lock right after.
       failCommand: argv => {
         if (argv[0] !== 'mkdir' || argv[1] !== LOCK || isReleased) return undefined
@@ -879,7 +951,7 @@ describe('/pomo and the band controls', () => {
       return { value: undefined }
     })
     await run($, 'pomo', 'pause')
-    expect(logs.filter(l => l.includes('lock'))).toEqual([])
+    expect(logs.filter(l => l.includes('make the timer lock'))).toEqual([])
     expect(shared(files).pausedAt).toBe(NOW)
     expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
   })
@@ -888,7 +960,7 @@ describe('/pomo and the band controls', () => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: NOW })
     let busy = 2
-    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { noPerl: true,
       // Twice in a row, another session holds the lock as this one's mkdir runs and releases it just after.
       failCommand: argv => {
         if (argv[0] !== 'mkdir' || argv[1] !== LOCK || busy === 0) return undefined
@@ -902,7 +974,7 @@ describe('/pomo and the band controls', () => {
       return { value: undefined }
     })
     await run($, 'pomo', 'pause')
-    expect(logs.filter(l => l.includes('lock'))).toEqual([])
+    expect(logs.filter(l => l.includes('make the timer lock'))).toEqual([])
     expect(busy).toBe(0)
     expect(shared(files).pausedAt).toBe(NOW)
   })
@@ -911,7 +983,7 @@ describe('/pomo and the band controls', () => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     const clock = mock.clock(on, { now: NOW })
     const theirs = owner('other-session', NOW - LOCK_STALE_MS)
-    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: theirs }, {}, {
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: theirs }, {}, { noPerl: true,
       unreadable: [`${LOCK}/owner`, LOCK],
     })
     const logs: string[] = []
@@ -922,7 +994,7 @@ describe('/pomo and the band controls', () => {
     const pausing = run($, 'pomo', 'pause')
     await clock.advance(1000)
     expect((await pausing).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
-    expect(logs.filter(l => l.includes('lock'))).toEqual([])
+    expect(logs.filter(l => l.includes('make the timer lock'))).toEqual([])
     expect(shared(files).pausedAt).toBe(0)
     expect(files[`${LOCK}/owner`]).toBe(theirs)
   })
@@ -932,7 +1004,7 @@ describe('/pomo and the band controls', () => {
     const clock = mock.clock(on, { now: NOW })
     const fresh = owner('first-breaker', NOW)
     let isBroken = false
-    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', NOW - LOCK_STALE_MS) }, {}, {
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', NOW - LOCK_STALE_MS) }, {}, { noPerl: true,
       // Both sessions saw the stale lock; the first finishes breaking it and takes a fresh one just before this one acts.
       failCommand: argv => {
         const isBreaking = (argv[0] === 'mv' && argv.includes(LOCK)) || (argv[0] === 'mkdir' && (argv[1] ?? '').startsWith(`${LOCK}.break-`))
@@ -956,7 +1028,7 @@ describe('/pomo and the band controls', () => {
     mock.clock(on, { now: NOW })
     const yesterday = { ...running(), day: '2026-10-12', dayMs: { 'set-up-vault': 30 * MIN } }
     let isTaken = false
-    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(yesterday) }, {}, {
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(yesterday) }, {}, { noPerl: true,
       afterWrite: path => {
         if (path !== `${LOCK}/owner` || isTaken) return
         isTaken = true
@@ -973,7 +1045,7 @@ describe('/pomo and the band controls', () => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: NOW })
     const staleAt = NOW - LOCK_STALE_MS
-    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', staleAt) }, {}, {
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', staleAt) }, {}, { noPerl: true,
       dirs: { [`${LOCK}.break-gone-session-${staleAt}`]: NOW - 2 * LOCK_STALE_MS },
     })
     await run($, 'pomo', 'pause')
@@ -1258,12 +1330,27 @@ describe('focus reaches the notes', () => {
     expect(unlogged(parsePomo(files['/v/Tasks/.pomo.json'] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
   })
 
+  test('a flush while another session holds the OS lock writes nothing and leaves the focus unlogged', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, { flocked: ['/v/Tasks/.pomo.flock'] })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    const ending = $.session.end(end)
+    await clock.advance(1000)
+    await ending
+    expect(files[PATH]).not.toContain('— focus')
+    expect(files['/v/Daily/2026-10-13.md']).toBeUndefined()
+    expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
+  })
+
   test('a flush that finds another session holding the lock writes nothing and leaves the focus unlogged', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     const clock = mock.clock(on, { now: T0 + 40 * MIN })
     const POMO = '/v/Tasks/.pomo.json'
     const LOCK_OWNER = '/v/Tasks/.pomo.lock/owner'
-    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, { noPerl: true })
     coreEnd(on)
     await run($, 'openloop', 'load the task')
     files[LOCK_OWNER] = JSON.stringify({ by: 'other-session', at: T0 + 40 * MIN })
@@ -1300,7 +1387,7 @@ describe('focus reaches the notes', () => {
     const NEWER = `${NOTE}- [[2026-10-13]] 09:41 — written by the session that took over\n`
     let isArmed = false
     // This session stalls after reading the note; another breaks its lock as stale, takes it and writes the note.
-    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, {
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, { noPerl: true,
       afterRead: path => {
         if (path !== PATH || !isArmed) return
         isArmed = false
