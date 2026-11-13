@@ -1545,6 +1545,22 @@ describe('several vaults', () => {
     expect(unlogged(parsePomo(written['/v/Tasks/.pomo.json'] ?? '') ?? emptyPomo(''), 'set-up-vault').ms).toBe(0)
   })
 
+  test('two overlapping loads across a vault switch never log the new vault\'s focus into the old vault\'s note', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 })
+    // The same slug has pending focus in both vaults: 10m on /v's timer, 20m on /w's.
+    const onV = { ...emptyPomo('2026-10-13'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 10 * MIN } }
+    const onW = { ...emptyPomo('2026-10-13'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 20 * MIN } }
+    const written = fakeVault(on, { ...files(), '/v/Tasks/.pomo.json': serializePomo(onV), '/w/Tasks/set-up-vault.md': NOTE, '/w/Tasks/.pomo.json': serializePomo(onW) }, { id: 's1', root: '/home/q/elsewhere' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
+    written['/w/Tasks/.session/s1'] = 'set-up-vault\n'
+    // Both loads see the old task and flush it; the second flush is queued behind the first.
+    await Promise.all([run($, 'note', 'y'), run($, 'note', 'z')])
+    expect(written[PATH]).toMatch(/— focus 10m/)
+    expect(written[PATH]).not.toMatch(/— focus 20m/)
+    expect(unlogged(parsePomo(written['/w/Tasks/.pomo.json'] ?? '') ?? emptyPomo(''), 'set-up-vault').ms).toBe(20 * MIN)
+  })
+
   test('a switch to another vault writes the old task\'s focus line to the old vault\'s Daily note', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: T0 })

@@ -547,7 +547,11 @@ function dropClaim(file: PomoFile, slug: string): PomoFile {
 function flushFocus($: EngineInterface, slug: string, path: string): Promise<void> {
   // One slug's flushes run one after another in this session: two overlapping ones would both read the
   // file before either claim lands, and with the same `at` each would take the other's claim for its own.
-  const run = (flushing.get(slug) ?? Promise.resolve()).then(() => flushFocusOnce($, slug, path))
+  // Every timer and daily-note path goes through `vault` when used. A flush queued behind another can start
+  // after load() moved this session to a new vault; it would then claim the new vault's timer while writing
+  // `path` in the old one. Skip it instead: its focus stays unlogged on the old vault's timer for its next flush.
+  const queuedIn = vault
+  const run = (flushing.get(slug) ?? Promise.resolve()).then(() => (vault === queuedIn ? flushFocusOnce($, slug, path) : undefined))
   // The queue only orders; each caller still gets its own flush's error from `run`.
   flushing.set(slug, run.then(() => undefined, () => undefined))
   return run

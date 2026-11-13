@@ -113,7 +113,10 @@ state live in [../types/EGM.md](../types/EGM.md).
 - Within one session, `flushFocus` runs one slug's flushes one after another (a
   per-slug promise queue, `flushing`), so overlapping triggers (`/pomo stop`, task
   switch, session end) never claim the same focus twice; each caller still gets its
-  own flush's error.
+  own flush's error. A queued flush whose vault changed while it waited (overlapping
+  `load`s across a vault switch) is skipped: timer and daily-note paths follow the
+  module's `vault`, so it would claim the new vault's timer while writing the old
+  vault's note. Its focus stays unlogged on the old vault's timer for its next flush.
 - `.pomo.json` is never replaced when it exists but cannot be read or parsed this
   round; that round is skipped. A day or slug in it that can't name a note is reported
   (band problem + `$.ui.log`) and skipped, never thrown.
