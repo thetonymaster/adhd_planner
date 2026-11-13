@@ -304,7 +304,7 @@ tasks.
  │ Tasks/<slug>.md        │  vault paths  │ tools/task_queue.py   (new)          │
  │   priority, due,       │  passed by    │   reads frontmatter and ## Next      │
  │   status, up, ## Next  │──────────────▶│   applies the ordering rule          │
- │                        │  the skill    │   writes tools/out/queue-<day>.json   │
+ │                        │  the skill    │   writes tools/out/queue-*.json       │
  │ Projects/<hub>.md      │               └───────────────┬──────────────────────┘
  │   embedded base block  │                               │ tasks[] in rank order
  │   (approximate order)  │         week                  │                 day
@@ -347,9 +347,9 @@ task_queue.py --vault <name>=<path> [--vault ...]
     other than `done`, including a missing or misspelled status. This matches
     the hub view's filter and the way task resolution skips only `done` notes.
     It writes nothing in a vault.
-*   `--out` defaults to `tools/out/queue.json`. The skills always pass `--out`
-    (see below), so two planning runs in one planner folder do not read each
-    other's file. The default is a fixed name, so a person running the tool by
+*   `--out` defaults to `tools/out/queue.json`. The skills always pass a
+    unique `--out` (see below), so two planning runs in one planner folder
+    never share a file. The default is a fixed name, so a person running the tool by
     hand knows
     which file to read back. Exit code is 0 on success, including when every
     task is in `not_placed`.
@@ -359,30 +359,24 @@ with one `--vault` per vault in play:
 
 ```text
 # a day (plan-day, morning-startup, eod-shutdown)
-cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" --date <day> --out tools/out/queue-<day>.json
+cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" --date <day> --out "tools/out/queue-$(date +%Y%m%d-%H%M%S)-$$.json"
 
 # a week (plan-week)
-cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" --out tools/out/queue-week.json
+cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" --out "tools/out/queue-$(date +%Y%m%d-%H%M%S)-$$.json"
 ```
 
 `<name>` is the vault's name in `vaults.json`, or `vault` when there is one
 unregistered vault. Each `--vault` value is quoted, so a vault path with spaces
-stays one argument. The skill then reads the file it named in `--out`. A day's
-file carries the day in its name, so a run for today and a run for tomorrow in
-the same planner folder cannot read each other's output. Unattended runs do not
-call the tool.
+stays one argument.
 
-Two attended runs can still name the same file: two `plan-week` runs for
-different weeks, or two daily runs for the same day with different vaults. Two
-rules cover that case without a path per invocation, which the skill could not
-know before the command runs:
-
-*   The tool writes the file to a temporary name in the same folder and renames
-    it into place, as `triage.py` does for the inbox, so a reader never sees a
-    half-written file.
-*   The file names the run it belongs to: `first_day`, `until` and `vaults`.
-    The skill checks those against the run it asked for and runs the command
-    again when they differ.
+The shell builds the output path before the tool starts, from the time and the
+shell's process id, so every invocation writes its own file and no run can read
+another run's output, whatever its dates or vaults. The last line the tool
+prints is `Wrote <path>`; the skill reads that path and no other. The tool
+writes to a temporary name in the same folder and renames it into place, as
+`triage.py` does for the inbox. On each run it also deletes `queue-*.json`
+files in the output folder that are more than a day old, so the folder does not
+fill up. Unattended runs do not call the tool.
 
 **Output file**
 
@@ -391,7 +385,6 @@ know before the command runs:
   "format": "task-queue/1",
   "first_day": "2026-11-18",
   "until": "2026-11-20",
-  "vaults": ["arryved", "personal", "vail"],
   "tasks": [
     {"title": "arryved:erp-pg17-rehearse: Restore last night's backup",
      "task": "arryved:erp-pg17-rehearse", "name": "Rehearse the clone",
@@ -423,7 +416,6 @@ Where each key comes from:
 | `deadline` | the note's `due`; the key is omitted when there is no valid `due` |
 | `minutes` | the sum defined in section 1 |
 | `first_day` | the first planned day (for `--date`, that date) |
-| `vaults` | the `--vault` names of the run, sorted |
 | `overdue` | `true` on a row whose `deadline` is before `first_day`; the key is omitted otherwise |
 
 `tasks` is in rank order. Each row is a valid `plan_week.py` and `plan_day.py`
@@ -1016,9 +1008,13 @@ the hub can show.
         flag giving the same days as `plan_days`; `--include-weekend` extending
         `until` to Sunday.
     *   `--out` writing to the given file, and the default writing
-        `tools/out/queue.json`; no temporary file left in the folder after a
-        run; an existing output file replaced whole.
-    *   `vaults` listing the run's vault names, sorted.
+        `tools/out/queue.json`; `Wrote <path>` as the last output line; no
+        temporary file left in the folder after a run.
+    *   Two runs with different `--out` paths, different vault paths and
+        different `--include-weekend` settings each leaving their own complete
+        file.
+    *   A `queue-*.json` file more than a day old deleted on the next run; a
+        newer one, and files with other names, left alone.
     *   `overdue` set on a row whose `deadline` is before `first_day`, absent
         on a row due on `first_day` or later, and `(overdue)` in the summary.
     *   A note with a missing or misspelled `status` included; `not_placed` and
@@ -1055,14 +1051,11 @@ rules in the vault block are not edited in any skill.
 In the replacement texts below, "the queue command" stands for this text, which
 is written out in full in each skill:
 `cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>"` with one quoted `--vault` per vault in play (`<name>` is the vault's name
-in `vaults.json`, or `vault` when there is one unregistered vault), then read
-the file named in `--out`. Daily skills add
-`--date <day> --out tools/out/queue-<day>.json`; `plan-week` adds
-`--out tools/out/queue-week.json` and the same `--week-start` value and
-`--include-weekend` it gives `plan_week.py`, or neither. After reading the
-file, each skill checks that its `vaults` are the vaults it passed and that
-`first_day` is the day it asked for (for `plan-week`, a day of the week being
-planned), and runs the command again when they differ. Each skill shows
+in `vaults.json`, or `vault` when there is one unregistered vault) and
+`--out "tools/out/queue-$(date +%Y%m%d-%H%M%S)-$$.json"`, then read the path on
+the tool's last output line, `Wrote <path>`. Daily skills add `--date <day>`;
+`plan-week` adds the same `--week-start` value and `--include-weekend` it gives
+`plan_week.py`, or neither. Each skill shows
 `(overdue)` beside a row that has `overdue`.
 
 ##### 16. `plugins/planner/skills/plan-week/SKILL.md` (Modify)
@@ -1201,7 +1194,8 @@ planned), and runs the command again when they differ. Each skill shows
     *   `task-note` contains `priority p3 → p1` and `→ (none)`;
     *   the four planning skills contain
         `tools/task_queue.py --vault "<name>=<vault-path>"` and
-        `--out tools/out/queue-` outside the shared block;
+        `--out "tools/out/queue-$(date` and `Wrote <path>` outside the shared
+        block;
     *   `plan-day`, `morning-startup` and `eod-shutdown` contain `(overdue)`;
     *   `morning-startup` contains "older week plans";
     *   the starter `Templates/Project.md` and both starter hubs no longer
