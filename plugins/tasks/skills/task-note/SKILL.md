@@ -43,6 +43,7 @@ None has `Tasks/` → say "No vault found (looked in: <each place checked>)" and
 | add a note | Append to `## Log`: `- [[YYYY-MM-DD]] HH:MM — <text>`, date and time from the latest `Now:` line (`date` only when there is none). |
 | check / uncheck item | `- [ ]` ↔ `- [x]` on the item the user means (number from "show", or text match). Ambiguous → ask. |
 | add an open loop | Append `- <text>` to `## Open loops`. |
+| set priority or due | See "Set priority or due" below. |
 
 Rules:
 - Missing section → add it under the last existing `## ` section, in the order Goal, Next,
@@ -51,5 +52,19 @@ Rules:
 - Follow `obsidian-vault` for links and formatting when that skill is available.
 - Change only the lines the action needs; re-read the note after writing and quote the
   changed line back.
+
+### Set priority or due
+
+1. Validate first. `priority` is exactly one of `p0`..`p5`; `due` is a `YYYY-MM-DD` date, or
+   empty to clear it. Invalid → writes nothing and replies
+   `<slug>: not changed — priority takes p0..p5; due takes YYYY-MM-DD or empty to clear`.
+2. Edit the one frontmatter line (`priority: p1`, `due: 2026-11-20`, or `due:` to clear).
+   Missing key: add `priority:` on the line after `up:`; add `due:` after `priority:`, or
+   after `up:` when there is no `priority` line. No `up:` line → add the key as the last frontmatter line.
+3. Append to `## Log`, date and time as for "add a note", old value `(none)` when the key
+   was missing or empty:
+   - `- [[YYYY-MM-DD]] HH:MM — priority p3 → p1`
+   - `- [[YYYY-MM-DD]] HH:MM — due (none) → 2026-11-20`
+   - `- [[YYYY-MM-DD]] HH:MM — due 2026-11-20 → (none)`
 
 Reply in one line: `<slug>: <what changed>` (e.g. `set-up-vault: logged "test"`).
