@@ -345,11 +345,12 @@ task_queue.py --vault <name>=<path> [--vault ...]
 `--vault` per vault in play:
 
 ```text
-cd "<planner-path>" && python3 tools/task_queue.py --vault <name>=<vault-path> [--date <day>]
+cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" [--date <day>]
 ```
 
 `<name>` is the vault's name in `vaults.json`, or `vault` when there is one
-unregistered vault. The skill then reads `tools/out/queue.json`.
+unregistered vault. Each `--vault` value is quoted, so a vault path with spaces
+stays one argument. The skill then reads `tools/out/queue.json`.
 
 **Output file**
 
@@ -480,7 +481,10 @@ When a vault is present and the run is attended, `plan-day`, `morning-startup`
 and `eod-shutdown` get the day's vault tasks from `task_queue.py --date <day>`
 (`<day>` is today, or tomorrow for `eod-shutdown`), not from the steps of active
 tasks and not from Monday's week file. They show the first ten rows; the user
-confirms which ones go to `plan_day.py` and which are the Top 3.
+confirms which ones go to `plan_day.py` and which are the Top 3. Like
+`plan-week`, each daily skill also tells the user the `not_placed` rows and the
+warnings, so a task with a missing estimate or no open step is not silently
+absent from the day.
 
 Only `morning-startup` reads the week file, in its step 2 and in its scheduled
 prompt. It still takes rows that did not come from a vault from that file. In
@@ -526,9 +530,10 @@ filters:
     - file.hasLink(this.file)
     - status != "done"
 formulas:
-  prio: if(priority, priority, "p3")
+  prio: if(["p0", "p1", "p2", "p3", "p4", "p5"].contains(priority), priority, "p3")
   first: priority == "p0"
   soon: if(due, due <= today() + "7 days", false)
+  dueKey: if(formula.soon, due, date("9999-12-31"))
 views:
   - type: table
     name: Open tasks
@@ -536,14 +541,28 @@ views:
     sort:
       - {property: formula.first, direction: DESC}
       - {property: formula.soon, direction: DESC}
-      - {property: due, direction: ASC}
+      - {property: formula.dueKey, direction: ASC}
       - {property: formula.prio, direction: ASC}
 ```
 
+Three points the block must get right, each checked in step 0:
+
+*   **Invalid priority.** `prio` maps anything that is not `p0`..`p5` to `p3`,
+    as the planner does, so a hand-typed `p9` or `high` shows and sorts as `p3`.
+*   **Far or missing due dates.** The view sorts on `dueKey`, not on `due`. A
+    task due more than 7 days away, or with no `due`, gets one constant date,
+    so those tasks are ordered by priority, as the rule in section 2 requires.
+*   **Hub membership.** `file.hasLink(this.file)` matches any link to the hub,
+    including one in a task's body. The planner assigns a task to the one hub
+    in its `up:`. If step 0 shows a task under a hub it only mentions, the
+    filter is changed to match the `up` property. That expression is not
+    established here; step 0 confirms it before it goes into the template.
+
 A hub has no planning period, so it uses the next 7 days, and it has no
-`started` or slug tie-break. It is an approximation of the rule in section 2
-and can differ from a plan in those two respects. The syntax above is untested;
-see the open question "Base sort behaviour".
+`started` or slug tie-break. Among `p0` tasks it puts first only those due
+within 7 days, where the rule puts any dated `p0` first. It is an approximation
+of the rule in section 2 and can differ from a plan in those three respects.
+The syntax above is untested; see the open question "Base sort behaviour".
 
 `Templates/Task.md` gains `priority: p3` and `due:` directly after `up:`.
 `tests/test_skill_files.py` requires `started:` to sit directly above
@@ -777,20 +796,24 @@ Work order: step 0 first. Groups 1 and 2 are independent of each other; groups
 
 ### Step 0: Obsidian test (manual, before any file changes)
 
-In a copy of the starter vault, add five task notes linked to one hub: one
-`p0`, one with `due` in three days, one with `due` in a month, one with
-`priority: high` (invalid), one with neither key. Paste the block from Technical
-Plan section 8 into the hub and run checks (a) to (e). Record the working block
+In a copy of the starter vault, add seven task notes with `up:` set to one hub:
+one `p0`; one `p5` with `due` in three days; one `p5` with `due` in a month; one
+`p1` with `due` in two months; one with `priority: high` (invalid); one with
+`priority: p9` (invalid); one with neither key. Add an eighth note whose `up:`
+names a second hub and whose body links to the first. Paste the block from
+Technical Plan section 8 into both hubs and run checks (a) to (g). Record the working block
 in section 8 of this document before starting group 1. The fallbacks below are
 as untested as the block itself.
 
 | Check | If it fails |
 |---|---|
-| (a) A formula can default a missing `priority` to `p3` | The view shows the raw `priority` column and sorts on it; notes with no priority sort wherever Bases puts empty values, and section 8 says so |
-| (b) A view can sort on more than one key | The view sorts ascending on one formula, `order`, that joins four parts into one string: `"0"` for a `p0` task and `"1"` otherwise; `"0"` for a task due within 7 days and `"1"` otherwise; the `due` date or `9999-12-31`; and `prio`. If formulas cannot build that string, the view sorts by priority only and shows `due` as a column |
-| (c) Notes with an empty `due` sort after dated notes when ascending | Sort on a formula `dueKey` in place of `due`: the `due` date when set, the date `9999-12-31` otherwise |
+| (a) A formula can map a missing or invalid `priority` (`high`, `p9`) to `p3` | The view shows the raw `priority` column and sorts on it; notes with no priority sort wherever Bases puts empty values, and section 8 says so |
+| (b) A view can sort on more than one key | The view sorts ascending on one formula, `order`, that joins four parts into one string: `"0"` for a `p0` task and `"1"` otherwise; `"0"` for a task due within 7 days and `"1"` otherwise; the `due` date for a task due within 7 days and `9999-12-31` otherwise; and `prio`. If formulas cannot build that string, the view sorts by priority only and shows `due` as a column |
+| (c) `dueKey` gives undated tasks and tasks due more than 7 days away one constant date, so the `p1` due in two months sorts above the `p5` due in a month | Use the single `order` string of (b), whose date part is the `due` date only for a task due within 7 days and `9999-12-31` otherwise |
 | (d) `today() + "7 days"` is accepted in a formula | Drop `soon`; the hub orders by `first`, then `due`, then priority, and section 8 names the difference |
 | (e) `this.file` resolves in a block embedded in a hub | Blocker for the hub view: stop and revise section 8 before any other work, since the existing Meetings block relies on the same expression |
+| (f) The eighth note appears only under the hub in its `up:`, not under the hub its body links to | Replace `file.hasLink(this.file)` with a filter on the `up` property, confirm its syntax here, and record it in section 8 |
+| (g) A note with `priority: p9` shows and sorts as `p3` | Same fallback as (a) |
 
 If (a), (b) or (d) fails, reword the hub goal and CUJ 3 to describe the order
 the hub can show.
@@ -959,7 +982,7 @@ rules in the vault block are not edited in any skill.
 
 In the replacement texts below, "the queue command" stands for this text, which
 is written out in full in each skill:
-`cd "<planner-path>" && python3 tools/task_queue.py --vault <name>=<vault-path>` with one `--vault` per vault in play (`<name>` is the vault's name
+`cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>"` with one quoted `--vault` per vault in play (`<name>` is the vault's name
 in `vaults.json`, or `vault` when there is one unregistered vault), then read
 `tools/out/queue.json`. Daily skills add `--date <day>`; `plan-week` adds the
 same `--week-start` value and `--include-weekend` it gives `plan_week.py`, or
@@ -993,7 +1016,8 @@ neither.
     given, offer the open Next items of every vault's active task as the task
     list." with: "**Inputs:** when no task list is given, run [the queue command
     with `--date <target date>`] and offer its first ten rows as the task list;
-    say how many rows were not shown."
+    say how many rows were not shown, and tell the user the `not_placed` rows
+    and the warnings."
 
 ##### 17b. `plugins/planner/skills/morning-startup/SKILL.md` (Modify)
 
@@ -1005,7 +1029,8 @@ neither.
         items when the user is mid-task." with: "**Step 2, candidates for the
         Top 3:** run [the queue command with `--date <today>`]. Add the rows the user confirms from its first ten rows (and the
         row of any task note the user names) to the pool, with the titles the
-        tool wrote; say how many rows were not shown."
+        tool wrote; say how many rows were not shown, and tell the user the
+        `not_placed` rows and the warnings."
     *   In step 2 and in the scheduled prompt, after "whichever exist," add:
         "leaving out week-plan rows marked `"source": "vault"`,". In the
         scheduled prompt those two words are split across a quoted line break.
@@ -1020,7 +1045,8 @@ neither.
     list, before the existing "**Step 6:**" bullet: "**Step 6, tomorrow's
     tasks:** run [the queue command with `--date <tomorrow>`] and offer its
     first ten rows as candidates for the Top 3; say how many rows were not
-    shown. Add the rows the user confirms to the task list that step 6 passes
+    shown, and tell the user the `not_placed` rows and the warnings. Add the
+    rows the user confirms to the task list that step 6 passes
     to `plan_day.py` for tomorrow."
 
 ##### 17d. `plugins/planner/skills/setup/SKILL.md` (Modify)
@@ -1089,7 +1115,7 @@ neither.
     *   `create-task`, `task-start` and `task-note` mention both keys;
     *   `task-note` contains `priority p3 → p1` and `→ (none)`;
     *   the four planning skills contain
-        `tools/task_queue.py --vault <name>=<vault-path>` and
+        `tools/task_queue.py --vault "<name>=<vault-path>"` and
         `tools/out/queue.json` outside the shared block;
     *   the starter `Templates/Project.md` and both starter hubs no longer
         contain the original Tasks pointer line and have a `base` fence under
@@ -1097,7 +1123,7 @@ neither.
     *   `plan-week` names `--keep-order` and no longer says "estimate when an
         item has none";
     *   `plan-day`, `morning-startup` and `eod-shutdown` contain "first ten
-        rows";
+        rows" and name `not_placed`;
     *   `morning-startup` contains `"source": "vault"` exactly twice.
 
     New assertions on skill text use the file's `flat()` helper, so a phrase
