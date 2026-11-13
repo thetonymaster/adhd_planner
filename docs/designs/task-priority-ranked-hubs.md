@@ -529,8 +529,11 @@ row came from a vault: a to-do the user typed as `foo: Call supplier` matches a
 note `foo.md` without being one of its Next items, and the queue would not
 bring it back. So an attended run does not drop these rows on its own. It
 lists each unmarked row whose label names a task note that exists in a vault in
-play and asks the user once whether to leave them out, saying that the ranked
-list already covers those tasks. Without the question, the week of the upgrade
+play and asks the user once whether to leave them out. For each row it says
+what the ranked list holds for that task, and claims nothing more: the task is
+in `tasks`, the task is in `not_placed` with its reason, or the task is in
+neither, which is the case for a finished task and may be the case for a to-do
+the user typed. Without the question, the week of the upgrade
 would list a task twice or bring back one that is done. An unattended run cannot read the vault and keeps unmarked rows,
 which is what it does before this change. The case ends with the next
 `plan-week` run, which rewrites the week files with the marker.
@@ -1109,8 +1112,10 @@ the tool's last output line, `Wrote <path>`. Daily skills add `--date <day>`;
         `source` key whose title starts with the label of a task note that
         exists in a vault in play may have been written before the ranked list
         existed. List these rows and ask the user once whether to leave them
-        out, saying the ranked list already covers those tasks; keep any row
-        the user wants kept." This bullet must not contain the marker text,
+        out. For each row say what the ranked list holds for that task: in
+        `tasks`, in `not_placed` with its reason, or in neither. Do not say
+        the ranked list covers a row unless its task is in `tasks`. Keep any
+        row the user wants kept." This bullet must not contain the marker text,
         which a test counts at exactly two.
     *   Do not repeat the week file's path, the pool phrase or the
         `plan_day.py --tasks` command in the new text:
