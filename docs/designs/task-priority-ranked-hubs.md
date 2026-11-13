@@ -1,7 +1,8 @@
 # Task priority and ranked project hubs
 
 *   **Author:** Antonio Cabrera
-*   **Status:** In Review (all five review stages run; revised after each)
+*   **Status:** In Review (all five review stages run; revised after each, and
+    rebased on main at `780afaf`, which added `GLOSSARY.md`)
 *   **Date:** 2026-11-12
 
 --------------------------------------------------------------------------------
@@ -35,8 +36,16 @@ Terms used below:
     the plugins resolve when that file is absent.
 *   **Priority**: the value of the `priority` field. **Rank**: a task's position
     in the ordered list, computed from priority, due date and start date.
-*   **Next work**: the open steps under a task's `## Next` heading. Their
-    estimates add up to the minutes the planner reserves for the task.
+*   **Next item**: one concrete step listed under a task note's `## Next`, as
+    defined in `GLOSSARY.md`.
+*   **Next work**: the open Next items of one task note, taken together. Their
+    estimates add up to the minutes the planner reserves for the task. This is
+    a new term, and it changes the glossary's statement that the Next item is
+    "the unit that gets scheduled into days": for vault tasks the unit becomes
+    the task note's next work.
+*   **Pool**: the to-dos and task rows a day or week plan is built from.
+*   **Current task**: the task note a session is working on, as the glossary
+    defines it. This design does not change how it is resolved.
 *   **Unattended run**: a scheduled firing of a planner skill. The skills
     already detect this and skip their vault section.
 
@@ -49,14 +58,15 @@ its hub. Nothing records which task matters more or which has a date limit.
     at the backlinks pane. Reading a hub does not tell the user what is open,
     how urgent it is, or what to do first.
 *   **The planners rebuild the order on every run.** `plan-week` collects open
-    `## Next` steps from task notes and the model decides what to include and
-    estimates any step that has no time. Two runs on the same vault can produce
+    Next items from task notes and the model decides what to include and
+    estimates any Next item that has no time. Two runs on the same vault can produce
     different weeks.
 *   **The backlog is flat.** Measured on 2026-11-12 in the author's vaults: 97
     open task notes in 3 vaults and 13 hubs, 89 of them `parked`. The two
     largest hubs hold 21 and 24 open tasks with nothing to tell them apart.
-*   **Steps are scheduled one by one.** Each open step is its own planner row,
-    so one task's steps can land on different days, in any order.
+*   **Next items are scheduled one by one.** Each open Next item is its own
+    planner row,
+    so one task's Next items can land on different days, in any order.
 
 The proposed solution: make the task the planner's row, give each task a
 priority and an optional due date in its own note, and have the hub view and
@@ -77,8 +87,8 @@ the planners order tasks by one stated rule.
     window, and no `started` or slug tie-break).
 *   `plan-week` and `plan-day` place one row per task from the ordered list. Two
     runs on an unchanged vault give the same order.
-*   No task is dropped silently or given an assumed duration. A task with a step
-    that has no estimate, a task with no open step, a task that did not fit, and
+*   No task is dropped silently or given an assumed duration. A task with a Next item
+    that has no estimate, a task with no open Next item, a task that did not fit, and
     an overdue task are each named in the planner's output.
 *   Setting priority at creation adds no question to `create-task` when the user
     accepts the default.
@@ -96,14 +106,14 @@ the planners order tasks by one stated rule.
     naming convention or link between them.
 *   A stored size for a task. The planner reserves the minutes of the next work,
     not of the whole task.
-*   Priority, due dates or scheduling on individual `## Next` steps.
+*   Priority, due dates or scheduling on individual Next items.
 *   A view inside Obsidian that spans vaults. Bases work per vault.
 *   A stored or hand-edited list of ranked tasks. The ordered list is computed
     on each run; files under `tools/out/` are disposable.
 *   A new view in `Tasks.base`. The per-hub list is the only new view.
 *   Computed scores, priority decay, or re-ranking without the user's
     confirmation.
-*   New task statuses, or changes to how a vault or the active task is resolved.
+*   New task statuses, or changes to how a vault or the current task is resolved.
 *   Changing the order used by `/board`, `/project-tasks`, `task-switch` or
     `task-list`.
 *   A bulk pass that assigns a priority to every existing note. Existing notes
@@ -126,7 +136,7 @@ the planners order tasks by one stated rule.
 *   **Given**: A registered vault with a hub.
 *   **When**: The user runs `create-task` and names no priority and no date.
 *   **Then**: One task note is created with `priority: p3`, an empty `due`, and
-    at least one `## Next` step with a time estimate. The user was asked nothing
+    at least one Next item with a time estimate. The user was asked nothing
     beyond what `create-task` asks today.
 
 ### CUJ 2: Change the priority of an existing task
@@ -154,8 +164,8 @@ the planners order tasks by one stated rule.
 *   **Then**: The plan places one row per task in rank order on the earliest day
     that has room. A task due inside the week is placed on or before its date.
     An overdue task is treated as due on the first planned day. The output names
-    every task that did not fit, has a step with no estimate, or has no open
-    step.
+    every task that did not fit, has a Next item with no estimate, or has no
+    open Next item.
 
 ### CUJ 5: Plan a day after the week was planned
 
@@ -216,7 +226,7 @@ What each priority level means:
 | p5 | Someday |
 
 **Next work.** The planner does not know how long a whole task is. It reserves
-the minutes of the task's next work: the sum of the estimates on the open steps
+the minutes of the task's next work: the sum of the estimates on the open Next items
 under `## Next`. `create-task` and `task-start` ask for the first action, and
 `task-park` rewrites `## Next` to the next one to three actions, so this number
 is "what to do next on this task", not the size of the task. Work left after
@@ -226,19 +236,19 @@ Reading rules for `## Next`:
 
 *   The section runs from the `## Next` heading to the next line that starts
     with `## `, or to the end of the file.
-*   An open step is a line whose text, after any indentation, starts with
-    `- [ ] ` followed by at least one non-space character. Nested steps count.
+*   An open Next item is a line whose text, after any indentation, starts with
+    `- [ ] ` followed by at least one non-space character. Nested Next items count.
     Ticked lines (`- [x]`) and the template's empty `- [ ] ` do not.
-*   A step's estimate is `(~N min)` or `(~N h)` at the end of the line. Spaces
+*   A Next item's estimate is `(~N min)` or `(~N h)` at the end of the line. Spaces
     after `~` and before the unit are optional, and N is a positive integer or
     decimal, so `(~30min)` and `(~1.5 h)` both match. Hours are converted to
-    minutes for each step and rounded up for each step.
+    minutes for each Next item and rounded up for each one.
 
 | State of `## Next` | Minutes | Planner behaviour |
 |---|---|---|
-| At least one open step, every one with an estimate | the sum | placed |
-| At least one open step has no estimate | none | not placed; listed as `needs an estimate` |
-| No open step, or no `## Next` section | none | not placed; listed as `no next step` |
+| At least one open Next item, every one with an estimate | the sum | placed |
+| At least one open Next item has no estimate | none | not placed; listed as `needs an estimate` |
+| No open Next item, or no `## Next` section | none | not placed; listed as `no Next item` |
 
 Reading rules for frontmatter:
 
@@ -368,7 +378,7 @@ stays one argument. The skill then reads `tools/out/queue.json`.
   "not_placed": [
     {"task": "vail:some-task", "name": "Some task",
      "reason": "needs an estimate",
-     "detail": "2 of 4 open steps have no estimate"}
+     "detail": "2 of 4 open Next items have no estimate"}
   ],
   "warnings": [
     {"task": "personal:other-task", "field": "priority", "value": "high",
@@ -382,7 +392,7 @@ Where each key comes from:
 | Key | Source |
 |---|---|
 | `task` | `<vault>:<slug>`; `<slug>` alone when one vault was passed |
-| `title` | `<task>: <first open step, without its estimate>`. This is the label the planner skills already use for a step (`<vault>:<slug>: <item>`), so their rules for the printed page, the daily note and repeated titles apply unchanged |
+| `title` | `<task>: <first open Next item, without its estimate>`. This is the label the planner skills already use for a Next item (`<vault>:<slug>: <item>`), so their rules for the printed page, the daily note and repeated titles apply unchanged |
 | `name` | the first entry of `aliases`, else the note's first `# ` heading, else the slug |
 | `source` | always `"vault"` |
 | `hub` | the text of the `up:` wikilink without brackets or quotes; empty when there is none |
@@ -393,15 +403,15 @@ Where each key comes from:
 
 `tasks` is in rank order. Each row is a valid `plan_week.py` and `plan_day.py`
 task; both tools ignore keys they do not use. `not_placed` reasons are exactly
-`needs an estimate`, `no next step` and `unreadable note`. `not_placed` and
+`needs an estimate`, `no Next item` and `unreadable note`. `not_placed` and
 `warnings` are each sorted by `task`. The `detail` of a warning is
 `expected p0..p5, read as p3` or `expected YYYY-MM-DD, read as no due date`.
 
-A task with several open steps is still one row: its title shows the first step
+A task with several open Next items is still one row: its title shows the first one
 and its minutes cover all of them.
 
-The `detail` of a `not_placed` row is `N of M open steps have no estimate`,
-`no open step under ## Next`, or, for an unreadable note, `not UTF-8` or
+The `detail` of a `not_placed` row is `N of M open Next items have no estimate`,
+`no open Next item under ## Next`, or, for an unreadable note, `not UTF-8` or
 `no frontmatter`.
 
 The tool also prints a text summary:
@@ -411,7 +421,7 @@ p1 2026-11-18 180m arryved:erp-pg17-rehearse: Restore last night's backup
 p3 - 25m personal:renew-domain: Log in to the registrar
 
 Not placed (needs an estimate):
-- vail:some-task: 2 of 4 open steps have no estimate
+- vail:some-task: 2 of 4 open Next items have no estimate
 
 Warnings:
 - personal:other-task: priority "high": expected p0..p5, read as p3
@@ -479,11 +489,11 @@ minutes as consecutive focus blocks.
 
 When a vault is present and the run is attended, `plan-day`, `morning-startup`
 and `eod-shutdown` get the day's vault tasks from `task_queue.py --date <day>`
-(`<day>` is today, or tomorrow for `eod-shutdown`), not from the steps of active
-tasks and not from Monday's week file. They show the first ten rows; the user
+(`<day>` is today, or tomorrow for `eod-shutdown`), not from the Next items of
+each vault's current task and not from Monday's week file. They show the first ten rows; the user
 confirms which ones go to `plan_day.py` and which are the Top 3. Like
 `plan-week`, each daily skill also tells the user the `not_placed` rows and the
-warnings, so a task with a missing estimate or no open step is not silently
+warnings, so a task with a missing estimate or no open Next item is not silently
 absent from the day.
 
 Only `morning-startup` reads the week file, in its step 2 and in its scheduled
@@ -606,7 +616,7 @@ plan as `p3` and hubs keep their current text.
 
 *   **Pros**: One file to read, for the user and for a skill. Matches the
     original request ("read the project hub file").
-*   **Cons**: Task notes already own status and steps, so the hub becomes a
+*   **Cons**: Task notes already own status and Next items, so the hub becomes a
     second copy. It goes stale the first time `/done`, `task-park` or a card
     dragged on the Board view changes a note. A per-hub list cannot rank across
     13 hubs and 3 vaults.
@@ -623,12 +633,12 @@ plan as `p3` and hubs keep their current text.
     a wrong order with no signal. The list is computed on each run, and the
     daily skills do not reuse the week's copy of it for the same reason.
 
-### Alternative C: Keep one planner row per step, ordered by the task's rank
+### Alternative C: Keep one planner row per Next item, ordered by the task's rank
 
-*   **Pros**: No change to how `plan-week` builds its backlog.
-*   **Cons**: A high-priority task with many steps fills the week before any
-    other task is placed. Steps of one task land on different days, and step 2
-    can be placed before step 1.
+*   **Pros**: No change to how `plan-week` builds its pool.
+*   **Cons**: A high-priority task with many Next items fills the week before
+    any other task is placed. Next items of one task land on different days,
+    and the second can be placed before the first.
 *   **Reason for Rejection**: It spreads a task over several days in an order
     the planner does not control. One row per task keeps the next work together.
 
@@ -732,7 +742,7 @@ plan as `p3` and hubs keep their current text.
     it reads only `status`, `up`, `priority`, `due`, `started` and `aliases`,
     and the note contract is written once in `plugins/EGM.md` with the test
     cases in section 1 as its checks.
-*   **Next work understates a large task.** A task with one 30-minute step and
+*   **Next work understates a large task.** A task with one 30-minute Next item and
     days of work behind it is planned as 30 minutes. Mitigation: this is the
     stated meaning of the number; the remaining work returns on the next run.
 *   **An unattended `plan-week` run overwrites the week plan file.** It plans
@@ -757,6 +767,8 @@ plan as `p3` and hubs keep their current text.
 *   [2026-10-29-task-board-design.md](../superpowers/specs/2026-10-29-task-board-design.md):
     the Board view, the `Tasks.base` merge and the status lifecycle this builds
     on.
+*   [GLOSSARY.md](../../GLOSSARY.md): the domain terms this document uses, and
+    which file 6b amends.
 *   [plugins/EGM.md](../../plugins/EGM.md) and
     [plugins/planner/tools/EGM.md](../../plugins/planner/tools/EGM.md): the
     contracts amended below.
@@ -862,6 +874,20 @@ the hub can show.
     keys, and the statement that `plugins/planner/tools/task_queue.py` holds the
     only coded copy of the rule.
 
+##### 6b. `GLOSSARY.md` (Modify)
+
+*   **Type / Scope**: Domain glossary (repo root).
+*   **Proposed Changes**:
+    *   Amend **Next item**: drop "the unit that gets scheduled into days" and
+        say a Next item is one concrete step listed under a task note's Next.
+    *   Add **Next work** under Tasks: the open Next items of one task note,
+        scheduled together as one row of a plan.
+    *   Amend **Pool**: the to-dos and task notes' next work a day or week plan
+        is built from.
+    *   Add **Priority** (`p0` to `p5` on a task note; a missing value means
+        `p3`) and **Due date** (a hard limit on when a task note's next work may
+        be placed).
+
 ##### 7. `AGENTS.md` (Modify)
 
 *   **Type / Scope**: Agent guide.
@@ -928,10 +954,10 @@ the hub can show.
 *   **Proposed Changes**: One named test for each of these.
     *   Each row of the "How a value is read" table in section 1.
     *   Each row of the "State of `## Next`" table in section 1.
-    *   `## Next` reading: nested steps count; ticked lines and the empty
+    *   `## Next` reading: nested Next items count; ticked lines and the empty
         placeholder do not; the section ends at the next `## ` heading.
     *   Estimates: `(~30 min)`, `(~30min)`, `(~2 h)`, `(~1.5 h)` giving 90, and
-        rounding up per step.
+        rounding up per Next item.
     *   Frontmatter: quoted scalars; a trailing comment; `aliases` inline and as
         a block list; `up` with an alias, with a folder, and as `[[]]`.
     *   `unreadable note` for a file that is not UTF-8 and for one with no
@@ -942,7 +968,7 @@ the hub can show.
         the `started` tie-break; the `<vault>:<slug>` tie-break.
     *   `done` notes excluded; two vaults merged into one order.
     *   `task` as a bare slug with one vault and `<vault>:<slug>` with two.
-    *   A task with three open steps giving one row titled with the first step
+    *   A task with three open Next items giving one row titled with the first one
         and minutes covering all three.
     *   `--date D` giving `until` of `D` plus six days; `--week-start` and no
         flag giving the same days as `plan_days`; `--include-weekend` extending
@@ -992,7 +1018,7 @@ neither.
 
 *   **Type / Scope**: Skill instructions.
 *   **Proposed Changes**:
-    *   In the vault block's "In this skill" list, replace the Backlog bullet
+    *   In the vault block's "In this skill" list, replace the Pool bullet
         ("add the open Next items of every task note … Ask before including
         parked ones if there are many.") with: run the queue command; put its
         `tasks` first in `tasks.json`, then
@@ -1002,7 +1028,7 @@ neither.
     *   After the step 3 command, add one line: a vault run adds `--keep-order`.
     *   In "Behavior notes", extend the placement bullet with: "In a vault run,
         tasks go in rank order on the earliest day with room."
-    *   At the end of step 2 ("Right-size the backlog", which sends oversized
+    *   At the end of step 2 ("Right-size the pool", which sends oversized
         tasks to break-down-task), add one sentence: "Rows from `task_queue.py`
         are not decomposed here."
     *   Do not write the literal `--week-start <YYYY-MM-DD>` anywhere in this
@@ -1013,7 +1039,7 @@ neither.
 
 *   **Type / Scope**: Skill instructions.
 *   **Proposed Changes**: Replace the bullet "**Inputs:** when no task list is
-    given, offer the open Next items of every vault's active task as the task
+    given, offer the open Next items of every vault's current task as the task
     list." with: "**Inputs:** when no task list is given, run [the queue command
     with `--date <target date>`] and offer its first ten rows as the task list;
     say how many rows were not shown, and tell the user the `not_placed` rows
@@ -1024,7 +1050,7 @@ neither.
 *   **Type / Scope**: Skill instructions, including the scheduled prompt.
 *   **Proposed Changes**:
     *   Replace the bullet "**Step 2, candidates for the Top 3:** add the open
-        Next items of every vault's active task (and of any task note the user
+        Next items of every vault's current task (and of any task note the user
         names) to the pool, titled as above. Prefer them over generic inbox
         items when the user is mid-task." with: "**Step 2, candidates for the
         Top 3:** run [the queue command with `--date <today>`]. Add the rows the user confirms from its first ten rows (and the
@@ -1066,8 +1092,8 @@ neither.
     `task_queue.py`, one row per task, while unattended runs still do not read
     the vault. In `README.md`: replace the sentence that says plan-week "pulls
     open Next items", and the one that says the planning skills "pull each
-    vault's active task and inbox", with the same statement. Bump the version from 0.5.5 to
-    0.6.0.
+    vault's current task and inbox", with the same statement. Bump the version
+    from 0.6.1 to 0.7.0.
 
 ##### 19. `planner.plugin` (Rebuild)
 
@@ -1104,7 +1130,7 @@ neither.
 
 *   **Type / Scope**: Plugin contract and manifest.
 *   **Proposed Changes**: Add which skills write `priority` and `due`, beside
-    the status writer rules. Bump the version from 0.6.1 to 0.7.0.
+    the status writer rules. Bump the version from 0.7.1 to 0.8.0.
 
 ##### 24. `tests/test_skill_files.py` (Modify)
 
