@@ -1,7 +1,7 @@
 // The shared Pomodoro: one JSON file every session reads and writes (vault/Tasks/.pomo.json).
 // Timestamps, not counters: each session derives the same block progress from the same
 // numbers, so two sessions never double-count, and a restart resumes mid-block. Pure: no IO.
-import type { PomoFile } from '../types'
+import type { FocusClaim, PomoFile } from '../types'
 
 export type PomoConfig = {
   focusMinutes: number
@@ -62,12 +62,41 @@ export function parsePomo(text: string): PomoFile | null {
     const value = JSON.parse(text) as Partial<PomoFile> | null
     if (!value || value.version !== 1 || typeof value.slug !== 'string') return null
     const parsed = { ...emptyPomo(String(value.day ?? '')), ...value } as PomoFile
-    // A claim map only: an older file's single-string loggingBy names no slug, so it claims nothing.
-    const claims = value.loggingBy
-    return { ...parsed, loggingBy: claims && typeof claims === 'object' && !Array.isArray(claims) ? claims : {} }
+    // Well-formed claims only: an older file's string claim (or a half-written one) claims nothing.
+    const claims = value.loggingBy && typeof value.loggingBy === 'object' && !Array.isArray(value.loggingBy) ? value.loggingBy : {}
+    return { ...parsed, loggingBy: Object.fromEntries(Object.entries(claims).filter(([, c]) => isFocusClaim(c))) }
   } catch {
     return null
   }
+}
+
+function isFocusClaim(c: unknown): c is FocusClaim {
+  if (!c || typeof c !== 'object') return false
+  const { by, from, at } = c as Partial<FocusClaim>
+  return typeof by === 'string' && typeof at === 'number' && !!from && typeof from.ms === 'number' && typeof from.blocks === 'number'
+}
+
+/**
+ * How long a focus claim may stay in flight. Writing two notes takes well under a second, so a claim
+ * this old belongs to a session that exited or lost the file between claiming and writing.
+ */
+export const CLAIM_STALE_MS = 2 * MINUTE
+
+/**
+ * `f` with every claim at least CLAIM_STALE_MS old undone: its slug's logged goes back to what it was
+ * before the claim, so the next flush writes that focus instead of it being lost. The same `f` when none is.
+ * A claim whose notes were written but whose release never landed is written twice: preferred to losing it.
+ */
+export function recoverStaleClaims(f: PomoFile, now: number): PomoFile {
+  const stale = Object.entries(f.loggingBy).filter(([, c]) => now - c.at >= CLAIM_STALE_MS)
+  if (stale.length === 0) return f
+  const logged = { ...f.logged }
+  const loggingBy = { ...f.loggingBy }
+  for (const [slug, claim] of stale) {
+    logged[slug] = claim.from
+    delete loggingBy[slug]
+  }
+  return { ...f, logged, loggingBy }
 }
 
 export function serializePomo(f: PomoFile): string {

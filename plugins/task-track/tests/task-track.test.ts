@@ -3,7 +3,7 @@ import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
 import { cells, codeSpans, fitCells, heading, insertInSection, logEntry, logOrder, parseNote, splitEstimate, stamp, toggleNext } from '../hooks/note'
-import { advance, blockMinutes, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
+import { advance, blockMinutes, CLAIM_STALE_MS, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, recoverStaleClaims, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
 import { boardNote, buildBoard, fitColumn } from '../hooks/board'
@@ -1016,7 +1016,7 @@ describe('focus reaches the notes', () => {
       afterWrite: path => {
         if (path !== POMO || isRaced) return
         isRaced = true
-        files[POMO] = serializePomo({ ...markLogged(today(30 * MIN), 'set-up-vault'), loggingBy: { 'set-up-vault': 'other-session' } })
+        files[POMO] = serializePomo({ ...markLogged(today(30 * MIN), 'set-up-vault'), loggingBy: { 'set-up-vault': { by: 'other-session', from: { ms: 0, blocks: 0 }, at: T0 + 40 * MIN } } })
         files[PATH] = insertInSection(files[PATH] ?? '', 'Log', '- [[2026-10-13]] 09:40 — focus 30m (1 pomodoro)')
         files[DAILY] = insertInSection(files[DAILY] ?? '## Log\n', 'Log', '- 09:40 [[set-up-vault]] focus 30m (1 pomodoro)')
       },
@@ -1050,7 +1050,7 @@ describe('focus reaches the notes', () => {
     const POMO = '/v/Tasks/.pomo.json'
     const DAILY = '/v/Daily/2026-10-13.md'
     const before = { ...today(30 * MIN), logged: { 'set-up-vault': { ms: 5 * MIN, blocks: 0 } } }
-    const taken = { ...markLogged(before, 'set-up-vault'), loggingBy: { 'set-up-vault': 'other-session' } }
+    const taken = { ...markLogged(before, 'set-up-vault'), loggingBy: { 'set-up-vault': { by: 'other-session', from: { ms: 5 * MIN, blocks: 0 }, at: T0 + 40 * MIN } } }
     const files: Record<string, string> = { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(before) }
     // The other session's claim lands after this session's read-back, just before its daily-note write fails.
     on('fs.write', { path: DAILY }, ($, e) => {
@@ -1063,10 +1063,11 @@ describe('focus reaches the notes', () => {
     await $.session.end(end)
     const after = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
     expect(after.logged['set-up-vault']).toEqual({ ms: 30 * MIN, blocks: 1 })
-    expect(after.loggingBy).toEqual({ 'set-up-vault': 'other-session' })
+    expect(after.loggingBy).toEqual(taken.loggingBy)
   })
 
   test("another session's claim on a different task does not void this task's claim", async ($, on) => {
+    const OTHER_TASK_CLAIM = { by: 'other-session', from: { ms: 0, blocks: 0 }, at: T0 + 40 * MIN }
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: T0 + 40 * MIN })
     const POMO = '/v/Tasks/.pomo.json'
@@ -1078,7 +1079,7 @@ describe('focus reaches the notes', () => {
         if (path !== POMO || isRaced) return
         isRaced = true
         const ours = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
-        files[POMO] = serializePomo({ ...ours, logged: { ...ours.logged, 'other-task': { ms: 20 * MIN, blocks: 0 } }, loggingBy: { ...ours.loggingBy, 'other-task': 'other-session' } })
+        files[POMO] = serializePomo({ ...ours, logged: { ...ours.logged, 'other-task': { ms: 20 * MIN, blocks: 0 } }, loggingBy: { ...ours.loggingBy, 'other-task': OTHER_TASK_CLAIM } })
       },
     })
     coreEnd(on)
@@ -1087,7 +1088,63 @@ describe('focus reaches the notes', () => {
     expect(files[PATH]).toContain('— focus 30m (1 pomodoro)')
     expect(files[DAILY] ?? '').toContain('[[set-up-vault]] focus 30m (1 pomodoro)')
     const after = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
-    expect(after.loggingBy).toEqual({ 'other-task': 'other-session' })
+    expect(after.loggingBy).toEqual({ 'other-task': OTHER_TASK_CLAIM })
+  })
+
+  test("a live claim by another session is not replaced, even when more focus has accrued since", async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const DAILY = '/v/Daily/2026-10-13.md'
+    // The other session claimed 10m a moment ago and is still writing it; 20m more accrued since.
+    const claim = { by: 'other-session', from: { ms: 0, blocks: 0 }, at: T0 + 40 * MIN - 1000 }
+    const before = { ...today(30 * MIN), logged: { 'set-up-vault': { ms: 10 * MIN, blocks: 0 } }, loggingBy: { 'set-up-vault': claim } }
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(before) })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    await $.session.end(end)
+    expect(files[PATH]).not.toContain('— focus')
+    expect(files[DAILY]).toBeUndefined()
+    const after = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
+    expect(after.logged['set-up-vault']).toEqual({ ms: 10 * MIN, blocks: 0 })
+    expect(after.loggingBy).toEqual({ 'set-up-vault': claim })
+  })
+
+  test('a claim left by a session that is gone is undone, and its focus is written again', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const DAILY = '/v/Daily/2026-10-13.md'
+    // A session claimed all 30m three minutes ago, then exited before writing the notes.
+    const stale = { by: 'gone-session', from: { ms: 0, blocks: 0 }, at: T0 + 37 * MIN }
+    const before = { ...markLogged(today(30 * MIN), 'set-up-vault'), loggingBy: { 'set-up-vault': stale } }
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(before) })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    await $.session.end(end)
+    expect(files[PATH]).toContain('— focus 30m (1 pomodoro)')
+    expect(files[DAILY] ?? '').toContain('[[set-up-vault]] focus 30m (1 pomodoro)')
+    const after = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
+    expect(unlogged(after, 'set-up-vault')).toEqual({ ms: 0, blocks: 0 })
+    expect(after.loggingBy).toEqual({})
+  })
+
+  test('recoverStaleClaims undoes only claims older than CLAIM_STALE_MS', () => {
+    const now = T0 + 60 * MIN
+    const fresh = { by: 'a', from: { ms: 1, blocks: 0 }, at: now - CLAIM_STALE_MS + 1 }
+    const old = { by: 'b', from: { ms: 2, blocks: 0 }, at: now - CLAIM_STALE_MS }
+    const f = { ...emptyPomo('2026-10-13'), logged: { x: { ms: 9, blocks: 1 }, y: { ms: 8, blocks: 1 } }, loggingBy: { x: fresh, y: old } }
+    const r = recoverStaleClaims(f, now)
+    expect(r.logged).toEqual({ x: { ms: 9, blocks: 1 }, y: { ms: 2, blocks: 0 } })
+    expect(r.loggingBy).toEqual({ x: fresh })
+    const none = { ...f, loggingBy: { x: fresh } }
+    expect(recoverStaleClaims(none, now)).toBe(none)
+  })
+
+  test('parsePomo keeps only well-formed claims', () => {
+    const good = { by: 's', from: { ms: 1, blocks: 0 }, at: 5 }
+    const text = serializePomo({ ...emptyPomo('2026-10-13'), loggingBy: { a: good, b: 'old-string-claim', c: { by: 's' } } as never })
+    expect(parsePomo(text)?.loggingBy).toEqual({ a: good })
   })
 
   test('a daily note that exists but cannot be read is left alone', async ($, on) => {

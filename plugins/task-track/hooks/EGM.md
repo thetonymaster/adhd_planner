@@ -44,7 +44,8 @@ state live in [../types/EGM.md](../types/EGM.md).
   `parsePomo`, `serializePomo`, `rollDay`, `advance`, `touch`, `shouldTouch`,
   `start`, `pause`, `resume`, `stop`, `toggle`, `pomoState`, `onBreak`, `isRunning`,
   `blockMinutes`, `pomoDots`, `unlogged`, `markLogged`, `snapshotTask`,
-  `recordActivity`, `TOUCH_EVERY_MS`, `MAX_ACTIVITY`; types `PomoConfig`,
+  `recordActivity`, `recoverStaleClaims`, `TOUCH_EVERY_MS`, `MAX_ACTIVITY`,
+  `CLAIM_STALE_MS`; types `PomoConfig`,
   `PomoEvent`, `PomoState`, `Transition`, `DayTotals`.
 - `summary.ts` — what a finished block got done: `blockSummary`, `checkedTitles`,
   `logSince`, `summaryPrompt`, `SUMMARY_SYSTEM`; type `NoteRead`.
@@ -91,15 +92,21 @@ state live in [../types/EGM.md](../types/EGM.md).
   (`shouldTouch`).
 - Focus is credited once per session (`creditedUntil`, `logged`); less than 5 minutes
   waits for the next flush. `flushFocus` claims before it writes, like the block
-  announcer: it marks `logged[slug]` and sets `loggingBy[slug] = SESSION` only if the
-  day and `logged[slug]` are still what it read, reads the file back, and writes the
-  notes only if that entry, the day and `logged[slug]` still show its claim. The claim
-  is per slug, so a claim on another task never cancels this one. A failed note write
-  restores the previous `logged[slug]` and drops the claim, only while the claim is
-  still this session's, then rethrows; a successful write drops it too. Remaining
-  window (same as `notifiedBy`): a session whose read-back lands between its own claim
-  and a later overwrite still writes. `flushDay` (day rollover) has no per-slug claim
-  yet, so two sessions rolling the day at once can log the same focus twice.
+  announcer: it skips a slug that already has a claim (the holder writes it), else
+  marks `logged[slug]` and sets `loggingBy[slug] = { by: SESSION, from, at }` only if
+  the day and `logged[slug]` are still what it read and no claim landed, reads the
+  file back, and writes the notes only if that claim is still there. Claims are per
+  slug, so a claim on another task never cancels this one. A failed note write, or a
+  read-back that finds the file unreadable, hands the claim back (`logged[slug]` =
+  `from`) while it is still this session's; a successful write drops it.
+- Claims never released (the session exited, the file stayed unreadable) are undone
+  by `changePomo` through `recoverStaleClaims` once `CLAIM_STALE_MS` (2 min) old, before
+  `rollDay`, so their focus is written later, including at rollover. A claim whose
+  notes were written but whose release never landed is then written twice (preferred
+  to losing it). Known gap: two sessions that both read the file before either claim
+  lands can both pass their read-back and both write; closing it needs a
+  cross-session lock. `flushDay` (day rollover) has no per-slug claim yet, so two
+  sessions rolling the day at once can log the same focus twice.
 - `.pomo.json` is never replaced when it exists but cannot be read or parsed this
   round; that round is skipped. A day or slug in it that can't name a note is reported
   (band problem + `$.ui.log`) and skipped, never thrown.

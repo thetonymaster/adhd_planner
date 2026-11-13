@@ -11,6 +11,7 @@ import {
   onBreak,
   emptyPomo,
   markLogged,
+  recoverStaleClaims,
   parsePomo,
   pause,
   pomoDots,
@@ -415,7 +416,8 @@ async function flushDay($: EngineInterface, d: DayTotals): Promise<void> {
 async function changePomo($: EngineInterface, change: (f: PomoFile) => PomoFile): Promise<PomoFile | null> {
   const current = await readPomo($)
   if (!current) return null
-  const { file, finished } = rollDay(current, await today($))
+  // Claims of sessions that never finished come undone first, so a rollover writes their focus too.
+  const { file, finished } = rollDay(recoverStaleClaims(current, await $.clock.now()), await today($))
   if (finished) {
     await flushDay($, finished)
     await saveDay($, finished)
@@ -533,31 +535,39 @@ function dropClaim(file: PomoFile, slug: string): PomoFile {
 /**
  * Writes today's not-yet-logged focus on `slug` to its task Log and the daily note, logged once across sessions.
  * No compare-and-set on the file, so, as with the block announcer's notifiedBy: claim the focus in the timer
- * first (marked logged, loggingBy[slug] = this session), read it back, and write the notes only if the claim survived.
- * Claims are per slug: another session claiming a different task's focus meanwhile does not void this one.
- * A failed note write hands the claim back, so the time stays unlogged for the next try instead of being lost.
+ * first (marked logged, loggingBy[slug] = this session's claim), read it back, and write the notes only if the
+ * claim survived. Claims are per slug: another session's claim on a different task does not void this one.
+ * A slug with a live claim is left to its holder: replacing it could strand the holder's minutes if its write
+ * then failed. A failed write, or a read-back that finds the file unreadable, hands the claim back; a claim
+ * never released (the session exited, the file stayed unreadable) is undone by changePomo after CLAIM_STALE_MS.
+ * Known gap: two sessions that read the file before either claim lands can both pass their read-back.
  */
 async function flushFocus($: EngineInterface, slug: string, path: string): Promise<void> {
   const before = await changePomo($, file => file)
-  if (!before) return
+  if (!before || before.loggingBy[slug]) return
   const pending = unlogged(before, slug)
   if (pending.ms < MIN_LOGGED_MS) return
   const previous = before.logged[slug] ?? { ms: 0, blocks: 0 }
   const written = { ms: before.dayMs[slug] ?? 0, blocks: before.dayBlocks[slug] ?? 0 }
-  // Only what was read: focus added meanwhile stays unlogged; a day rolled over or a claim by another session is left alone.
-  const isUnclaimed = (file: PomoFile) => file.day === before.day && sameLogged(file.logged[slug], previous)
-  const isOurs = (file: PomoFile) => file.day === before.day && file.loggingBy[slug] === SESSION && sameLogged(file.logged[slug], written)
-  const claimed = await changePomo($, file =>
-    isUnclaimed(file) ? { ...markLogged(file, slug, written), loggingBy: { ...file.loggingBy, [slug]: SESSION } } : file,
-  )
+  const claim = { by: SESSION, from: previous, at: await $.clock.now() }
+  // Only what was read: focus added meanwhile stays unlogged; a day rolled over or any claim on the slug is left alone.
+  const isUnclaimed = (file: PomoFile) => file.day === before.day && !file.loggingBy[slug] && sameLogged(file.logged[slug], previous)
+  const isOurs = (file: PomoFile) =>
+    file.day === before.day && file.loggingBy[slug]?.by === SESSION && file.loggingBy[slug]?.at === claim.at && sameLogged(file.logged[slug], written)
+  const handBack = (file: PomoFile) => (isOurs(file) ? dropClaim(markLogged(file, slug, previous), slug) : file)
+  const claimed = await changePomo($, file => (isUnclaimed(file) ? { ...markLogged(file, slug, written), loggingBy: { ...file.loggingBy, [slug]: claim } } : file))
   if (!claimed) return
   const check = await readPomo($)
-  if (!check || !isOurs(check)) return
+  if (!check) {
+    await changePomo($, handBack)
+    return
+  }
+  if (!isOurs(check)) return
   const { date, time } = stamp(new Date(await $.clock.now()), await currentZone($))
   try {
     await writeFocus($, slug, path, date, time, focusText(pending))
   } catch (err) {
-    await changePomo($, file => (isOurs(file) ? dropClaim(markLogged(file, slug, previous), slug) : file))
+    await changePomo($, handBack)
     throw err
   }
   await changePomo($, file => (isOurs(file) ? dropClaim(file, slug) : file))

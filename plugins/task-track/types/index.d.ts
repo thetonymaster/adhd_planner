@@ -63,9 +63,12 @@ export type PomoFile = {
   dayBlocks: Record<string, number>
   /** What of dayMs/dayBlocks is already written to the task Log and daily note. */
   logged: Record<string, { ms: number; blocks: number }>
-  /** Per task slug: the session id whose claim on writing that slug's focus to the notes was last written; it writes only if its read-back still shows it. Cleared once written or handed back. */
-  loggingBy: Record<string, string>
+  /** Per task slug: the claim of the session writing that slug's focus to the notes right now. Cleared once written or handed back; undone by any session once older than CLAIM_STALE_MS. */
+  loggingBy: Record<string, FocusClaim>
 }
+
+/** A claim on writing one slug's focus: logged[slug] was advanced from `from` at `at` (epoch ms) by session `by`. */
+export type FocusClaim = { by: string; from: { ms: number; blocks: number }; at: number }
 
 /** The vault a /board pane shows: its vaults.json name and path; hasOthers = 2+ vaults are registered, so /board <vault> can switch. */
 export type BoardTarget = { name: string; path: string; hasOthers: boolean }
