@@ -70,7 +70,7 @@ state live in [../types/EGM.md](../types/EGM.md).
   list, `boardCache` for the board); a note is re-read only when its mtime moves.
 - Project list: non-`done` slug notes whose `repo:` is the session root or a parent,
   deepest root only; active first, then newest; any status but `active` lists as parked.
-  Shows every active task and the first `PARKED_CAP` parked ones, `… N more` for the
+  Shows every `active` (Doing) task and the first `PARKED_CAP` parked ones, `… N more` for the
   rest. A row or `+ New task` press fills the chat box (`/tasks:task-switch
   [<vault>:]<slug>`, `/tasks:task-start [<vault>:]`, the vault prefix only with 2+
   vaults), never submits, never overwrites a draft, and closes the pane on success.
@@ -148,7 +148,7 @@ state live in [../types/EGM.md](../types/EGM.md).
 - Writes `<vault>/Tasks/.pomo.json` via a temp file named with `SESSION` (new on every
   module load) and `mv -f`; when `mv` fails, writes directly, logs once, and leaves the
   `.tmp` file behind.
-- Writes the active task note (`/note`, `/done`, `/openloop`, pane toggles and note
+- Writes the current task note (`/note`, `/done`, `/openloop`, pane toggles and note
   field, focus lines in `## Log`) and `<vault>/Daily/<date>.md` (`## Log` focus line;
   created from `Templates/Daily.md` or a minimal template when missing). The project
   and board panes write nothing.

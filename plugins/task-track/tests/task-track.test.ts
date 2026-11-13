@@ -556,7 +556,7 @@ describe('commands write to the note without a model turn', () => {
     const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE })
     const out = await run($, 'note', 'CLI enabled, unresolved=0')
     expect(out.text).toBe('Logged to set-up-vault.')
-    expect(out.context?.[0]).toBe('The user added a note to the active task (set-up-vault): CLI enabled, unresolved=0')
+    expect(out.context?.[0]).toBe('The user added a note to the current task (set-up-vault): CLI enabled, unresolved=0')
     expect(files[PATH]).toContain('- [[2026-10-13]] 09:30 — CLI enabled, unresolved=0')
   })
 
@@ -583,12 +583,12 @@ describe('commands write to the note without a model turn', () => {
     expect(files[PATH]).toContain('- wire eod-shutdown to Daily/\n\n## Parked')
   })
 
-  test('no active task: commands say how to start one', async ($, on) => {
+  test('no current task: commands say how to start one', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on)
     fakeVault(on, { '/v/Tasks/.active': '' })
     const out = await run($, 'note', 'x')
-    expect(out.text).toBe('No active task. /tasks:task-start <name>')
+    expect(out.text).toBe('No current task. /tasks:task-start <name>')
   })
 })
 
@@ -1966,7 +1966,7 @@ describe('several vaults', () => {
     unreadable.push('/v/Tasks/other.md')
     written['/v/Tasks/other.md'] = NOTE
     written['/v/Tasks/.pomo.json'] = serializePomo({ ...emptyPomo('2026-10-12'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 10 * MIN } })
-    expect((await run($, 'note', 'next day')).text).toBe('No active task. /tasks:task-start <name>')
+    expect((await run($, 'note', 'next day')).text).toBe('No current task. /tasks:task-start <name>')
     expect(Object.keys(stored).filter(k => k.startsWith('focus:'))).toEqual(['focus:personal:2026-10-12'])
   })
 })

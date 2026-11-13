@@ -36,7 +36,7 @@ run. Skills carry the know-how; the scripts run from the user's planner folder, 
 - Cross-plugin: the skills hand off to the `tasks` plugin when it is installed, never
   require it. capture-triage suggests `/tasks:create-task` (backlog) or
   `/tasks:task-start` (start now) for a multi-step item; eod-shutdown runs
-  `/tasks:task-park` for the current vault's active task and routes "close one task" to
+  `/tasks:task-park` for this vault's current task and routes "close one task" to
   `/tasks:task-finish`; `obsidian-vault` is used for vault writes.
 
 ## Invariants

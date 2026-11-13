@@ -117,8 +117,11 @@ without mentioning it: the planner works without it.
   `Templates/Daily.md`, replacing `{{date}}` and `{{title}}` with the date. If
   a section named below is missing, create it just above `## Log` (at the end
   if there's no `## Log`).
-- **Task notes** are `Tasks/<slug>.md`. Each vault's `Tasks/.active` holds its
-  active slug; in the current vault the session-start `Active task:` line wins.
+- **Task notes** are `Tasks/<slug>.md`. Each vault's `Tasks/.active` holds the
+  last task chosen there. In the current vault, first match wins: the task this
+  session last started or switched to (the task-start or task-switch skill),
+  else the session-start `Current task:` line, else `.active`. That line is
+  written once at session start, so after a mid-session switch it names the old task.
   Open Next items are the unchecked `- [ ]` lines with text under `## Next`
   (skip empty placeholders). A trailing `(~N min)` is the item's estimate: take
   it as the minutes and drop it from the title. When an item goes into the
@@ -132,7 +135,7 @@ without mentioning it: the planner works without it.
 In this skill:
 
 - **Step 1, evidence of the day:** in every vault, read today's daily note
-  `## Log` and the active task note's `## Log` and `## Next`. Use what's there (focus or session
+  `## Log` and the current task note's `## Log` and `## Next`. Use what's there (focus or session
   lines, if any tool wrote them) to suggest what got done instead of asking
   cold.
 - **Step 2:** an unfinished item that came from a task note (titled
@@ -140,9 +143,9 @@ In this skill:
   `inbox.md`, or it shows up twice.
 - **Step 4:** the triage includes every vault's inbox, as capture-triage
   describes.
-- **Park the active task:** for the current vault's active task, run
+- **Park the current task:** for this vault's current task, run
   `/tasks:task-park` when that skill is available. For it without that skill,
-  and for the active task of every other vault that had work today, check off
+  and for the current task of every other vault that had work today, check off
   the Next items the user confirmed done and add a `## Log` line; don't reorder
   or rewrite the rest.
 - **Step 6:** in each vault's daily note for today, write that vault's part of

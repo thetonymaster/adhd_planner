@@ -3,7 +3,7 @@
 ## Overview
 
 The `tasks` plugin: Obsidian task notes for Claude Code and Cowork. Hooks inject the
-session's active task (Goal, Next, Open loops) at session start, stamp `Now:` on each
+session's current task (Goal, Next, Open loops) at session start, stamp `Now:` on each
 prompt, park the session's task when the session ends, and auto-approve file tools
 inside a registered vault; skills create, start, park, switch, finish, list and edit
 task notes. A note's frontmatter `status:` follows one lifecycle: `parked` (backlog,
@@ -23,9 +23,8 @@ invalid).
   `$VAULT` → `~/vault`); `task-list` and `task-note` a variant that skips `vaultPath`
   and adds a connected folder named `vault` (or holding `Tasks/` and `Daily/`), as the
   marketplace and multi-vault specs give it for Cowork. Only `task-switch` restates the
-  hook's task pick order; `task-park` and `task-finish` use their own (last
-  started/switched → `Active task:` line → `.active`), `task-note` a shorter one
-  (`Active task:` line → `.active`).
+  hook's task pick order; `task-park`, `task-finish`, `task-note` and the planner skills use their own
+  (last started/switched → `Current task:` line → `.active`).
   - [create-task](./skills/create-task/SKILL.md) - make one or many backlog notes
     (`status: parked`)
   - [obsidian-vault](./skills/obsidian-vault/SKILL.md) - rules for any vault write
@@ -33,7 +32,7 @@ invalid).
     `finished:`)
   - [task-list](./skills/task-list/SKILL.md) - one project's tasks, read-only
   - [task-note](./skills/task-note/SKILL.md) - read or update an existing task note
-  - [task-park](./skills/task-park/SKILL.md) - save the active task's state, always
+  - [task-park](./skills/task-park/SKILL.md) - save the current task's state, always
     `status: parked`
   - [task-start](./skills/task-start/SKILL.md) - create a task note and make it active
   - [task-switch](./skills/task-switch/SKILL.md) - park, then activate another note

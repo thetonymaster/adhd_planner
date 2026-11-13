@@ -14,7 +14,7 @@ edits, creates, parks or switches a task, and never offers to.
 ## Find the vault
 
 First match wins:
-1. The session-start `Vault: <path>` line, else the folder above `Tasks/` in its `Active task: … — full note: <path>` line.
+1. The session-start `Vault: <path>` line, else the folder above `Tasks/` in its `Current task: … — full note: <path>` line.
 2. The `default` vault's `path` in `~/.config/adhd-planner/vaults.json` (or `$ADHD_PLANNER_VAULTS`), when that file exists and parses.
 3. A connected or working folder named `vault`, or one holding both `Tasks/` and `Daily/`.
 4. `$VAULT`.
@@ -27,9 +27,9 @@ First match wins:
 
 - The user named one → match the file stem in `Projects/` (then `Areas/`), else a hub whose
   `aliases` contains the name (case-insensitive). Several match → list them and ask.
-- The user named none → the `up:` project of the session's active task, first match wins:
+- The user named none → the `up:` project of the session's current task, first match wins:
   the task this session last started or switched to (`/tasks:task-start`, `/tasks:task-switch`),
-  else the session-start `Active task:` note, else `Tasks/.session/$CLAUDE_CODE_SESSION_ID` when
+  else the session-start `Current task:` note, else `Tasks/.session/$CLAUDE_CODE_SESSION_ID` when
   that variable is set, else `Tasks/.active`. None → list the `Projects/` and `Areas/` hubs and ask.
 - No hub matches → say "No project `<name>` in <vault>/Projects or <vault>/Areas" and list the hubs.
 

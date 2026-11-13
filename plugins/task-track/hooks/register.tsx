@@ -250,7 +250,7 @@ async function load($: EngineInterface): Promise<TaskView | null> {
   const path = taskNotePath(root, slug)
   const stat = await $.fs.stat(path).catch(() => undefined)
   if (!stat) {
-    await update($, problem, () => `Active task "${slug}" has no note at ${path}`)
+    await update($, problem, () => `Current task "${slug}" has no note at ${path}`)
     if (!isVaultChange) return prev
     // prev is the old vault's note: keeping it would edit that note on this vault's timer.
     await update($, task, () => null)
@@ -716,7 +716,7 @@ const isPomoAction = (s: string): s is PomoAction => s === 'toggle' || POMO_ACTI
  */
 async function runPomo($: EngineInterface, action: PomoAction): Promise<string> {
   const view = (await read($, task)) ?? (await load($))
-  if (!view) return 'No active task. /tasks:task-start <name>'
+  if (!view) return 'No current task. /tasks:task-start <name>'
   const now = await $.clock.now()
   const out: { t?: Transition; held?: string } = {}
   const f = await changePomo($, file => {
@@ -918,7 +918,7 @@ async function noteFromPane($: EngineInterface, slug: string, value: string): Pr
   await addLog($, text)
   if (!settings.notesToClaude) return
   await $.session
-    .append({ message: { type: 'user', content: [{ type: 'text', text: `The user added a note to the active task (${slug}): ${text}` }] } })
+    .append({ message: { type: 'user', content: [{ type: 'text', text: `The user added a note to the current task (${slug}): ${text}` }] } })
     .catch(() => undefined)
 }
 
@@ -947,11 +947,11 @@ async function openInObsidian($: EngineInterface, path: string): Promise<void> {
 }
 
 const COMMANDS = [
-  { name: 'task', description: 'Show the active task pane (/task hide|show toggles the band)', argumentHint: '[hide|show]' },
+  { name: 'task', description: 'Show the current task pane (/task hide|show toggles the band)', argumentHint: '[hide|show]' },
   { name: 'board', description: 'Show the task board (Doing / Parked / Done) for this vault or <vault>', argumentHint: '[vault]', immediate: true },
-  { name: 'note', description: 'Add a line to the active task Log (no model turn)', argumentHint: '<text>', immediate: true },
+  { name: 'note', description: 'Add a line to the current task Log (no model turn)', argumentHint: '<text>', immediate: true },
   { name: 'done', description: 'Check off a Next item (default: the first open one)', argumentHint: '[n]', immediate: true },
-  { name: 'openloop', description: 'Add an Open loop to the active task', argumentHint: '<text>', immediate: true },
+  { name: 'openloop', description: 'Add an Open loop to the current task', argumentHint: '<text>', immediate: true },
   { name: 'project-tasks', description: "Show this repo's active and parked tasks; a click fills the switch command", immediate: true },
   { name: 'pomo', description: 'Pomodoro: /pomo pauses or resumes; /pomo start|pause|resume|stop', argumentHint: '[start|pause|resume|stop]', immediate: true },
 ] as const
@@ -1041,7 +1041,7 @@ export const register: Register = (on, options) => {
     }
     const view = await load($)
     await openPane($)
-    return { text: view ? `Task pane: ${view.slug}` : (await read($, problem)) || 'No active task. /tasks:task-start <name>' }
+    return { text: view ? `Task pane: ${view.slug}` : (await read($, problem)) || 'No current task. /tasks:task-start <name>' }
   })
 
   on('command.run', { command: 'project-tasks' }, async ($, e) => {
@@ -1064,14 +1064,14 @@ export const register: Register = (on, options) => {
     const text = e.args.trim()
     if (!text) return { text: 'Usage: /note <text>' }
     const view = await addLog($, text)
-    if (!view) return { text: 'No active task. /tasks:task-start <name>' }
-    return { text: `Logged to ${view.slug}.`, ...told(`The user added a note to the active task (${view.slug}): ${text}`) }
+    if (!view) return { text: 'No current task. /tasks:task-start <name>' }
+    return { text: `Logged to ${view.slug}.`, ...told(`The user added a note to the current task (${view.slug}): ${text}`) }
   })
 
   on('command.run', { command: 'done' }, async ($, e) => {
     await markActive($)
     const view = await load($)
-    if (!view) return { text: 'No active task. /tasks:task-start <name>' }
+    if (!view) return { text: 'No current task. /tasks:task-start <name>' }
     const arg = e.args.trim()
     const index = arg ? Number(arg) - 1 : firstOpen(view.next)
     const item = view.next[index]
@@ -1092,7 +1092,7 @@ export const register: Register = (on, options) => {
     const text = e.args.trim()
     if (!text) return { text: 'Usage: /openloop <text>' }
     const view = await addLoop($, text)
-    if (!view) return { text: 'No active task. /tasks:task-start <name>' }
+    if (!view) return { text: 'No current task. /tasks:task-start <name>' }
     return { text: `Open loop added to ${view.slug}.`, ...told(`The user added an open loop to ${view.slug}: ${text}`) }
   })
 
@@ -1164,7 +1164,7 @@ export const register: Register = (on, options) => {
       const configErr = await read($, configError)
       return (
         <Box flexDirection="column">
-          <Text>{why || 'No active task.'}</Text>
+          <Text>{why || 'No current task.'}</Text>
           {configErr ? <Text color="subtle" wrap="truncate-end">Vault config error: {configErr}</Text> : null}
           <Text dimColor>Start one with /tasks:task-start &lt;name&gt;</Text>
         </Box>

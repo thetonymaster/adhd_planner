@@ -9,7 +9,7 @@ This repo is a Claude plugin marketplace, `adhd-planner`, with three plugins:
 | Plugin | What it does | Runs in |
 |---|---|---|
 | [`planner`](plugins/planner) | 12 skills: brain-dump triage, task breakdown, day and week planning around Google Calendar, A5 printable pages, habits with streaks, morning startup and end-of-day shutdown | Claude Code, Cowork |
-| [`tasks`](plugins/tasks) | Obsidian task notes: start, park and switch tasks; the active task's Goal/Next/Open loops at session start; vault access without prompts | Claude Code, Cowork |
+| [`tasks`](plugins/tasks) | Obsidian task notes: start, park and switch tasks; the current task's Goal/Next/Open loops at session start; vault access without prompts | Claude Code, Cowork |
 | [`task-track`](plugins/task-track) | A mod: task band and pane, one shared Pomodoro, `/note` `/done` `/openloop` `/pomo` without a model turn | Claude Code only |
 
 ## Install

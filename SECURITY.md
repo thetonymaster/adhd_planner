@@ -10,14 +10,14 @@ or anything outside the vault, and trusts no vault that is `/`, your home folder
 above it, or inside `~/.claude`. The exact rules, and their limits:
 [docs/setup.md → Settings plugins can't carry](docs/setup.md#settings-plugins-cant-carry).
 
-`tasks`' SessionStart hook prints the active task note and, in each vault with a `Tasks/`
+`tasks`' SessionStart hook prints the current task note and, in each vault with a `Tasks/`
 folder, deletes files in `Tasks/.session/` (per-session task overrides) that are older
 than 14 days, with no prompt. Its shell fallback (no `python3`) deletes nothing.
 `task-track` (a Claude Code mod) writes inside the vault on its own, without a permission
 prompt:
 - its timer state in `Tasks/.pomo.json`, through a temporary
   `Tasks/.pomo.json.<session>.tmp` that is renamed over it;
-- the active task note, when you use `/note`, `/done`, `/openloop` or the task band and
+- the current task note, when you use `/note`, `/done`, `/openloop` or the task band and
   pane (Next buttons, Done, the note box);
 - when focus time is logged, a line in that note's `## Log` and in the day's note
   `Daily/<date>.md`, which is created from `Templates/Daily.md`, or as a minimal stub if

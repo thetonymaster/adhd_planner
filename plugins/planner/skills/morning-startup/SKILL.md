@@ -119,8 +119,11 @@ without mentioning it: the planner works without it.
   `Templates/Daily.md`, replacing `{{date}}` and `{{title}}` with the date. If
   a section named below is missing, create it just above `## Log` (at the end
   if there's no `## Log`).
-- **Task notes** are `Tasks/<slug>.md`. Each vault's `Tasks/.active` holds its
-  active slug; in the current vault the session-start `Active task:` line wins.
+- **Task notes** are `Tasks/<slug>.md`. Each vault's `Tasks/.active` holds the
+  last task chosen there. In the current vault, first match wins: the task this
+  session last started or switched to (the task-start or task-switch skill),
+  else the session-start `Current task:` line, else `.active`. That line is
+  written once at session start, so after a mid-session switch it names the old task.
   Open Next items are the unchecked `- [ ]` lines with text under `## Next`
   (skip empty placeholders). A trailing `(~N min)` is the item's estimate: take
   it as the minutes and drop it from the title. When an item goes into the
@@ -134,7 +137,7 @@ without mentioning it: the planner works without it.
 In this skill:
 
 - **Step 2, candidates for the Top 3:** add the open Next items of every
-  vault's active task (and of any task note the user names) to the pool,
+  vault's current task (and of any task note the user names) to the pool,
   titled as above. Prefer them over generic inbox items when the user is
   mid-task.
 - **Step 3:** break-down-task writes the subtasks into the task note; don't
