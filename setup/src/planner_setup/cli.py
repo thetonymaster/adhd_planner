@@ -36,17 +36,18 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("name", help="kebab-case, e.g. work")
     p.add_argument("--path", type=Path, required=True)
     p.add_argument("--folder", action="append", default=[], help="a folder whose sessions use this vault (repeatable)")
-    p.add_argument("--existing-name", default="personal", help="name for today's vault when the file is created")
+    p.add_argument("--existing-name", default="personal", help="name for this machine's vault when vaults.json has no vaults yet (it becomes the default)")
     p = sub.add_parser("timezone", help="stamp times in this IANA zone (vaults.json), e.g. America/Mexico_City")
     p.add_argument("zone")
-    p.add_argument("--existing-name", default="personal", help="name for today's vault when the file is created")
+    p.add_argument("--existing-name", default="personal", help="name for this machine's vault when vaults.json has no vaults yet (it becomes the default)")
     sub.add_parser("claude-md")
     sub.add_parser("cowork")
     return ap
 
 
 def _existing_name(ctx: actions.Ctx, questionary) -> str:
-    """The name for today's vault when vaults.json is about to be created (the menu's --existing-name); unused otherwise."""
+    """The name for this machine's vault when vaults.json has no vaults yet (missing file, or no "vaults" entries;
+    the menu's --existing-name); unused otherwise."""
     if files.load_json(paths.vaults_file(ctx.env, ctx.home)).get("vaults"):  # the same test add_vault / set_timezone seed on
         return "personal"
     return (questionary.text("Name for this machine's vault (kebab-case)", default="personal").ask() or "").strip()

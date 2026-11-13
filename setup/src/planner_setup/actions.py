@@ -340,7 +340,7 @@ def cowork(ctx: Ctx) -> int:
         "In Claude Desktop → Cowork:",
         f"  1. Customize → Plugins → Add marketplace → {paths.GITHUB}",
         "  2. Install `planner` and `tasks` (task-track is Claude Code only).",
-        "  3. Connect your vault folder to the session.",
+        "  3. Connect your vault folder (and your planner folder) to the session.",
         '  4. Try: "add a note to <task>: test".',
         "If adding the marketplace fails, see setup.md → Cowork fallback.",
     ]))

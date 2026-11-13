@@ -30,10 +30,11 @@ uvx --from ./setup planner-setup
 
 Every item is also a `planner-setup` subcommand: `status`, `install [--plugins …]`,
 `settings [--vault PATH] [--permissions]`, `vault [--vault PATH]`, `update-vaults`,
-`add-vault NAME --path PATH [--folder DIR]…`, `timezone ZONE [--existing-name NAME]`, `claude-md`, `cowork`.
+`add-vault NAME --path PATH [--folder DIR]… [--existing-name NAME]`, `timezone ZONE [--existing-name NAME]`, `claude-md`, `cowork`.
 `--dry-run` (show what would change) and `--yes` (skip the confirmation) go **before**
 the subcommand: `planner-setup --dry-run install`, `planner-setup --yes settings --vault ~/vault`.
-Anything it changes is backed up under `~/.claude/backups/<timestamp>/` first.
+Files it rewrites (`settings.json`, `vaults.json`, and a vault's `Tasks.base` and board plugin files) are
+backed up first under `~/.claude/backups/<timestamp>[-N]/`; plugin installs go through `claude plugin` and are not backed up.
 
 ## Claude Code — by hand
 
@@ -100,7 +101,7 @@ Upload → `planner.plugin`.
 
 ## Several vaults
 
-One vault needs nothing here. For more, list them in `~/.config/adhd-planner/vaults.json` (or run `planner-setup add-vault`):
+One vault needs nothing here. For more, list them in `~/.config/adhd-planner/vaults.json` (or run `planner-setup add-vault`; when `vaults.json` has no vaults yet, it also adds this machine's vault as `personal`, or the `--existing-name` you pass, and makes it the default):
 
 ```json
 {
@@ -122,7 +123,7 @@ Times in your notes (the `Now:` line, focus and Log lines, which daily note toda
 uvx --from "git+https://github.com/thetonymaster/adhd_planner#subdirectory=setup" planner-setup timezone America/Mexico_City
 ```
 
-With no `vaults.json` yet, this creates one holding this machine's vault as `personal`; pass `--existing-name NAME` (e.g. `--existing-name work`) to name it. Or add `"timezone"` to `vaults.json` by hand:
+When `vaults.json` has no vaults yet (missing file, or no `"vaults"` entries), this adds this machine's vault as `personal` and makes it the default; pass `--existing-name NAME` (e.g. `--existing-name work`) to name it. Or add `"timezone"` to `vaults.json` by hand:
 
 ```json
 { "timezone": "America/Mexico_City", "default": "personal", "vaults": { "personal": { "path": "~/vault" } } }
