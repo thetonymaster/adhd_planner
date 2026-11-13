@@ -157,7 +157,8 @@ In this skill:
 
 - If `<planner-path>/tools/task_queue.py` is missing, the folder's tools
   predate this plugin version: say so, offer `planner:setup`, and stop. Do not
-  build the task list by hand.
+  build the task list by hand. This applies only when no task list is given: a
+  list the user supplies goes to `plan_day.py` as before.
 - **Inputs:** when no task list is given, run the queue command,
   `cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" --date <target date>`,
   with one quoted `--vault` per vault in play (`<name>` is the vault's name in

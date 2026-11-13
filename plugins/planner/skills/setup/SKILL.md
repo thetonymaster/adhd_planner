@@ -49,7 +49,8 @@ Before anything else, check what's in the connected planner folder:
 cd "<planner-path>" && ls tools/*.py 2>/dev/null | wc -l && ls calendars.json tools/calendars.json habits.json inbox.md 2>/dev/null
 ```
 
-Eleven scripts and the data files present → skip to step 1, this is a re-check.
+Eleven scripts and the data files present → this is a re-check: still apply
+**Tools older than the bundled ones** below, then skip to step 1.
 
 **Anything missing, seed it.** The plugin ships its own copy of `tools/` and the
 starter data files for exactly this, because a plugin can't write to itself and
