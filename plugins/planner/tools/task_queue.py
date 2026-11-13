@@ -310,8 +310,14 @@ def read_vault(name, path):
     for f in sorted(os.listdir(tasks_dir)):
         full = os.path.join(tasks_dir, f)
         if f.endswith(".md") and os.path.isfile(full):
-            with open(full, "rb") as fh:
-                notes.append(read_note(fh.read(), name, f[:-3]))
+            try:
+                with open(full, "rb") as fh:
+                    data = fh.read()
+            except OSError as e:
+                notes.append({"vault": name, "slug": f[:-3], "key": f"{name}:{f[:-3]}",
+                              "kind": KIND_UNREADABLE, "detail": f"cannot read: {e.strerror}"})
+                continue
+            notes.append(read_note(data, name, f[:-3]))
     return notes
 
 

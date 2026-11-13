@@ -422,8 +422,8 @@ A task with several open Next items is still one row: its title shows the first 
 and its minutes cover all of them.
 
 The `detail` of a `not_placed` row is `N of M open Next items have no estimate`,
-`no open Next item under ## Next`, or, for an unreadable note, `not UTF-8` or
-`no frontmatter`.
+`no open Next item under ## Next`, or, for an unreadable note, `not UTF-8`,
+`no frontmatter`, or `cannot read: <reason>` when the file cannot be opened.
 
 The tool also prints a text summary:
 

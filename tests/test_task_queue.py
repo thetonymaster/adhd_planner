@@ -298,6 +298,19 @@ class UnreadableTest(Base):
         self.assertEqual(r, {"task": "t", "name": "t", "reason": "unreadable note",
                              "detail": "no frontmatter"})
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root reads any file")
+    def test_a_note_that_cannot_be_read_is_listed_and_the_run_continues(self):
+        root = self.vault(notes={"locked": note(), "ok": note()})
+        locked = root / "Tasks" / "locked.md"
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, 0o644)
+        r = self.run_tool("--vault", f"v={root}", "--date", "2026-11-13")
+        data = json.loads(self.wrote(r.stdout).read_text(encoding="utf-8"))
+        self.assertEqual([row["task"] for row in data["tasks"]], ["ok"])
+        self.assertEqual(data["not_placed"], [{"task": "locked", "name": "locked",
+                                               "reason": "unreadable note",
+                                               "detail": "cannot read: Permission denied"}])
+
 
 class NameChainTest(Base):
     def test_alias_first(self):
