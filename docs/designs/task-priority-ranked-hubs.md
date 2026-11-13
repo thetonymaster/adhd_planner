@@ -533,7 +533,8 @@ play and asks the user once whether to leave them out. For each row it says
 what the ranked list holds for that task, and claims nothing more: the task is
 in `tasks`, the task is in `not_placed` with its reason, or the task is in
 neither, which is the case for a finished task and may be the case for a to-do
-the user typed. Without the question, the week of the upgrade
+the user typed. It calls a row the same as a queue row only when the two titles
+are equal; a task being in `tasks` does not mean this row's item is. Without the question, the week of the upgrade
 would list a task twice or bring back one that is done. An unattended run cannot read the vault and keeps unmarked rows,
 which is what it does before this change. The case ends with the next
 `plan-week` run, which rewrites the week files with the marker.
@@ -1113,9 +1114,10 @@ the tool's last output line, `Wrote <path>`. Daily skills add `--date <day>`;
         exists in a vault in play may have been written before the ranked list
         existed. List these rows and ask the user once whether to leave them
         out. For each row say what the ranked list holds for that task: in
-        `tasks`, in `not_placed` with its reason, or in neither. Do not say
-        the ranked list covers a row unless its task is in `tasks`. Keep any
-        row the user wants kept." This bullet must not contain the marker text,
+        `tasks`, in `not_placed` with its reason, or in neither. Say a row
+        is the same as a queue row only when the two titles are equal; do not
+        call a row covered or duplicated otherwise. Keep any row the user
+        wants kept." This bullet must not contain the marker text,
         which a test counts at exactly two.
     *   Do not repeat the week file's path, the pool phrase or the
         `plan_day.py --tasks` command in the new text:
