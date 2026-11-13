@@ -32,7 +32,8 @@ def _parser() -> argparse.ArgumentParser:
     p = sub.add_parser("vault")
     p.add_argument("--vault", type=Path)
     sub.add_parser("update-vaults", help="bring every registered vault up to date: Tasks.base board views, "
-                   "priority and due in Templates/Task.md, board plugin")
+                   "priority and due in Templates/Task.md, the task list in untouched Projects/ and "
+                   "Areas/ hubs, board plugin")
     p = sub.add_parser("add-vault", help="register another vault in ~/.config/adhd-planner/vaults.json")
     p.add_argument("name", help="kebab-case, e.g. work")
     p.add_argument("--path", type=Path, required=True)
