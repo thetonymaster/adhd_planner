@@ -10,6 +10,7 @@ import {
   isRunning,
   onBreak,
   emptyPomo,
+  LOCK_STALE_MS,
   markLogged,
   parsePomo,
   pause,
@@ -58,6 +59,9 @@ const POLL_MS = 15_000
 const TICK_MS = 60_000
 /** Less focus than this waits for the next flush instead of writing a line of its own. */
 const MIN_LOGGED_MS = 5 * 60_000
+/** Waits for a timer lock another session holds: changes take milliseconds, so this is a short collision. */
+const LOCK_TRIES = 5
+const LOCK_WAIT_MS = 40
 /** This session, for telling which one announced a break. New on every load. */
 const SESSION = Math.random().toString(36).slice(2, 10)
 
@@ -86,6 +90,16 @@ type Cached<T> = { mtimeMs: number; value: T }
 const noteCache = new Map<string, Cached<Candidate>>()
 /** The board's fields of each task note by note path, same rule. */
 const boardCache = new Map<string, Cached<BoardNote>>()
+/** The tail of this session's timer changes (see inPomoOrder). */
+let pomoOrder: Promise<unknown> = Promise.resolve()
+/** Said once per session: the timer lock can't be made here, so changes run unlocked. */
+let isLockFailureTold = false
+/** This session's host can't start the OS lock helper (no perl): the folder lock is used from then on. */
+let isFlockMissing = false
+/** Said once per session: the OS lock helper can't be used, so the folder lock is. */
+let isFlockFallbackTold = false
+/** Said once per session: the helper runs but can't open the lock file, so timer changes wait. */
+let isFlockOpenFailureTold = false
 
 function readSettings(options: PluginOptions): Settings {
   return {
@@ -215,7 +229,10 @@ async function load($: EngineInterface): Promise<TaskView | null> {
   // Credit the old task on the old vault's timer before this session moves to the new vault's.
   const isVaultChange = vault !== '' && root !== vault
   if (prev && isVaultChange) await flushFocus($, prev.slug, prev.path)
-  vault = root
+  // In timer order: a timer change or flush already queued runs wholly on the old vault, never half on each.
+  await inPomoOrder(async () => {
+    vault = root
+  })
   await update($, projectList, () => projectTasks(states.find(s => s.vault.path === root)?.candidates ?? [], dir, home))
   zone = zoneFor(config, (await $.env.get('TZ')) ?? '')
   await update($, source, () => picked?.reason ?? 'global')
@@ -359,14 +376,22 @@ async function dailyText($: EngineInterface, path: string, date: string): Promis
   return `---\ndate: ${date}\ntags: [daily]\n---\n# ${date}\n\n## Log\n`
 }
 
-/** Appends one focus line to the task's Log (when its note exists) and to that day's daily note. */
-async function writeFocus($: EngineInterface, slug: string, taskPath: string, date: string, time: string, spent: string): Promise<void> {
+/**
+ * Appends one focus line to the task's Log (when its note exists) and to that day's daily note. Each note is read
+ * and written back with the lease checked in between, so a holder that stalled and lost the lock never writes
+ * over a newer note; false when it stopped for that (the focus stays unlogged).
+ */
+async function writeFocus($: EngineInterface, lease: Lease, slug: string, taskPath: string, date: string, time: string, spent: string): Promise<boolean> {
   if (await $.fs.exists(taskPath)) {
     const taskText = await $.fs.read(taskPath)
+    if (!(await lease.isHeld())) return false
     await $.fs.write(taskPath, insertInSection(taskText, 'Log', `- [[${date}]] ${time} — ${spent}`))
   }
   const daily = `${await currentVault($)}/Daily/${date}.md`
-  await $.fs.write(daily, insertInSection(await dailyText($, daily, date), 'Log', `- ${time} [[${slug}]] ${spent}`))
+  const dailyBefore = await dailyText($, daily, date)
+  if (!(await lease.isHeld())) return false
+  await $.fs.write(daily, insertInSection(dailyBefore, 'Log', `- ${time} [[${slug}]] ${spent}`))
+  return true
 }
 
 /**
@@ -387,11 +412,17 @@ function isCalendarDay(day: string): boolean {
   return date.toISOString().slice(0, 10) === day
 }
 
-/** A finished day's focus that no session wrote (it ran past midnight, or crashed): written to that day's notes. */
-async function flushDay($: EngineInterface, d: DayTotals): Promise<void> {
+/**
+ * A finished day's focus that no session wrote (it ran past midnight, or crashed): written to that day's notes.
+ * Runs under the timer lock (changePomoHeld), so only one session rolls a day over and writes it.
+ */
+async function flushDay($: EngineInterface, lease: Lease, d: DayTotals): Promise<boolean> {
   const root = await currentVault($)
   // Validate before any write: a bad value is skipped and reported, the good slugs are still written once.
-  if (!isCalendarDay(d.day)) return reportPomoValue($, d.day, 'a date')
+  if (!isCalendarDay(d.day)) {
+    await reportPomoValue($, d.day, 'a date')
+    return true
+  }
   for (const slug of Object.keys(d.dayMs)) {
     const logged = d.logged[slug] ?? { ms: 0, blocks: 0 }
     const pending = { ms: (d.dayMs[slug] ?? 0) - logged.ms, blocks: (d.dayBlocks[slug] ?? 0) - logged.blocks }
@@ -400,21 +431,223 @@ async function flushDay($: EngineInterface, d: DayTotals): Promise<void> {
       await reportPomoValue($, slug, 'a task slug')
       continue
     }
-    await writeFocus($, slug, taskNotePath(root, slug), d.day, 'end of day', focusText(pending))
+    if (!(await writeFocus($, lease, slug, taskNotePath(root, slug), d.day, 'end of day', focusText(pending)))) return false
+  }
+  return true
+}
+
+/** A hold on the timer lock: `isHeld` turns false once another session broke it as stale. */
+type Lease = { isHeld: () => Promise<boolean> }
+
+/** Runs a command on the host: '' when it exits 0, else why not. Messages in English (LC_ALL=C), so they can be read. */
+async function host($: EngineInterface, argv: readonly string[]): Promise<string> {
+  return $.process
+    .run(argv, { env: { LC_ALL: 'C' } })
+    .then(r => (r.exitCode === 0 ? '' : `exit ${r.exitCode}: ${r.stderr.trim()}`))
+    .catch((err: unknown) => (err instanceof Error ? err.message : String(err)))
+}
+
+/** A lock as read now: `key` names this one lock (its owner, else its folder's mtime), `at` when it was taken. */
+type SeenLock = { key: string; at: number }
+
+/** The owner file's `{ by, at }`, or undefined when it is not one (half-written, foreign). */
+function parseOwner(text: string): { by: string; at: number } | undefined {
+  try {
+    const o = JSON.parse(text) as { by?: unknown; at?: unknown } | null
+    if (typeof o?.by !== 'string' || typeof o.at !== 'number') return undefined
+    // `by` goes into a folder name: only a session id's characters.
+    return { by: /^[A-Za-z0-9_-]{1,64}$/.test(o.by) ? o.by : 'unknown', at: o.at }
+  } catch {
+    return undefined
   }
 }
 
 /**
- * Read fresh, roll the day, change, write back. Skips the round when the file is unreadable.
- * A finished day's unwritten focus goes to the notes before the rolled file replaces it:
+ * The lock at `lock` now, or undefined only when it is confirmed gone. A lock that exists but can't be inspected
+ * (permissions, I/O) counts as held and never stale: an unreadable lock proves nothing about its holder.
+ */
+async function inspectLock($: EngineInterface, lock: string): Promise<SeenLock | undefined> {
+  const text = await $.fs.read(`${lock}/owner`).catch(() => undefined)
+  const owner = text === undefined ? undefined : parseOwner(text)
+  if (owner) return { key: `${owner.by}-${owner.at}`, at: owner.at }
+  // No owner file yet (or half-written): the folder's own age.
+  const stat = await $.fs.stat(lock).catch(() => undefined)
+  if (stat) return { key: `unowned-${stat.mtimeMs}`, at: stat.mtimeMs }
+  const isThere = await $.fs.exists(lock).catch(() => true)
+  return isThere ? { key: 'uninspectable', at: Number.POSITIVE_INFINITY } : undefined
+}
+
+/**
+ * Removes the stale lock `seen`, unless it is gone or another lock replaced it meanwhile. One breaker per stale
+ * lock: each first makes `<lock>.break-<key>` with mkdir, so two sessions that both saw it stale never both act,
+ * and the winner re-reads the lock before removing it, so a fresh lock made by an earlier breaker is left alone.
+ * A marker LOCK_STALE_MS old belongs to a breaker that died mid-break: removed, so the next round can break.
+ */
+async function breakStaleLock($: EngineInterface, lock: string, seen: SeenLock, now: number): Promise<void> {
+  const marker = `${lock}.break-${seen.key}`
+  if (await host($, ['mkdir', marker])) {
+    const stat = await $.fs.stat(marker).catch(() => undefined)
+    if (stat && now - stat.mtimeMs >= LOCK_STALE_MS) await host($, ['rm', '-rf', marker])
+    return
+  }
+  try {
+    if ((await inspectLock($, lock))?.key === seen.key) await host($, ['rm', '-rf', lock])
+  } finally {
+    await host($, ['rm', '-rf', marker])
+  }
+}
+
+/**
+ * The OS lock helper: takes an exclusive `flock` on its file and holds it until it is killed, or until the process
+ * that started it dies (it checks its parent every 200 ms). Prints `held`, or exits FLOCK_BUSY when another
+ * process holds the lock, or 2 when the file can't be opened. The kernel drops the lock with the process, so no
+ * session ever has to judge a lock stale and break it.
+ */
+const FLOCK_HELPER =
+  'use Fcntl qw(:flock); $|=1; open(my $f, ">>", $ARGV[0]) or do { print "error: $!\\n"; exit 2 }; ' +
+  'flock($f, LOCK_EX|LOCK_NB) or do { print "busy\\n"; exit 75 }; print "held\\n"; ' +
+  'my $p = getppid(); while (1) { select(undef, undef, undef, 0.2); exit 0 if getppid() != $p }'
+const FLOCK_BUSY = 75
+
+type FlockTry<T> = { kind: 'ran'; value: T } | { kind: 'busy' } | { kind: 'unavailable'; why: string; isNoHelper: boolean }
+
+/** Runs `fn` while the helper holds the OS lock on `file`; the helper is killed (the lock released) when it ends. */
+async function tryFlock<T>($: EngineInterface, file: string, fn: () => Promise<T>): Promise<FlockTry<T>> {
+  const child = $.process.spawn({ argv: ['perl', '-e', FLOCK_HELPER, file] })
+  try {
+    let out = ''
+    for (;;) {
+      const step = await child.next().then(
+        s => s,
+        (err: unknown) => (err instanceof Error ? err : new Error(String(err))),
+      )
+      if (step instanceof Error) return { kind: 'unavailable', why: step.message, isNoHelper: true }
+      if (step.done) {
+        if (step.value.code === FLOCK_BUSY) return { kind: 'busy' }
+        return { kind: 'unavailable', why: `exit ${step.value.code ?? step.value.signal}: ${out.trim()}`, isNoHelper: false }
+      }
+      if (step.value.stream === 'stdout') out += step.value.text
+      if (out.includes('held\n')) break
+    }
+    return { kind: 'ran', value: await fn() }
+  } finally {
+    await child.return({ code: null, signal: null })
+  }
+}
+
+/**
+ * Runs `fn` holding the cross-session lock on the timer file: an OS `flock` on `Tasks/.pomo.flock` held by a helper
+ * process (FLOCK_HELPER). Busy: waits LOCK_WAIT_MS up to LOCK_TRIES times, then resolves null (the round is
+ * skipped). Where perl can't start, uses the folder lock (withDirLock), said once per session: perl is a property of
+ * the machine, so every session there uses the folder lock and they still exclude each other; that lock can be
+ * broken under a session paused mid-write. Where perl runs but can't open the lock file, the round is skipped (said
+ * once): other sessions here hold the OS lock, which a folder lock would not exclude.
+ */
+async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<T>): Promise<T | null> {
+  if (!isFlockMissing) {
+    const file = `${await currentVault($)}/Tasks/.pomo.flock`
+    for (let attempt = 1; attempt <= LOCK_TRIES; attempt++) {
+      const r = await tryFlock($, file, () => fn({ isHeld: async () => true }))
+      if (r.kind === 'ran') return r.value
+      if (r.kind === 'unavailable' && !r.isNoHelper) {
+        // perl runs here, so other sessions on this machine use the OS lock: a folder lock would not exclude them.
+        if (!isFlockOpenFailureTold) {
+          isFlockOpenFailureTold = true
+          $.ui.log(`task-track: can't take the timer lock ${file} (${r.why}); the timer is left unchanged until it can.`)
+        }
+        return null
+      }
+      if (r.kind === 'unavailable') {
+        isFlockMissing = true
+        if (!isFlockFallbackTold) {
+          isFlockFallbackTold = true
+          $.ui.log(`task-track: can't run the OS lock helper (${r.why}); using the folder lock ${await currentVault($)}/Tasks/.pomo.lock, which a session paused mid-write can lose.`)
+        }
+        return withDirLock($, fn)
+      }
+      if (attempt < LOCK_TRIES) await $.clock.sleep(LOCK_WAIT_MS)
+    }
+    return null
+  }
+  return withDirLock($, fn)
+}
+
+/**
+ * The fallback lock on the timer file where the OS lock helper can't run: a folder made with `mkdir`, which only one
+ * process can create. Busy: waits LOCK_WAIT_MS up to LOCK_TRIES times, then resolves null (the round is skipped).
+ * A stale lock is broken by one session (breakStaleLock). mkdir's own reason decides the rest: `File exists` is
+ * contention, never a reason to go unlocked; a lock confirmed gone by the time it is looked at was just released,
+ * so mkdir is retried at once, up to LOCK_TRIES times, then the round is skipped. Any other reason (permission,
+ * no Tasks folder, no shell) means mkdir can't work here: said once per session, and `fn` runs unlocked rather
+ * than freezing the timer.
+ */
+async function withDirLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<T>): Promise<T | null> {
+  const lock = `${await currentVault($)}/Tasks/.pomo.lock`
+  let vanished = 0
+  for (let attempt = 1; attempt <= LOCK_TRIES; attempt++) {
+    const now = await $.clock.now()
+    const why = await host($, ['mkdir', lock])
+    if (!why) {
+      const mine = JSON.stringify({ by: SESSION, at: now })
+      await $.fs.write(`${lock}/owner`, mine)
+      const lease = { isHeld: async () => (await $.fs.read(`${lock}/owner`).catch(() => '')) === mine }
+      try {
+        return await fn(lease)
+      } finally {
+        if (await lease.isHeld()) await host($, ['rm', '-rf', lock])
+      }
+    }
+    if (!/File exists/i.test(why)) {
+      if (!isLockFailureTold) {
+        isLockFailureTold = true
+        $.ui.log(`task-track: can't make the timer lock ${lock} (${why}); changing the timer unlocked, so two sessions may log the same focus.`)
+      }
+      return fn({ isHeld: async () => true })
+    }
+    const seen = await inspectLock($, lock)
+    if (!seen) {
+      if (++vanished >= LOCK_TRIES) return null
+      attempt--
+      continue
+    }
+    vanished = 0
+    if (now - seen.at >= LOCK_STALE_MS) {
+      await breakStaleLock($, lock, seen, now)
+      continue
+    }
+    if (attempt < LOCK_TRIES) await $.clock.sleep(LOCK_WAIT_MS)
+  }
+  return null
+}
+
+/** Runs `fn` after every timer change this session started before it: a session never waits on its own lock. */
+function inPomoOrder<T>(fn: () => Promise<T>): Promise<T> {
+  const run = pomoOrder.then(fn)
+  pomoOrder = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
+/**
+ * Read fresh, roll the day, change, write back, holding the timer lock (null: unreadable, or locked by another
+ * session this round). A finished day's unwritten focus goes to the notes before the rolled file replaces it:
  * a failed write then repeats on the next round instead of losing the time.
  */
 async function changePomo($: EngineInterface, change: (f: PomoFile) => PomoFile): Promise<PomoFile | null> {
+  await currentVault($)
+  return inPomoOrder(async () => (await withPomoLock($, lease => changePomoHeld($, lease, change))) ?? null)
+}
+
+/** changePomo's body, for a caller already holding the lock; skips the write once the lease is lost. */
+async function changePomoHeld($: EngineInterface, lease: Lease, change: (f: PomoFile) => PomoFile): Promise<PomoFile | null> {
   const current = await readPomo($)
   if (!current) return null
   const { file, finished } = rollDay(current, await today($))
   if (finished) {
-    await flushDay($, finished)
+    // Fenced like the write below: a holder that lost its lock must not write the finished day's notes.
+    if (!(await lease.isHeld()) || !(await flushDay($, lease, finished))) return null
     await saveDay($, finished)
   }
   const next = change(file)
@@ -422,6 +655,8 @@ async function changePomo($: EngineInterface, change: (f: PomoFile) => PomoFile)
     await update($, pomo, () => current)
     return current
   }
+  // Fenced: a session that stalled past LOCK_STALE_MS and lost its lock must not write over the new holder.
+  if (!(await lease.isHeld())) return null
   await writePomo($, next)
   return next
 }
@@ -495,7 +730,7 @@ async function runPomo($: EngineInterface, action: PomoAction): Promise<string> 
     out.t = t
     return 'error' in t ? file : snapshotTask(t.file, view.slug, checkedTitles(view.next))
   })
-  if (!f) return `Can't read ${await pomoPath($)}: unreadable or not a timer file. Nothing changed.`
+  if (!f) return `Can't change ${await pomoPath($)}: unreadable, not a timer file, or locked by another session. Nothing changed.`
   const t = out.t
   if (!t) throw new Error(`runPomo(${action}): changePomo returned a file without running the change`)
   if ('error' in t) return t.error
@@ -519,19 +754,35 @@ async function pressPomo($: EngineInterface, action: PomoAction): Promise<void> 
 }
 
 /**
- * Writes today's not-yet-logged focus on `slug` to its task Log and the daily note, then marks it logged.
- * Notes first, as flushDay does: a failed write leaves the time unlogged for the next try instead of losing it.
+ * Writes today's not-yet-logged focus on `slug` to its task Log and that day's daily note, then marks it logged,
+ * all under the timer lock, so two sessions never write the same minutes. A failed note write leaves the focus
+ * unlogged for the next try. A crash between the note write and the mark writes it again later: twice, never lost.
+ * One session's flushes run in order (inPomoOrder). A flush queued while load() moved this session to another
+ * vault is skipped: timer and daily-note paths follow `vault`, so it would mix the two; its focus stays unlogged
+ * on the old vault's timer for that vault's next flush.
  */
 async function flushFocus($: EngineInterface, slug: string, path: string): Promise<void> {
-  const before = await changePomo($, file => file)
+  const queuedIn = await currentVault($)
+  await inPomoOrder(async () => {
+    if (vault !== queuedIn) return
+    await withPomoLock($, lease => flushFocusHeld($, lease, slug, path))
+  })
+}
+
+async function flushFocusHeld($: EngineInterface, lease: Lease, slug: string, path: string): Promise<void> {
+  // Rolls the day first if it moved on, so `before` holds the day its totals belong to.
+  const before = await changePomoHeld($, lease, file => file)
   if (!before) return
   const pending = unlogged(before, slug)
   if (pending.ms < MIN_LOGGED_MS) return
-  const { date, time } = stamp(new Date(await $.clock.now()), await currentZone($))
-  await writeFocus($, slug, path, date, time, focusText(pending))
   const written = { ms: before.dayMs[slug] ?? 0, blocks: before.dayBlocks[slug] ?? 0 }
-  // Only what was written: focus added meanwhile stays unlogged, and a day that rolled over meanwhile is not marked.
-  await changePomo($, file => (file.day === before.day ? markLogged(file, slug, written) : file))
+  const { time } = stamp(new Date(await $.clock.now()), await currentZone($))
+  if (!(await writeFocus($, lease, slug, path, before.day, time, focusText(pending)))) return
+  // Marked on the day that was read, without rolling: if midnight passed during the note writes, a rollover here
+  // would hand flushDay these totals as unlogged and write them twice. The next timer change rolls the day.
+  const current = await readPomo($)
+  if (!current || current.day !== before.day || !(await lease.isHeld())) return
+  await writePomo($, markLogged(current, slug, written))
 }
 
 /** Every minute: move the shared clock; the session that announces a block is the one whose write stuck. */

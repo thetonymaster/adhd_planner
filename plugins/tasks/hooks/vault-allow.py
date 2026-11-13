@@ -187,8 +187,8 @@ def main():
         pattern = tool_input.get(PATTERN_KEYS.get(tool, ""), "") or ""
         if tool == "Glob" and pattern and pattern_escapes(pattern):
             return
-    except (AttributeError, TypeError):
-        return  # malformed input: leave it to the normal prompt
+    except (AttributeError, TypeError, ValueError):
+        return  # malformed input (ValueError: a NUL byte in a path): leave it to the normal prompt
     root = next((r for r in roots if paths and all(inside(p, r) for p in paths)), None)
     if root is None:
         return

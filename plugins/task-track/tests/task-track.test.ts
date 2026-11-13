@@ -3,7 +3,7 @@ import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
 import { cells, codeSpans, fitCells, heading, insertInSection, logEntry, logOrder, parseNote, splitEstimate, stamp, toggleNext } from '../hooks/note'
-import { advance, blockMinutes, emptyPomo, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
+import { advance, blockMinutes, emptyPomo, LOCK_STALE_MS, isRunning, markLogged, onBreak, parsePomo, pause, pomoDots, pomoState, resume, recordActivity, rollDay, serializePomo, shouldTouch, snapshotTask, start, stop, toggle, touch, unlogged } from '../hooks/pomo'
 import { blockSummary, checkedTitles, logSince, SUMMARY_SYSTEM, summaryPrompt } from '../hooks/summary'
 import type { PomoFile } from '../types'
 import { boardNote, buildBoard, fitColumn } from '../hooks/board'
@@ -424,13 +424,14 @@ describe('controls', () => {
 })
 
 /** An in-memory vault beneath the plugin's $.fs calls. */
-function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void } = {}) {
+function fakeVault(on: On, files: Record<string, string>, session: { id?: string; root?: string } = {}, opts: { unreadable?: readonly string[]; afterWrite?: (path: string) => void; afterRead?: (path: string) => void; failCommand?: (argv: readonly string[]) => string | undefined; dirs?: Record<string, number>; flocked?: readonly string[]; noPerl?: boolean; flockError?: string; events?: string[] } = {}) {
   let mtime = 1000
   const mtimes: Record<string, number> = Object.fromEntries(Object.keys(files).map(k => [k, mtime]))
   const missing = (path: string) => ({ deny: `ENOENT: ${path}` })
   on('fs.read', ($, e) => {
     if (opts.unreadable?.includes(e.path)) return { deny: `EACCES: ${e.path}` }
     const text = files[e.path]
+    if (text !== undefined) opts.afterRead?.(e.path)
     return text === undefined ? missing(e.path) : { value: text }
   })
   on('fs.write', ($, e) => {
@@ -439,11 +440,87 @@ function fakeVault(on: On, files: Record<string, string>, session: { id?: string
     opts.afterWrite?.(e.path)
     return { value: undefined }
   })
+  // Directories made by `mkdir` (the timer lock), with their mtimes; a file's parent folders exist implicitly.
+  // A folder made during the test is as new as can be: never stale.
+  const dirs = new Set<string>(Object.keys(opts.dirs ?? {}))
+  const dirTimes: Record<string, number> = { ...opts.dirs }
+  const under = (dir: string) => Object.keys(files).filter(k => k.startsWith(`${dir}/`))
   on('fs.exists', ($, e) => ({
-    value: e.path in files || Object.keys(files).some(k => k.startsWith(`${e.path}/`)),
+    value: e.path in files || dirs.has(e.path) || under(e.path).length > 0,
   }))
+  // The commands the plugin runs on the host: mkdir (fails when the path exists), mv [-f] and rm -rf.
+  const exit = (exitCode: number, stderr = '') => ({ value: { exitCode, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false } })
+  on('process.run', ($, e) => {
+    const refused = opts.failCommand?.(e.argv)
+    if (refused !== undefined) return exit(1, refused)
+    const [cmd, ...rest] = e.argv
+    const paths = rest.filter(a => !a.startsWith('-'))
+    if (cmd === 'mkdir' && paths.length === 1) {
+      const [dir] = paths as [string]
+      if (dirs.has(dir) || dir in files || under(dir).length > 0) return exit(1, `mkdir: ${dir}: File exists\n`)
+      dirs.add(dir)
+      delete dirTimes[dir]
+      return exit(0)
+    }
+    if (cmd === 'mv' && paths.length === 2) {
+      const [from, to] = paths as [string, string]
+      if (from in files) {
+        files[to] = files[from] as string
+        mtimes[to] = ++mtime
+        delete files[from]
+        opts.afterWrite?.(to)
+        return exit(0)
+      }
+      if (!dirs.has(from) && under(from).length === 0) return exit(1, `mv: ${from}: No such file or directory\n`)
+      if (dirs.has(to) || to in files || under(to).length > 0) return exit(1, `mv: ${to}: exists\n`)
+      dirs.delete(from)
+      dirs.add(to)
+      for (const k of under(from)) {
+        files[to + k.slice(from.length)] = files[k] as string
+        delete files[k]
+      }
+      return exit(0)
+    }
+    if (cmd === 'rm' && paths.length === 1) {
+      const [path] = paths as [string]
+      dirs.delete(path)
+      delete files[path]
+      for (const k of under(path)) delete files[k]
+      return exit(0)
+    }
+    return exit(127, `fake host: no ${e.argv.join(' ')}\n`)
+  })
+  // The OS lock helper (`perl … flock`): one holder per lock file, released when the stream is closed. Files in
+  // `flocked` are held by another session; `noPerl` is a host where perl can't start.
+  const flocks = new Set<string>(opts.flocked)
+  on('process.spawn', async function* ($, e) {
+    if (e.argv[0] !== 'perl' || opts.noPerl) return { deny: `spawn ${e.argv[0]} ENOENT` }
+    const file = e.argv.at(-1) ?? ''
+    if (opts.flockError) {
+      yield { stream: 'stdout' as const, text: `error: ${opts.flockError}\n` }
+      return { value: { code: 2, signal: null } }
+    }
+    if (flocks.has(file)) {
+      yield { stream: 'stdout' as const, text: 'busy\n' }
+      return { value: { code: 75, signal: null } }
+    }
+    flocks.add(file)
+    files[file] ??= ''
+    opts.events?.push(`flock held ${file}`)
+    try {
+      yield { stream: 'stdout' as const, text: 'held\n' }
+      return { value: { code: 0, signal: null } }
+    } finally {
+      flocks.delete(file)
+      opts.events?.push(`flock released ${file}`)
+    }
+  })
   on('fs.stat', ($, e) => {
+    if (opts.unreadable?.includes(e.path)) return { deny: `EACCES: ${e.path}` }
     const text = files[e.path]
+    if (text === undefined && (dirs.has(e.path) || under(e.path).length > 0)) {
+      return { value: { kind: 'dir' as const, size: 0, mtimeMs: dirTimes[e.path] ?? Number.MAX_SAFE_INTEGER, isLink: false } }
+    }
     if (text === undefined) return missing(e.path)
     return { value: { kind: 'file' as const, size: text.length, mtimeMs: mtimes[e.path] ?? 0, isLink: false } }
   })
@@ -708,8 +785,11 @@ describe('/pomo and the band controls', () => {
   })
 
   test('a failed rename is named once per session, and the write still lands', async ($, on) => {
-    const files = setup(on, running())
-    on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: 'mv: rename failed\n', isStdoutTruncated: false, isStderrTruncated: false } }))
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      failCommand: argv => (argv[0] === 'mv' && argv.at(-1) === POMO ? 'mv: rename failed\n' : undefined),
+    })
     const logs: string[] = []
     on('ui.log', ($, e) => {
       logs.push(e.text)
@@ -723,8 +803,299 @@ describe('/pomo and the band controls', () => {
 
   test('an unreadable timer file is named and left alone', async ($, on) => {
     const files = setup(on, '{"version":1,"slug":"x"')
-    expect((await run($, 'pomo', 'pause')).text).toBe("Can't read /v/Tasks/.pomo.json: unreadable or not a timer file. Nothing changed.")
+    expect((await run($, 'pomo', 'pause')).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
     expect(files[POMO]).toBe('{"version":1,"slug":"x"')
+  })
+
+  const LOCK = '/v/Tasks/.pomo.lock'
+  const owner = (by: string, at: number) => JSON.stringify({ by, at })
+
+  const FLOCK = '/v/Tasks/.pomo.flock'
+
+  test('a timer change holds the OS lock while it writes, and releases it right after', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const events: string[] = []
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      events,
+      afterWrite: path => {
+        if (path === POMO) events.push('pomo written')
+      },
+    })
+    await run($, 'pomo', 'pause')
+    expect(events).toEqual([`flock held ${FLOCK}`, 'pomo written', `flock released ${FLOCK}`])
+    expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
+    expect(shared(files).pausedAt).toBe(NOW)
+  })
+
+  test('another session holding the OS lock makes the change wait, then skip the round untouched', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: NOW })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { flocked: [FLOCK] })
+    const pausing = run($, 'pomo', 'pause')
+    await clock.advance(1000)
+    expect((await pausing).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
+    expect(shared(files).pausedAt).toBe(0)
+  })
+
+  test("a lock file the helper can't open skips the round, said once, and never uses the folder lock", async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const ran: string[] = []
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      flockError: 'Permission denied',
+      failCommand: argv => {
+        ran.push(argv.join(' '))
+        return undefined
+      },
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    expect((await run($, 'pomo', 'pause')).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
+    await run($, 'pomo', 'pause')
+    expect(logs.filter(l => l.includes('lock'))).toEqual([`task-track: can't take the timer lock ${FLOCK} (exit 2: error: Permission denied); the timer is left unchanged until it can.`])
+    expect(ran.filter(r => r.startsWith('mkdir'))).toEqual([])
+    expect(shared(files).pausedAt).toBe(0)
+  })
+
+  test("where perl can't run, the folder lock is used instead, said once", async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const ran: string[] = []
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      noPerl: true,
+      failCommand: argv => {
+        ran.push(argv.join(' '))
+        return undefined
+      },
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    await run($, 'pomo', 'pause')
+    await run($, 'pomo', 'resume')
+    expect(logs.filter(l => l.includes('OS lock'))).toEqual([`task-track: can't run the OS lock helper (task-track: $.process.spawn: spawn perl ENOENT); using the folder lock ${LOCK}, which a session paused mid-write can lose.`])
+    expect(ran.filter(r => r === `mkdir ${LOCK}`)).toHaveLength(2)
+    expect(shared(files).pausedAt).toBe(0)
+  })
+
+  test('a timer change holds the lock while it writes and leaves none behind', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const ran: string[] = []
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { noPerl: true,
+      afterWrite: path => {
+        if (path === POMO) ran.push(`pomo written, lock ${LOCK}/owner ${`${LOCK}/owner` in files ? 'held' : 'free'}`)
+      },
+      failCommand: argv => {
+        ran.push(argv.join(' '))
+        return undefined
+      },
+    })
+    await run($, 'pomo', 'pause')
+    expect(ran.filter(r => r.includes(LOCK))).toEqual([`mkdir ${LOCK}`, `pomo written, lock ${LOCK}/owner held`, `rm -rf ${LOCK}`])
+    expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
+    expect(shared(files).pausedAt).toBe(NOW)
+  })
+
+  test('a lock another session holds makes the change wait, then skip the round untouched', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: NOW })
+    const theirs = owner('other-session', NOW)
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: theirs }, {}, { noPerl: true })
+    const pausing = run($, 'pomo', 'pause')
+    await clock.advance(1000)
+    expect((await pausing).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
+    expect(shared(files).pausedAt).toBe(0)
+    expect(files[`${LOCK}/owner`]).toBe(theirs)
+  })
+
+  test('a lock left by a session that died is broken, and the change goes through', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', NOW - LOCK_STALE_MS) }, {}, { noPerl: true })
+    await run($, 'pomo', 'pause')
+    expect(shared(files).pausedAt).toBe(NOW)
+    expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
+  })
+
+  test('a session whose lock was broken under it does not write over the new holder', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const theirs = owner('other-session', NOW)
+    let isTaken = false
+    // Right after this session takes the lock, another session breaks it as stale and takes it.
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { noPerl: true,
+      afterWrite: path => {
+        if (path !== `${LOCK}/owner` || isTaken) return
+        isTaken = true
+        files[path] = theirs
+      },
+    })
+    await run($, 'pomo', 'pause')
+    expect(shared(files).pausedAt).toBe(0)
+    expect(files[`${LOCK}/owner`]).toBe(theirs)
+  })
+
+  test('a lock that cannot be made at all is named once, and changes still land', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { noPerl: true,
+      failCommand: argv => (argv[0] === 'mkdir' ? 'mkdir: Permission denied\n' : undefined),
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    await run($, 'pomo', 'pause')
+    await run($, 'pomo', 'resume')
+    expect(logs.filter(l => l.includes('make the timer lock'))).toEqual([`task-track: can't make the timer lock ${LOCK} (exit 1: mkdir: Permission denied); changing the timer unlocked, so two sessions may log the same focus.`])
+    expect(shared(files).pausedAt).toBe(0)
+  })
+
+  test('a lock released between a failed mkdir and the look at it is retried, not taken as unlockable', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    let isReleased = false
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('other-session', NOW) }, {}, { noPerl: true,
+      // The other session's mkdir'd lock makes ours fail; it releases the lock right after.
+      failCommand: argv => {
+        if (argv[0] !== 'mkdir' || argv[1] !== LOCK || isReleased) return undefined
+        isReleased = true
+        delete files[`${LOCK}/owner`]
+        return `mkdir: ${LOCK}: File exists\n`
+      },
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    await run($, 'pomo', 'pause')
+    expect(logs.filter(l => l.includes('make the timer lock'))).toEqual([])
+    expect(shared(files).pausedAt).toBe(NOW)
+    expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
+  })
+
+  test('a lock that vanishes after every failed mkdir is retried until it holds, never run unlocked', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    let busy = 2
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { noPerl: true,
+      // Twice in a row, another session holds the lock as this one's mkdir runs and releases it just after.
+      failCommand: argv => {
+        if (argv[0] !== 'mkdir' || argv[1] !== LOCK || busy === 0) return undefined
+        busy--
+        return `mkdir: ${LOCK}: File exists\n`
+      },
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    await run($, 'pomo', 'pause')
+    expect(logs.filter(l => l.includes('make the timer lock'))).toEqual([])
+    expect(busy).toBe(0)
+    expect(shared(files).pausedAt).toBe(NOW)
+  })
+
+  test('a lock that vanishes after five failed mkdirs in a row is contention: the round is skipped, never run unlocked', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      noPerl: true,
+      // Every mkdir finds the lock there (another session holds it), which is gone by the time it is looked at.
+      failCommand: argv => (argv[0] === 'mkdir' && argv[1] === LOCK ? `mkdir: ${LOCK}: File exists\n` : undefined),
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    expect((await run($, 'pomo', 'pause')).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
+    expect(logs.filter(l => l.includes('make the timer lock'))).toEqual([])
+    expect(shared(files).pausedAt).toBe(0)
+  })
+
+  test('a lock that exists but cannot be inspected counts as held: never run unlocked, never broken', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: NOW })
+    const theirs = owner('other-session', NOW - LOCK_STALE_MS)
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: theirs }, {}, { noPerl: true,
+      unreadable: [`${LOCK}/owner`, LOCK],
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    const pausing = run($, 'pomo', 'pause')
+    await clock.advance(1000)
+    expect((await pausing).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
+    expect(logs.filter(l => l.includes('make the timer lock'))).toEqual([])
+    expect(shared(files).pausedAt).toBe(0)
+    expect(files[`${LOCK}/owner`]).toBe(theirs)
+  })
+
+  test('two sessions breaking the same stale lock: the late one never takes the fresh lock the first made', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: NOW })
+    const fresh = owner('first-breaker', NOW)
+    let isBroken = false
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', NOW - LOCK_STALE_MS) }, {}, { noPerl: true,
+      // Both sessions saw the stale lock; the first finishes breaking it and takes a fresh one just before this one acts.
+      failCommand: argv => {
+        const isBreaking = (argv[0] === 'mv' && argv.includes(LOCK)) || (argv[0] === 'mkdir' && (argv[1] ?? '').startsWith(`${LOCK}.break-`))
+        if (isBreaking && !isBroken) {
+          isBroken = true
+          files[`${LOCK}/owner`] = fresh
+        }
+        return undefined
+      },
+    })
+    const pausing = run($, 'pomo', 'pause')
+    await clock.advance(1000)
+    await pausing
+    expect(files[`${LOCK}/owner`]).toBe(fresh)
+    expect(shared(files).pausedAt).toBe(0)
+    expect(Object.keys(files).filter(k => k.startsWith(`${LOCK}.`))).toEqual([])
+  })
+
+  test("a session whose lock was broken under it does not write the finished day's notes at a rollover", async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const yesterday = { ...running(), day: '2026-10-12', dayMs: { 'set-up-vault': 30 * MIN } }
+    let isTaken = false
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(yesterday) }, {}, { noPerl: true,
+      afterWrite: path => {
+        if (path !== `${LOCK}/owner` || isTaken) return
+        isTaken = true
+        files[path] = owner('other-session', NOW)
+      },
+    })
+    on('store.set', () => ({ value: undefined }))
+    await run($, 'pomo', 'pause')
+    expect(files['/v/Daily/2026-10-12.md']).toBeUndefined()
+    expect(shared(files).day).toBe('2026-10-12')
+  })
+
+  test('a break marker left by a session that died mid-break expires, and the stale lock is broken', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const staleAt = NOW - LOCK_STALE_MS
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()), [`${LOCK}/owner`]: owner('gone-session', staleAt) }, {}, { noPerl: true,
+      dirs: { [`${LOCK}.break-gone-session-${staleAt}`]: NOW - 2 * LOCK_STALE_MS },
+    })
+    await run($, 'pomo', 'pause')
+    expect(shared(files).pausedAt).toBe(NOW)
+    expect(Object.keys(files).filter(k => k.startsWith(LOCK))).toEqual([])
   })
 
   test('the band shows the buttons for the state, and ⏸ pauses the shared file', async ($, on) => {
@@ -762,7 +1133,7 @@ describe('/pomo and the band controls', () => {
     mock.clock(on, { now: NOW })
     const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, { unreadable: [POMO] })
     const before = files[POMO]
-    expect((await run($, 'pomo', 'stop')).text).toBe("Can't read /v/Tasks/.pomo.json: unreadable or not a timer file. Nothing changed.")
+    expect((await run($, 'pomo', 'stop')).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
     expect(files[POMO]).toBe(before)
   })
 
@@ -1002,6 +1373,116 @@ describe('focus reaches the notes', () => {
     await $.session.end(end)
     expect(files[DAILY]).toBeUndefined()
     expect(unlogged(parsePomo(files['/v/Tasks/.pomo.json'] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
+  })
+
+  test('a flush while another session holds the OS lock writes nothing and leaves the focus unlogged', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, { flocked: ['/v/Tasks/.pomo.flock'] })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    const ending = $.session.end(end)
+    await clock.advance(1000)
+    await ending
+    expect(files[PATH]).not.toContain('— focus')
+    expect(files['/v/Daily/2026-10-13.md']).toBeUndefined()
+    expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
+  })
+
+  test('a flush that finds another session holding the lock writes nothing and leaves the focus unlogged', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    const clock = mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const LOCK_OWNER = '/v/Tasks/.pomo.lock/owner'
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, { noPerl: true })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    files[LOCK_OWNER] = JSON.stringify({ by: 'other-session', at: T0 + 40 * MIN })
+    const ending = $.session.end(end)
+    await clock.advance(1000)
+    await ending
+    expect(files[PATH]).not.toContain('— focus')
+    expect(files['/v/Daily/2026-10-13.md']).toBeUndefined()
+    expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
+  })
+
+  test("a flush after midnight writes yesterday's unlogged focus to yesterday's notes, not today's", async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: new Date(2026, 9, 14, 0, 5).getTime() })
+    const POMO = '/v/Tasks/.pomo.json'
+    // Two tasks left focus on the 13th; this session flushes one of them on the 14th.
+    const yesterday = { ...emptyPomo('2026-10-13'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 30 * MIN, other: 20 * MIN }, dayBlocks: { 'set-up-vault': 1, other: 0 } }
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, '/v/Tasks/other.md': NOTE, [POMO]: serializePomo(yesterday) })
+    on('store.set', () => ({ value: undefined }))
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    await $.session.end(end)
+    expect(files['/v/Daily/2026-10-13.md'] ?? '').toContain('end of day [[set-up-vault]] focus 30m (1 pomodoro)')
+    expect(files['/v/Daily/2026-10-13.md'] ?? '').toContain('end of day [[other]] focus 20m')
+    expect(files['/v/Daily/2026-10-14.md']).toBeUndefined()
+    expect(parsePomo(files[POMO] ?? '')?.day).toBe('2026-10-14')
+  })
+
+  test('a holder that loses its lock after reading a note never writes over the newer note', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const OWNER = '/v/Tasks/.pomo.lock/owner'
+    const NEWER = `${NOTE}- [[2026-10-13]] 09:41 — written by the session that took over\n`
+    let isArmed = false
+    // This session stalls after reading the note; another breaks its lock as stale, takes it and writes the note.
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, { noPerl: true,
+      afterRead: path => {
+        if (path !== PATH || !isArmed) return
+        isArmed = false
+        files[OWNER] = JSON.stringify({ by: 'other-session', at: T0 + 40 * MIN })
+        files[PATH] = NEWER
+      },
+    })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    isArmed = true
+    await $.session.end(end)
+    expect(files[PATH]).toBe(NEWER)
+    expect(files['/v/Daily/2026-10-13.md']).toBeUndefined()
+    expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
+  })
+
+  test('midnight passing while a flush writes its notes does not write that focus again at the rollover', async ($, on) => {
+    const POMO = '/v/Tasks/.pomo.json'
+    let now = new Date(2026, 9, 13, 23, 59, 50).getTime()
+    on('clock.now', () => ({ value: now }))
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    // The clock crosses midnight right after the flush writes the task note.
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, {
+      afterWrite: path => {
+        if (path === PATH && (files[PATH] ?? '').includes('— focus')) now = new Date(2026, 9, 14, 0, 0, 5).getTime()
+      },
+    })
+    on('store.set', () => ({ value: undefined }))
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    await $.session.end(end)
+    const daily = files['/v/Daily/2026-10-13.md'] ?? ''
+    expect(daily.split('focus 30m').length - 1).toBe(1)
+    expect(daily).not.toContain('end of day')
+  })
+
+  test('two overlapping flushes of one task in one session log its focus once', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const DAILY = '/v/Daily/2026-10-13.md'
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    // /pomo stop and session end both flush set-up-vault; the frozen clock gives both claims the same `at`.
+    await Promise.all([run($, 'pomo', 'stop'), $.session.end(end)])
+    const count = (text: string | undefined) => (text ?? '').split('focus 30m').length - 1
+    expect(count(files[PATH])).toBe(1)
+    expect(count(files[DAILY])).toBe(1)
+    expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 0, blocks: 0 })
   })
 
   test('a daily note that exists but cannot be read is left alone', async ($, on) => {
@@ -1346,6 +1827,22 @@ describe('several vaults', () => {
     expect(written[PATH]).toMatch(/— focus /)
     expect(written['/w/Tasks/deploy-fix.md']).not.toMatch(/— focus /)
     expect(unlogged(parsePomo(written['/v/Tasks/.pomo.json'] ?? '') ?? emptyPomo(''), 'set-up-vault').ms).toBe(0)
+  })
+
+  test('two overlapping loads across a vault switch never log the new vault\'s focus into the old vault\'s note', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 })
+    // The same slug has pending focus in both vaults: 10m on /v's timer, 20m on /w's.
+    const onV = { ...emptyPomo('2026-10-13'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 10 * MIN } }
+    const onW = { ...emptyPomo('2026-10-13'), slug: 'set-up-vault', dayMs: { 'set-up-vault': 20 * MIN } }
+    const written = fakeVault(on, { ...files(), '/v/Tasks/.pomo.json': serializePomo(onV), '/w/Tasks/set-up-vault.md': NOTE, '/w/Tasks/.pomo.json': serializePomo(onW) }, { id: 's1', root: '/home/q/elsewhere' })
+    expect((await run($, 'note', 'x')).text).toBe('Logged to set-up-vault.')
+    written['/w/Tasks/.session/s1'] = 'set-up-vault\n'
+    // Both loads see the old task and flush it; the second flush is queued behind the first.
+    await Promise.all([run($, 'note', 'y'), run($, 'note', 'z')])
+    expect(written[PATH]).toMatch(/— focus 10m/)
+    expect(written[PATH]).not.toMatch(/— focus 20m/)
+    expect(unlogged(parsePomo(written['/w/Tasks/.pomo.json'] ?? '') ?? emptyPomo(''), 'set-up-vault').ms).toBe(20 * MIN)
   })
 
   test('a switch to another vault writes the old task\'s focus line to the old vault\'s Daily note', async ($, on) => {

@@ -45,7 +45,7 @@ export type PomoFile = {
   blockSnapshot: Record<string, string[]>
   /** What happened during the block, for the opt-in AI summary (breakSummaryAI). Last 60 entries. */
   blockActivity: string[]
-  /** Epoch ms of the user's last prompt, press or command in any session (Claude's tool calls don't count). */
+  /** Epoch ms of the last activity in any session: the user's prompt, press or command, or Claude's tool call while a block runs (tool calls keep a block alive but never start one). */
   lastActiveAt: number
   /** Epoch ms up to which active time has been added to dayMs (credited once, by any session). */
   creditedUntil: number

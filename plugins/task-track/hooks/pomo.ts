@@ -66,6 +66,9 @@ export function parsePomo(text: string): PomoFile | null {
   }
 }
 
+/** How old the timer lock may get: holding it takes milliseconds, so older means its session died holding it. */
+export const LOCK_STALE_MS = 30_000
+
 export function serializePomo(f: PomoFile): string {
   return `${JSON.stringify(f, null, 2)}\n`
 }

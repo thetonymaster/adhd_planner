@@ -91,6 +91,11 @@ class VaultAllowTest(unittest.TestCase):
         self.assertIsNone(self.ask("Read", "not an object"))
         self.assertIsNone(self.ask("Read", {"file_path": 42}))
 
+    def test_a_nul_byte_in_a_path_exits_cleanly(self):
+        # realpath raises ValueError on an embedded NUL; the hook must still exit 0 and print nothing.
+        self.assertIsNone(self.ask("Read", {"file_path": str(self.vault / "a\x00b.md")}))
+        self.assertIsNone(self.ask("Grep", {"pattern": "x", "path": "\x00"}))
+
     def test_missing_vault_or_bad_json_does_nothing(self):
         self.assertIsNone(self.ask("Read", {"file_path": "/tmp/a"}, env_extra={"VAULT": str(self.home / "nope")}))
         self.assertIsNone(self.ask("Read", {}, raw=b"not json"))

@@ -1,4 +1,7 @@
+import argparse
 import json
+import re
+from pathlib import Path
 
 import pytest
 
@@ -185,3 +188,19 @@ def test_menu_update_existing_vaults(tmp_path, monkeypatch):
     monkeypatch.setattr(cli.actions, "update_vaults", lambda ctx: ran.append(ctx) or 0)
     _run_menu(monkeypatch, {"planner-setup": ["Update existing vaults (task board)", "Quit"]})
     assert len(ran) == 1
+
+
+SETUP_MD = Path(__file__).resolve().parents[2] / "docs" / "setup.md"
+
+
+def test_docs_list_every_subcommand_flag():
+    """docs/setup.md's subcommand list (AGENTS.md: keep it in step with setup/) names every flag each subcommand takes."""
+    docs = SETUP_MD.read_text()
+    listing = docs[docs.index("`planner-setup` subcommand:") + len("`planner-setup` subcommand:"):docs.index("`--dry-run` (show")]
+    entries = {e.split()[0]: e for e in re.findall(r"`([^`]+)`", listing)}
+    subparsers = next(a for a in cli._parser()._actions if isinstance(a, argparse._SubParsersAction))
+    missing = [f"{cmd} {flag}" for cmd, p in subparsers.choices.items()
+               for a in p._actions for flag in a.option_strings
+               if flag.startswith("--") and flag != "--help" and flag not in entries.get(cmd, "")]
+    assert set(entries) == set(subparsers.choices)
+    assert missing == []

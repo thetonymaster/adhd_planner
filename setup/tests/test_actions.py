@@ -182,6 +182,20 @@ def test_cowork_prints_the_steps(ctx):
     assert "thetonymaster/adhd_planner" in text(ctx)
 
 
+def test_cowork_steps_match_the_setup_md_cowork_section(ctx):
+    """docs/setup.md says the Cowork menu item "prints the section below": the same four steps."""
+    docs = (Path(__file__).resolve().parents[2] / "docs" / "setup.md").read_text()
+    section = docs[docs.index("## Cowork\n"):].split("\n\n")[1]
+    documented = [line.split(". ", 1)[1] for line in section.splitlines()]
+    actions.cowork(ctx)
+    printed = [line.strip().split(". ", 1)[1] for line in ctx.lines[0].splitlines() if line.strip()[:2] in ("1.", "2.", "3.", "4.")]
+    assert len(documented) == 4
+    # Step 1 differs on purpose: the printout already says "In Claude Desktop → Cowork:".
+    norm = lambda s: s.replace("`", "")
+    assert [norm(s) for s in printed[1:]] == [norm(s) for s in documented[1:]]
+    assert documented[0].endswith(f"`{paths.GITHUB}`.") and printed[0].endswith(paths.GITHUB)
+
+
 def test_status_expands_tilde_vault_and_dirs(ctx):
     (ctx.home / "vault").mkdir()
     settings = ctx.home / ".claude" / "settings.json"
@@ -280,6 +294,16 @@ def test_add_vault_seeds_the_vault_path_from_settings(ctx):
     data = json.loads(vaults_json(ctx).read_text())
     assert data["vaults"]["personal"] == {"path": "~/Notes/main"}
     assert data["default"] == "personal"
+
+
+def test_add_vault_seeds_todays_vault_when_vaults_json_has_only_a_timezone(ctx):
+    """"No vaults yet" means no "vaults" entries, not only a missing file (docs/setup.md, cli help)."""
+    vaults_json(ctx).parent.mkdir(parents=True)
+    vaults_json(ctx).write_text(json.dumps({"timezone": "Asia/Tokyo"}))
+    assert actions.add_vault(ctx, "work", ctx.home / "w", [], "home") == 0
+    data = json.loads(vaults_json(ctx).read_text())
+    assert data["default"] == "home" and set(data["vaults"]) == {"home", "work"}
+    assert data["timezone"] == "Asia/Tokyo"
 
 
 def test_add_vault_writes_relative_folders_as_absolute(ctx):
