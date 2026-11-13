@@ -31,10 +31,10 @@ with `Tasks/` and `Daily/`), the planning skills use it too: morning-startup and
 plan-day write the Top 3 and the timed plan into today's daily note, capture-triage
 also empties the vault inbox, break-down-task writes subtasks into the task note,
 plan-week pulls open Next items from task notes, and eod-shutdown reads the day's log,
-parks the active task and seeds tomorrow's note. With two or more vaults registered in
+parks the current task and seeds tomorrow's note. With two or more vaults registered in
 `~/.config/adhd-planner/vaults.json`, the six day-planning skills (morning-startup,
 plan-day, plan-week, eod-shutdown, capture-triage, break-down-task) pull each vault's
-active task and inbox, label items `<vault>:<slug>`, and write each item back to its own
+current task and inbox, label items `<vault>:<slug>`, and write each item back to its own
 vault; items from no vault (calendar, the planner's `inbox.md`) go to the current vault
 (the `Vault:` line). Without a vault nothing changes.
 Scheduled (unattended) runs never touch the vault. The skills also use
@@ -49,7 +49,7 @@ step works without them.
 | `capture-triage` | Sort a brain dump into Today/Soon/Eventually + a priority matrix |
 | `break-down-task` | Split one big task into ~25-min startable subtasks with estimates |
 | `plan-day` | Time-block a task list into the gaps around your meetings (Pomodoro blocks, lengths from calendars.json) |
-| `plan-week` | Spread a backlog across the week by each day's free capacity |
+| `plan-week` | Spread to-dos and Next items across the week by each day's free capacity |
 | `add-event` | Add meetings/appointments/birthdays, routed to the right calendar |
 | `daily-page` | Print an A5 day: your real meetings left, tasks + notes right |
 | `blank-page` | Print blank A5 inserts (priority matrix, sleep, weekly…) to fill in by hand |

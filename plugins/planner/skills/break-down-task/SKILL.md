@@ -104,7 +104,7 @@ without mentioning it: the planner works without it.
   a section named below is missing, create it just above `## Log` (at the end
   if there's no `## Log`).
 - **Task notes** are `Tasks/<slug>.md`. Each vault's `Tasks/.active` holds its
-  active slug; in the current vault the session-start `Active task:` line wins.
+  active slug; in the current vault the session-start `Current task:` line wins.
   Open Next items are the unchecked `- [ ]` lines with text under `## Next`
   (skip empty placeholders). A trailing `(~N min)` is the item's estimate: take
   it as the minutes and drop it from the title. When an item goes into the

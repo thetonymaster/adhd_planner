@@ -200,7 +200,7 @@ class State:
 @dataclass(frozen=True)
 class Pick:
     vault: Vault
-    slug: str  # '' when the chosen vault has no active task
+    slug: str  # '' when the chosen vault has no current task
     reason: str  # this session | project: <folder> | folder <as written> | default | global
 
 

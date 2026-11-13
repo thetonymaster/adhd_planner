@@ -1,7 +1,7 @@
 ---
 name: plan-week
 description: >
-  Spread a backlog of tasks across the coming week by each day's free capacity
+  Spread a pool of to-dos and Next items across the coming week by each day's free capacity
   around meetings, respecting deadlines and pinned days and leaving slack; gives
   a day-by-day plan and task list. For "plan my week", "what do I work on which
   day", sunday planning. Not habit streaks (habit-tracker); one day's
@@ -10,7 +10,7 @@ description: >
 
 # Plan the week
 
-Distributes a task backlog across the week's days (Mon–Fri by default) around
+Distributes a pool of to-dos and Next items across the week's days (Mon–Fri by default) around
 real meetings — the weekly-level companion to `plan-day` (which blocks one day)
 and `morning-startup` (which sets up today). Run commands from the planner folder.
 
@@ -45,7 +45,7 @@ for events the user confirmed in this conversation.
 
 - **tasks.json** — `[{"title": "...", "minutes": 90}, ...]`. Optional per task:
   `"deadline": "YYYY-MM-DD"` (won't be placed after that day) and
-  `"day": "tue"` (pins it to that weekday). Build this from the user's backlog —
+  `"day": "tue"` (pins it to that weekday). Build this pool from:
   the Today/Soon items from **capture-triage**, the inbox, or a list they give you.
 - The **week start** (the Monday). Default: this week from today on (next week on a Saturday or Sunday).
 - Working hours and lunch (`work`, `lunch` in `tools/calendars.json`), and a **load
@@ -61,7 +61,7 @@ for events the user confirmed in this conversation.
    are ignored for capacity. If no calendar access, skip `--busy` (every day gets
    full working hours).
 
-2. **Right-size the backlog.** Any task bigger than a single day's usable
+2. **Right-size the pool.** Any task bigger than a single day's usable
    capacity (~4–6 h) can't land on one day — decompose it first with
    **break-down-task** and feed the subtasks in. Add deadlines/pinned days where
    the user has them.
@@ -121,7 +121,7 @@ without mentioning it: the planner works without it.
   a section named below is missing, create it just above `## Log` (at the end
   if there's no `## Log`).
 - **Task notes** are `Tasks/<slug>.md`. Each vault's `Tasks/.active` holds its
-  active slug; in the current vault the session-start `Active task:` line wins.
+  active slug; in the current vault the session-start `Current task:` line wins.
   Open Next items are the unchecked `- [ ]` lines with text under `## Next`
   (skip empty placeholders). A trailing `(~N min)` is the item's estimate: take
   it as the minutes and drop it from the title. When an item goes into the
@@ -134,7 +134,7 @@ without mentioning it: the planner works without it.
 
 In this skill:
 
-- **Backlog:** add the open Next items of every task note, in every vault,
+- **Pool:** add the open Next items of every task note, in every vault,
   with `status: active` or `status: parked` to `tasks.json`, titled and estimated
   as above (estimate when an item has none). Ask before including parked ones if
   there are many.
@@ -171,7 +171,7 @@ and that it must not wait for input:
 > Plan the coming week for the ADHD planner. Work in the planner folder at <its absolute path>;
 > every command is `cd "<planner-path>" && …`. Use the timezone from
 > `tools/calendars.json`; week start = the coming Monday. 1) Pull that week's calendar
-> (Mon 00:00 to the following Mon) → `tools/out/busy-week.json`. 2) Build the backlog
+> (Mon 00:00 to the following Mon) → `tools/out/busy-week.json`. 2) Build the pool
 > from `inbox.md` / the most recent `tools/out/tasks-*.json`. 3) `python3
 > tools/plan_week.py --tasks tools/out/tasks.json --busy tools/out/busy-week.json
 > --week-start <monday> --load 0.75`. 4) Post

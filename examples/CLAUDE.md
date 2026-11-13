@@ -21,7 +21,7 @@ you expect — then ask before retrying. Never retry silently.
 
 ## Task notes
 - Task notes live in the Obsidian vault's `Tasks/`, one file per task; session start
-  shows the active task's Goal, Next and Open loops.
+  shows the current task's Goal, Next and Open loops.
 - When a step finishes, update `## Next` and add a `## Log` line.
 - Context noisy, or switching tasks → `/tasks:task-park`, then `/clear`.
 - Wrapping up → `/tasks:task-park` if a task is active.

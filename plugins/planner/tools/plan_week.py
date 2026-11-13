@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Weekly planner — distribute a task backlog across the week's days.
+"""Weekly planner — distribute a pool of to-dos across the week's days.
 
 Where plan_day.py time-blocks a single day, this spreads a list of tasks across
 Mon–Fri (or Mon–Sun) by each day's *free capacity* — the working hours left after

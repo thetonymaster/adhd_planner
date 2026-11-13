@@ -45,11 +45,11 @@ Modules:
   `GREP_GLOB`, `DATAVIEWJS_FENCE`, `STATE_FILES`, `CODE_MARKERS`, `STEERING_NAMES`.
 
 Output shape of `session_task.py`: `Now:`, `Vault: <path>`, (with vaults.json)
-`Vault name: <name> (<reason>)`, `Active task: <slug> (<reason>) — full note: <path>`,
+`Vault name: <name> (<reason>)`, `Current task: <slug> (<reason>) — full note: <path>`,
 then the note's `## Goal`, `## Next`, `## Open loops` sections (list items starting
 `- ~~` or `- [x] ~~` dropped, at most 40 lines). Also, when they apply:
 `Vault config error|warning: …`, `(skipped vault …)`, a ` · others: …` suffix on
-`Vault name:`, `No active task…`, `Active task '<slug>' … has no note`,
+`Vault name:`, `No current task…`, `Current task '<slug>' … has no note`,
 `(skipped unreadable notes…)` and `(could not prune …)`.
 
 ## Invariants

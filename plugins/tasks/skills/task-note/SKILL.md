@@ -15,7 +15,7 @@ renames, moves or deletes a note (creating is create-task or `/tasks:task-start`
 ## Find the vault
 
 First match wins:
-1. The session-start `Vault: <path>` line, else the folder above `Tasks/` in its `Active task: … — full note: <path>` line.
+1. The session-start `Vault: <path>` line, else the folder above `Tasks/` in its `Current task: … — full note: <path>` line.
 2. The `default` vault's `path` in `~/.config/adhd-planner/vaults.json` (or `$ADHD_PLANNER_VAULTS`), when that file exists and parses.
 3. A connected or working folder named `vault`, or one holding both `Tasks/` and `Daily/`.
 4. `$VAULT`.
@@ -28,7 +28,7 @@ None has `Tasks/` → say "No vault found (looked in: <each place checked>)" and
 - The user named one → match the file stem in `Tasks/`, else a note whose `aliases` contains the
   name (case-insensitive). Several match → list them and ask.
 - `<vault>:<slug>` → that vault's `Tasks/<slug>.md`.
-- The user named none → the task named in the session-start `Active task:` line, else `Tasks/.active`.
+- The user named none → the task named in the session-start `Current task:` line, else `Tasks/.active`.
   Neither → list open tasks and ask.
 
 ## Actions

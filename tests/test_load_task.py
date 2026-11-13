@@ -44,7 +44,7 @@ class LoadTaskTest(unittest.TestCase):
         (self.tasks / ".session").mkdir()
         (self.tasks / ".session" / "s1").write_text("mine\n")
         out = self.run_hook({"session_id": "s1", "cwd": str(self.home / "code" / "app")})
-        self.assertIn("Active task: mine (this session)", out)
+        self.assertIn("Current task: mine (this session)", out)
         self.assertIn("step mine", out)
 
     def test_dangling_override_falls_through_to_repo(self):
@@ -52,32 +52,32 @@ class LoadTaskTest(unittest.TestCase):
         (self.tasks / ".session").mkdir()
         (self.tasks / ".session" / "s1").write_text("gone\n")
         out = self.run_hook({"session_id": "s1", "cwd": str(self.home / "code" / "app" / "src")})
-        self.assertIn("Active task: bound (project: app)", out)
+        self.assertIn("Current task: bound (project: app)", out)
 
     def test_deepest_then_newest_ignoring_status_and_done_never_binds(self):
         self.note("outer", repo="~/r")
         self.note("inner", repo="~/r/sub")
-        self.assertIn("Active task: inner", self.run_hook({"session_id": "x", "cwd": str(self.home / "r" / "sub")}))
+        self.assertIn("Current task: inner", self.run_hook({"session_id": "x", "cwd": str(self.home / "r" / "sub")}))
         self.note("parked", status="parked", repo="~/p", mtime=time.time())
         self.note("active", status='"active"', repo='"~/p"', mtime=time.time() - 100)
-        self.assertIn("Active task: parked", self.run_hook({"session_id": "x", "cwd": str(self.home / "p")}))
+        self.assertIn("Current task: parked", self.run_hook({"session_id": "x", "cwd": str(self.home / "p")}))
         self.note("done", status="done", repo="~/d")
         (self.tasks / ".active").write_text("outer\n")
-        self.assertIn("Active task: outer (global)", self.run_hook({"session_id": "x", "cwd": str(self.home / "d")}))
+        self.assertIn("Current task: outer (global)", self.run_hook({"session_id": "x", "cwd": str(self.home / "d")}))
 
     def test_sibling_prefix_does_not_bind(self):
         self.note("sre", repo="~/work/infra")
         (self.tasks / ".active").write_text("sre\n")
         out = self.run_hook({"session_id": "x", "cwd": str(self.home / "work" / "infra-app")})
-        self.assertIn("Active task: sre (global)", out)
+        self.assertIn("Current task: sre (global)", out)
 
     def test_no_stdin_or_bad_json_falls_back_without_hanging(self):
         self.note("g")
         (self.tasks / ".active").write_text("g\n")
-        self.assertIn("Active task: g (global)", self.run_hook(stdin=subprocess.DEVNULL))
+        self.assertIn("Current task: g (global)", self.run_hook(stdin=subprocess.DEVNULL))
         env = {"HOME": str(self.home), "PATH": os.environ["PATH"]}
         out = subprocess.run(["bash", str(HOOK)], input=b"not json", env=env, capture_output=True, timeout=10, check=True)
-        self.assertIn("Active task: g (global)", out.stdout.decode())
+        self.assertIn("Current task: g (global)", out.stdout.decode())
 
     def test_an_unreadable_note_is_skipped_and_named(self):
         self.note("g")
@@ -85,7 +85,7 @@ class LoadTaskTest(unittest.TestCase):
         (self.tasks / "bad.md").write_bytes(b"---\nrepo: \xff\n---\n")
         (self.tasks / "dir.md").mkdir()
         out = self.run_hook({"session_id": "x", "cwd": str(self.home)})
-        self.assertIn("Active task: g (global)", out)
+        self.assertIn("Current task: g (global)", out)
         self.assertIn("skipped unreadable notes: bad.md, dir.md", out)
 
     def test_an_unreadable_active_note_keeps_the_vault_and_task_lines(self):
@@ -93,10 +93,10 @@ class LoadTaskTest(unittest.TestCase):
         (self.tasks / ".active").write_text("g\n")
         out = self.run_hook({"session_id": "x", "cwd": str(self.home)})
         self.assertIn(f"Vault: {self.home / 'vault'}\n", out)
-        self.assertIn("Active task: g (global)", out)
+        self.assertIn("Current task: g (global)", out)
         self.assertIn(f"(could not read {self.tasks / 'g.md'}: UnicodeDecodeError", out)
 
-    def test_a_resolver_error_falls_back_to_the_default_vaults_active_task(self):
+    def test_a_resolver_error_falls_back_to_the_default_vaults_current_task(self):
         self.assertNotEqual(os.geteuid(), 0, "run as non-root: root reads mode 000 files")
         self.note("g")
         (self.tasks / ".active").write_text("g\n")
@@ -109,7 +109,7 @@ class LoadTaskTest(unittest.TestCase):
             out = self.run_hook({"session_id": "x", "cwd": str(self.home)})
         finally:
             override.chmod(0o600)
-        self.assertIn("Active task: g (global (resolver error: PermissionError", out)
+        self.assertIn("Current task: g (global (resolver error: PermissionError", out)
 
     def test_a_failed_prune_is_named_and_does_not_block_the_task(self):
         self.assertNotEqual(os.geteuid(), 0, "run as non-root: root ignores the read-only .session dir")
@@ -125,13 +125,13 @@ class LoadTaskTest(unittest.TestCase):
             out = self.run_hook({"session_id": "x", "cwd": str(self.home)})
         finally:
             sessions.chmod(0o700)
-        self.assertIn("Active task: g (global)", out)
+        self.assertIn("Current task: g (global)", out)
         self.assertIn("could not prune .session/old", out)
 
     def test_crlf_note_binds_to_its_repo(self):
         (self.tasks / "win.md").write_bytes(b"---\r\nstatus: active\r\nrepo: ~/code/app\r\n---\r\n# win\r\n")
         out = self.run_hook({"session_id": "x", "cwd": str(self.home / "code" / "app")})
-        self.assertIn("Active task: win (project: app)", out)
+        self.assertIn("Current task: win (project: app)", out)
 
     def test_prunes_overrides_older_than_14_days(self):
         self.note("g")
@@ -152,11 +152,11 @@ class LoadTaskTest(unittest.TestCase):
         os.symlink(self.home / "real", self.home / "link")
         self.note("viasym", repo="~/link/app")
         out = self.run_hook({"session_id": "x", "cwd": str(real)})
-        self.assertIn("Active task: viasym (project: app)", out)
+        self.assertIn("Current task: viasym (project: app)", out)
         self.note("viareal", repo="~/real/app", mtime=time.time() + 10)
         os.remove(self.tasks / "viasym.md")
         out = self.run_hook({"session_id": "x", "cwd": str(self.home / "link" / "app")})
-        self.assertIn("Active task: viareal (project: app)", out)
+        self.assertIn("Current task: viareal (project: app)", out)
 
     def test_plugin_option_beats_vault_env(self):
         other = self.home / "elsewhere" / "Tasks"
@@ -167,7 +167,7 @@ class LoadTaskTest(unittest.TestCase):
         out = self.run_hook({"session_id": "x", "cwd": "/"}, env_extra={
             "CLAUDE_PLUGIN_OPTION_VAULTPATH": str(self.home / "elsewhere"),
             "VAULT": str(self.home / "vault")})
-        self.assertIn("Active task: opt (global)", out)
+        self.assertIn("Current task: opt (global)", out)
 
     def test_tilde_in_option_is_expanded(self):
         alt = self.home / "alt" / "Tasks"
@@ -175,7 +175,7 @@ class LoadTaskTest(unittest.TestCase):
         (alt / "a.md").write_text(NOTE.format(slug="a", status="active", repo=""))
         (alt / ".active").write_text("a\n")
         out = self.run_hook({"session_id": "x", "cwd": "/"}, env_extra={"CLAUDE_PLUGIN_OPTION_VAULTPATH": "~/alt"})
-        self.assertIn("Active task: a (global)", out)
+        self.assertIn("Current task: a (global)", out)
 
     def test_no_vault_prints_only_the_time(self):
         shutil.rmtree(self.home / "vault")
@@ -195,7 +195,7 @@ class LoadTaskTest(unittest.TestCase):
     def test_an_active_slug_that_escapes_tasks_is_ignored(self):
         self._escaping_active()
         out = self.run_hook({"session_id": "x", "cwd": "/"})
-        self.assertIn("No active task", out)
+        self.assertIn("No current task", out)
         self.assertIn("Ask the user what they're working on", out)
         self.assertNotIn("AWS_SECRET", out)
 
@@ -207,7 +207,7 @@ class LoadTaskTest(unittest.TestCase):
             os.symlink(shutil.which(tool), bin_dir / tool)
         out = self.run_hook(stdin=subprocess.DEVNULL, env_extra={"PATH": str(bin_dir)})
         self.assertIn("Vault:", out)
-        self.assertIn("No active task", out)
+        self.assertIn("No current task", out)
         self.assertIn("Ask the user what they're working on", out)
         self.assertNotIn("AWS_SECRET", out)
 
@@ -215,7 +215,7 @@ class LoadTaskTest(unittest.TestCase):
         (self.home / "alt" / "Tasks").mkdir(parents=True)
         out = self.run_hook({"session_id": "x", "cwd": "/"}, env_extra={"CLAUDE_PLUGIN_OPTION_VAULTPATH": "~/alt"})
         self.assertIn(f"Vault: {self.home / 'alt'}\n", out)
-        self.assertIn("No active task", out)
+        self.assertIn("No current task", out)
 
 
 CASES = HOOK.parent.parent.parent / "task-track" / "tests" / "fixtures" / "vault-cases.ts"
@@ -284,9 +284,9 @@ class SharedVaultCasesTest(unittest.TestCase):
             return
         self.assertIn(f"Vault: {home}{want['vault'][1:]}\n", out)
         if want["slug"]:
-            self.assertIn(f"Active task: {want['slug']} ({want['reason']}) — full note: ", out)
+            self.assertIn(f"Current task: {want['slug']} ({want['reason']}) — full note: ", out)
         else:
-            self.assertIn("No active task", out)
+            self.assertIn("No current task", out)
         if "nameLine" in want:
             self.assertIn(want["nameLine"] + "\n", out)
         if case["config"] is None or "error" in want:
@@ -333,10 +333,10 @@ class ResolverErrorTest(unittest.TestCase):
 
     def test_the_reason_says_default_when_vaults_json_is_in_use(self):
         out = self.run_hook(self.vault_with_unreadable_override("vault"))
-        self.assertIn("Active task: g (default (resolver error: PermissionError", out)
+        self.assertIn("Current task: g (default (resolver error: PermissionError", out)
 
     def test_an_unusable_default_vault_still_names_the_error(self):
         out = self.run_hook(self.vault_with_unreadable_override("work"))
         self.assertIn("(skipped vault personal: no Tasks/ at ", out)
         self.assertIn("Task resolver error: PermissionError: ", out)
-        self.assertNotIn("Active task:", out)
+        self.assertNotIn("Current task:", out)
