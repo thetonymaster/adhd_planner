@@ -64,7 +64,7 @@ for events the user confirmed in this conversation.
 2. **Right-size the pool.** Any task bigger than a single day's usable
    capacity (~4–6 h) can't land on one day — decompose it first with
    **break-down-task** and feed the subtasks in. Add deadlines/pinned days where
-   the user has them.
+   the user has them. Rows from `task_queue.py` are not decomposed here.
 
 3. **Distribute across the week:**
 
@@ -73,6 +73,7 @@ for events the user confirmed in this conversation.
        --busy tools/out/busy-week.json --load 0.75
    ```
 
+   A vault run adds `--keep-order`.
    Add `--include-weekend` to use Sat/Sun too.
    With no `--week-start` it plans this week from today on (next week on a Saturday
    or Sunday). Pass `--week-start <Monday>` only when the user names another week.
@@ -137,10 +138,21 @@ without mentioning it: the planner works without it.
 
 In this skill:
 
-- **Pool:** add the open Next items of every task note, in every vault,
-  with `status: active` or `status: parked` to `tasks.json`, titled and estimated
-  as above (estimate when an item has none). Ask before including parked ones if
-  there are many.
+- If `<planner-path>/tools/task_queue.py` is missing, the folder's tools
+  predate this plugin version: say so, offer `planner:setup`, and stop. Do not
+  build the task list by hand.
+- **Pool:** run the queue command,
+  `cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>"`,
+  with one quoted `--vault` per vault in play (`<name>` is the vault's name in
+  `vaults.json`, or `vault` when there is one unregistered vault) and no output
+  file, then read the path on the tool's last output line, `Wrote <path>`, and
+  that file only. Put its `tasks` first in `tools/out/tasks.json`, in their
+  order, then any inbox or user items, and run `plan_week.py --keep-order`.
+  Give both tools the same period flags: the same `--week-start` value and
+  `--include-weekend` when the user asked for them, neither otherwise; never
+  pass one tool a date taken from the other's output. Show `(overdue)` beside a
+  row that has `overdue`. Tell the user the `not_placed` rows (each with its
+  reason and detail) and the warnings.
 - Don't write future daily notes; the week plan stays in
   `tools/out/weekly-plan-<week-start>.md`.
 
@@ -150,7 +162,8 @@ In this skill:
   load factor. A heavy-meeting day gets fewer tasks automatically.
 - Placement respects deadlines (never after) and pinned days; among eligible
   days it picks the one with the most room, so work spreads out rather than
-  piling on Monday.
+  piling on Monday. In a vault run, tasks go in rank order on the earliest day
+  with room.
 - This is planning-level: it doesn't create calendar events. Day-level calendar
   push happens later, per day, via plan-day (propose-first).
 

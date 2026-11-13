@@ -28,6 +28,24 @@ class PlanWeekTest(unittest.TestCase):
     def test_interactive_run_lets_the_tool_pick_the_week(self):
         self.assertNotIn("--week-start <YYYY-MM-DD>", skill("plan-week"))
 
+    def test_vault_run_uses_the_queue_and_keeps_its_order(self):
+        text = flat(skill("plan-week"))
+        self.assertIn('tools/task_queue.py --vault "<name>=<vault-path>"', text)
+        self.assertIn("Wrote <path>", text)
+        self.assertIn("--keep-order", text)
+        self.assertIn("not_placed", text)
+        self.assertNotIn("--out", text)
+        self.assertNotIn("estimate when an item has none", text)
+
+    def test_vault_block_checks_for_a_stale_tools_folder_first(self):
+        text = flat(skill("plan-week"))
+        check = ("If `<planner-path>/tools/task_queue.py` is missing, the folder's tools predate this "
+                 "plugin version: say so, offer `planner:setup`, and stop. Do not build the task list by hand.")
+        self.assertIn("In this skill: - " + check, text)
+
+    def test_queue_rows_are_not_decomposed(self):
+        self.assertIn("Rows from `task_queue.py` are not decomposed here.", flat(skill("plan-week")))
+
 
 class MorningStartupTest(unittest.TestCase):
     POOL = r"write the merged pool to `tools/out/tasks-<today>\.json`"
