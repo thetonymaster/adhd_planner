@@ -45,7 +45,7 @@ export type PomoFile = {
   blockSnapshot: Record<string, string[]>
   /** What happened during the block, for the opt-in AI summary (breakSummaryAI). Last 60 entries. */
   blockActivity: string[]
-  /** Epoch ms of the user's last prompt, press or command in any session (Claude's tool calls don't count). */
+  /** Epoch ms of the last activity in any session: the user's prompt, press or command, or Claude's tool call while a block runs (tool calls keep a block alive but never start one). */
   lastActiveAt: number
   /** Epoch ms up to which active time has been added to dayMs (credited once, by any session). */
   creditedUntil: number
@@ -63,6 +63,8 @@ export type PomoFile = {
   dayBlocks: Record<string, number>
   /** What of dayMs/dayBlocks is already written to the task Log and daily note. */
   logged: Record<string, { ms: number; blocks: number }>
+  /** Per task slug: the session id whose claim on writing that slug's focus to the notes was last written; it writes only if its read-back still shows it. Cleared once written or handed back. */
+  loggingBy: Record<string, string>
 }
 
 /** The vault a /board pane shows: its vaults.json name and path; hasOthers = 2+ vaults are registered, so /board <vault> can switch. */

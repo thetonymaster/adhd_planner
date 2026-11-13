@@ -52,6 +52,7 @@ export function emptyPomo(day: string): PomoFile {
     dayMs: {},
     dayBlocks: {},
     logged: {},
+    loggingBy: {},
   }
 }
 
@@ -60,7 +61,10 @@ export function parsePomo(text: string): PomoFile | null {
   try {
     const value = JSON.parse(text) as Partial<PomoFile> | null
     if (!value || value.version !== 1 || typeof value.slug !== 'string') return null
-    return { ...emptyPomo(String(value.day ?? '')), ...value } as PomoFile
+    const parsed = { ...emptyPomo(String(value.day ?? '')), ...value } as PomoFile
+    // A claim map only: an older file's single-string loggingBy names no slug, so it claims nothing.
+    const claims = value.loggingBy
+    return { ...parsed, loggingBy: claims && typeof claims === 'object' && !Array.isArray(claims) ? claims : {} }
   } catch {
     return null
   }
@@ -79,7 +83,7 @@ export function rollDay(f: PomoFile, day: string): { file: PomoFile; finished?: 
   const unpaused = f.pausedAt
     ? { blockStartedAt: 0, breakUntil: 0, creditedUntil: f.lastActiveAt, blockOpenedAt: 0, blockSnapshot: {}, blockActivity: [] }
     : {}
-  return { file: { ...f, ...unpaused, day, dayMs: {}, dayBlocks: {}, logged: {}, blocksDone: 0, lastNotifiedBlock: 0, isStopped: false, pausedAt: 0 }, finished }
+  return { file: { ...f, ...unpaused, day, dayMs: {}, dayBlocks: {}, logged: {}, loggingBy: {}, blocksDone: 0, lastNotifiedBlock: 0, isStopped: false, pausedAt: 0 }, finished }
 }
 
 /** The break running at `now`, or null: none, or it is over. */

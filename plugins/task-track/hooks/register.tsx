@@ -387,7 +387,10 @@ function isCalendarDay(day: string): boolean {
   return date.toISOString().slice(0, 10) === day
 }
 
-/** A finished day's focus that no session wrote (it ran past midnight, or crashed): written to that day's notes. */
+/**
+ * A finished day's focus that no session wrote (it ran past midnight, or crashed): written to that day's notes.
+ * Follow-up: no per-slug claim here yet (see flushFocus), so two sessions rolling the day at once can log it twice.
+ */
 async function flushDay($: EngineInterface, d: DayTotals): Promise<void> {
   const root = await currentVault($)
   // Validate before any write: a bad value is skipped and reported, the good slugs are still written once.
@@ -518,20 +521,46 @@ async function pressPomo($: EngineInterface, action: PomoAction): Promise<void> 
   $.ui.toast(await runPomo($, action))
 }
 
+const sameLogged = (a: { ms: number; blocks: number } | undefined, b: { ms: number; blocks: number } | undefined) =>
+  (a?.ms ?? 0) === (b?.ms ?? 0) && (a?.blocks ?? 0) === (b?.blocks ?? 0)
+
+/** `file` with no claim on `slug`'s focus, so the claim map only holds writes in flight. */
+function dropClaim(file: PomoFile, slug: string): PomoFile {
+  const { [slug]: _dropped, ...rest } = file.loggingBy
+  return { ...file, loggingBy: rest }
+}
+
 /**
- * Writes today's not-yet-logged focus on `slug` to its task Log and the daily note, then marks it logged.
- * Notes first, as flushDay does: a failed write leaves the time unlogged for the next try instead of losing it.
+ * Writes today's not-yet-logged focus on `slug` to its task Log and the daily note, logged once across sessions.
+ * No compare-and-set on the file, so, as with the block announcer's notifiedBy: claim the focus in the timer
+ * first (marked logged, loggingBy[slug] = this session), read it back, and write the notes only if the claim survived.
+ * Claims are per slug: another session claiming a different task's focus meanwhile does not void this one.
+ * A failed note write hands the claim back, so the time stays unlogged for the next try instead of being lost.
  */
 async function flushFocus($: EngineInterface, slug: string, path: string): Promise<void> {
   const before = await changePomo($, file => file)
   if (!before) return
   const pending = unlogged(before, slug)
   if (pending.ms < MIN_LOGGED_MS) return
-  const { date, time } = stamp(new Date(await $.clock.now()), await currentZone($))
-  await writeFocus($, slug, path, date, time, focusText(pending))
+  const previous = before.logged[slug] ?? { ms: 0, blocks: 0 }
   const written = { ms: before.dayMs[slug] ?? 0, blocks: before.dayBlocks[slug] ?? 0 }
-  // Only what was written: focus added meanwhile stays unlogged, and a day that rolled over meanwhile is not marked.
-  await changePomo($, file => (file.day === before.day ? markLogged(file, slug, written) : file))
+  // Only what was read: focus added meanwhile stays unlogged; a day rolled over or a claim by another session is left alone.
+  const isUnclaimed = (file: PomoFile) => file.day === before.day && sameLogged(file.logged[slug], previous)
+  const isOurs = (file: PomoFile) => file.day === before.day && file.loggingBy[slug] === SESSION && sameLogged(file.logged[slug], written)
+  const claimed = await changePomo($, file =>
+    isUnclaimed(file) ? { ...markLogged(file, slug, written), loggingBy: { ...file.loggingBy, [slug]: SESSION } } : file,
+  )
+  if (!claimed) return
+  const check = await readPomo($)
+  if (!check || !isOurs(check)) return
+  const { date, time } = stamp(new Date(await $.clock.now()), await currentZone($))
+  try {
+    await writeFocus($, slug, path, date, time, focusText(pending))
+  } catch (err) {
+    await changePomo($, file => (isOurs(file) ? dropClaim(markLogged(file, slug, previous), slug) : file))
+    throw err
+  }
+  await changePomo($, file => (isOurs(file) ? dropClaim(file, slug) : file))
 }
 
 /** Every minute: move the shared clock; the session that announces a block is the one whose write stuck. */

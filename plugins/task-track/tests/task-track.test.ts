@@ -1004,6 +1004,92 @@ describe('focus reaches the notes', () => {
     expect(unlogged(parsePomo(files['/v/Tasks/.pomo.json'] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 30 * MIN, blocks: 1 })
   })
 
+  test('two sessions flushing the same focus at the same moment log it once', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const DAILY = '/v/Daily/2026-10-13.md'
+    let isRaced = false
+    // The other session read the same unlogged focus; its claim lands right after this session's
+    // first write to the timer, and it writes its focus line because its read-back saw its own claim.
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, {
+      afterWrite: path => {
+        if (path !== POMO || isRaced) return
+        isRaced = true
+        files[POMO] = serializePomo({ ...markLogged(today(30 * MIN), 'set-up-vault'), loggingBy: { 'set-up-vault': 'other-session' } })
+        files[PATH] = insertInSection(files[PATH] ?? '', 'Log', '- [[2026-10-13]] 09:40 — focus 30m (1 pomodoro)')
+        files[DAILY] = insertInSection(files[DAILY] ?? '## Log\n', 'Log', '- 09:40 [[set-up-vault]] focus 30m (1 pomodoro)')
+      },
+    })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    await $.session.end(end)
+    const count = (text: string | undefined) => (text ?? '').split('focus 30m').length - 1
+    expect(count(files[PATH])).toBe(1)
+    expect(count(files[DAILY])).toBe(1)
+    expect(unlogged(parsePomo(files[POMO] ?? '') ?? emptyPomo(''), 'set-up-vault')).toEqual({ ms: 0, blocks: 0 })
+  })
+
+  test('a claimed focus whose note write fails is handed back unlogged', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 40 * MIN })
+    const before = { ...today(30 * MIN), dayMs: { 'set-up-vault': 30 * MIN }, logged: { 'set-up-vault': { ms: 5 * MIN, blocks: 0 } } }
+    on('fs.write', { path: '/v/Daily/2026-10-13.md' }, ($, e) => ({ deny: `EACCES: ${e.path}` }))
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, '/v/Tasks/.pomo.json': serializePomo(before) })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    await $.session.end(end)
+    const after = parsePomo(files['/v/Tasks/.pomo.json'] ?? '') ?? emptyPomo('')
+    expect(after.logged['set-up-vault']).toEqual({ ms: 5 * MIN, blocks: 0 })
+    expect(after.loggingBy).toEqual({})
+  })
+
+  test('a failed note write leaves logged alone once another session took over the claim', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const DAILY = '/v/Daily/2026-10-13.md'
+    const before = { ...today(30 * MIN), logged: { 'set-up-vault': { ms: 5 * MIN, blocks: 0 } } }
+    const taken = { ...markLogged(before, 'set-up-vault'), loggingBy: { 'set-up-vault': 'other-session' } }
+    const files: Record<string, string> = { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(before) }
+    // The other session's claim lands after this session's read-back, just before its daily-note write fails.
+    on('fs.write', { path: DAILY }, ($, e) => {
+      files[POMO] = serializePomo(taken)
+      return { deny: `EACCES: ${e.path}` }
+    })
+    fakeVault(on, files)
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    await $.session.end(end)
+    const after = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
+    expect(after.logged['set-up-vault']).toEqual({ ms: 30 * MIN, blocks: 1 })
+    expect(after.loggingBy).toEqual({ 'set-up-vault': 'other-session' })
+  })
+
+  test("another session's claim on a different task does not void this task's claim", async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: T0 + 40 * MIN })
+    const POMO = '/v/Tasks/.pomo.json'
+    const DAILY = '/v/Daily/2026-10-13.md'
+    let isRaced = false
+    // The other session flushes 'other-task': it reads the file after this session's claim, keeps it, adds its own.
+    const files: Record<string, string> = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(today(30 * MIN)) }, {}, {
+      afterWrite: path => {
+        if (path !== POMO || isRaced) return
+        isRaced = true
+        const ours = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
+        files[POMO] = serializePomo({ ...ours, logged: { ...ours.logged, 'other-task': { ms: 20 * MIN, blocks: 0 } }, loggingBy: { ...ours.loggingBy, 'other-task': 'other-session' } })
+      },
+    })
+    coreEnd(on)
+    await run($, 'openloop', 'load the task')
+    await $.session.end(end)
+    expect(files[PATH]).toContain('— focus 30m (1 pomodoro)')
+    expect(files[DAILY] ?? '').toContain('[[set-up-vault]] focus 30m (1 pomodoro)')
+    const after = parsePomo(files[POMO] ?? '') ?? emptyPomo('')
+    expect(after.loggingBy).toEqual({ 'other-task': 'other-session' })
+  })
+
   test('a daily note that exists but cannot be read is left alone', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     mock.clock(on, { now: T0 + 40 * MIN })
