@@ -226,8 +226,158 @@ def _merge_tasks_base(ctx: Ctx, vault: Path, backups: Path) -> None:
         ctx.say(f"Kept {base}; copy the Board and {board_plugin.DONE_VIEW_NAME} views from {starter} by hand.")
 
 
+def _read_utf8(ctx: Ctx, path: Path) -> str | None:
+    """path's text, or None after saying it is skipped when it is not UTF-8 (one bad note must not stop the run)."""
+    try:
+        return path.read_bytes().decode()  # bytes, not read_text: keep CRLF line endings as they are
+    except UnicodeDecodeError:
+        ctx.say(f"Skipped {path}: not UTF-8.")
+        return None
+
+
+def _with_priority_keys(text: str) -> tuple[str, list[str]] | None:
+    """text with `priority: p3` and `due:` added to its frontmatter where missing, and the keys added;
+    None when text has no frontmatter. priority goes after up: (else status:, else first); due right after it."""
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip("\r\n") != "---":
+        return None
+    end = next((i for i in range(1, len(lines)) if lines[i].rstrip("\r\n") == "---"), None)
+    if end is None:
+        return None
+    eol = lines[0][3:]  # the file's own line ending: CRLF stays CRLF
+    front = lines[1:end]
+
+    def at(key: str) -> int | None:
+        return next((i for i, line in enumerate(front) if line.startswith(f"{key}:")), None)
+
+    added = []
+    if at("priority") is None:
+        anchor = at("up") if at("up") is not None else at("status")
+        front.insert(0 if anchor is None else anchor + 1, f"priority: p3{eol}")
+        added.append("priority")
+    if at("due") is None:
+        front.insert(at("priority") + 1, f"due:{eol}")
+        added.append("due")
+    return "".join(lines[:1] + front + lines[end:]), added
+
+
+def _add_priority_keys(ctx: Ctx, vault: Path, backups: Path) -> None:
+    template = vault / "Templates" / "Task.md"
+    if not template.exists():
+        ctx.say(f"{vault} has no Templates/Task.md; priority and due not added.")
+        return
+    text = _read_utf8(ctx, template)
+    if text is None:
+        return
+    result = _with_priority_keys(text)
+    if result is None:
+        ctx.say(f"{template} has no frontmatter; priority and due not added.")
+        return
+    new, added = result
+    if not added:
+        ctx.say(f"{template} already has priority and due.")
+        return
+    ctx.say(("Would add" if ctx.dry_run else "Add") + f" {', '.join(added)} to {template}.")
+    if not ctx.dry_run:
+        files.backup(template, backups, home=ctx.home)
+        template.write_bytes(new.encode())
+
+
+# The Tasks section the starter hubs and Project template had before the Base block; update-vaults replaces it.
+ORIGINAL_HUB_TASKS = "Tasks link here via `up:` — see the backlinks pane, or [[Tasks.base]]."
+
+
+def _tasks_heading(lines: list[str]) -> int | None:
+    """Index of the `## Tasks` line; None without one."""
+    return next((i for i, line in enumerate(lines) if line.rstrip("\r\n") == "## Tasks"), None)
+
+
+def _hub_block() -> str:
+    """The Base block: the starter Project template from its `## Tasks` heading's next line to the end, trimmed."""
+    starter = paths.examples() / "vault-starter" / "Templates" / "Project.md"
+    lines = starter.read_text().splitlines(keepends=True)
+    heading = _tasks_heading(lines)
+    if heading is None:
+        raise SystemExit(f"{starter} has no `## Tasks` heading; nothing was changed.")
+    return "".join(lines[heading + 1:]).strip()
+
+
+def _tasks_body(lines: list[str]) -> tuple[int, int] | None:
+    """(first, end) line indexes of the `## Tasks` section body, up to the next `#`/`##` heading; None without one."""
+    heading = _tasks_heading(lines)
+    if heading is None:
+        return None
+    end = next((i for i in range(heading + 1, len(lines)) if lines[i].startswith(("# ", "## "))), len(lines))
+    return heading + 1, end
+
+
+def _hub_notes(vault: Path) -> list[Path]:
+    """Templates/Project.md, then the .md files directly in Projects/ and Areas/ (no subfolders)."""
+    template = vault / "Templates" / "Project.md"
+    found = [template] if template.is_file() else []
+    for folder in ("Projects", "Areas"):
+        if (vault / folder).is_dir():
+            found += sorted(p for p in (vault / folder).glob("*.md") if p.is_file())
+    return found
+
+
+def _replace_hub_tasks(ctx: Ctx, vault: Path, backups: Path) -> None:
+    block = _hub_block()
+    todo: list[tuple[Path, str]] = []  # (note, its text with the original line replaced)
+    edited: list[Path] = []
+    done = 0  # notes whose Tasks section already is the Base block
+    listed: dict[Path, bytes] = {}  # each note as read, to catch a save while the prompt is open
+    for note in _hub_notes(vault):
+        text = _read_utf8(ctx, note)
+        if text is None:
+            continue
+        lines = text.splitlines(keepends=True)
+        body = _tasks_body(lines)
+        if body is None:
+            continue
+        first, end = body
+        section = "".join(lines[first:end]).replace("\r\n", "\n").strip()
+        if section == block:
+            done += 1
+            continue
+        if section != ORIGINAL_HUB_TASKS:
+            edited.append(note)
+            continue
+        i = next(i for i in range(first, end) if lines[i].strip() == ORIGINAL_HUB_TASKS)
+        new_line = block.replace("\n", "\r\n" if "\r\n" in text else "\n") + lines[i][len(lines[i].rstrip("\r\n")):]
+        todo.append((note, "".join(lines[:i] + [new_line] + lines[i + 1:])))
+        listed[note] = text.encode()
+    if done:
+        ctx.say(f"{done} note(s) in {vault} already have the task list.")
+    for note in edited:
+        ctx.say(f"Left unchanged (its Tasks section has other text): {note}")
+    if not todo:
+        return
+    for note, _ in todo:
+        ctx.say(f"Tasks section to replace: {note}")
+    if ctx.dry_run:
+        ctx.say(f"Would ask to replace the Tasks section in {len(todo)} note(s) in {vault} (backups kept).")
+        return
+    if not (ctx.yes or ctx.confirm(f"Replace the Tasks section in {len(todo)} note(s) in {vault}? (backups kept)")):
+        ctx.say(f"Kept the Tasks section in {len(todo)} note(s) in {vault}.")
+        return
+    for note, new in todo:
+        try:
+            now = note.read_bytes()
+        except FileNotFoundError:
+            ctx.say(f"No longer there, skipped: {note}")
+            continue
+        if now != listed[note]:
+            ctx.say(f"Changed since it was listed, left unchanged: {note}")
+            continue
+        files.backup(note, backups / note.parent.name, home=ctx.home)
+        note.write_bytes(new.encode())
+
+
 def update_vaults(ctx: Ctx, fetch: Callable[[str], bytes] = board_plugin.download) -> int:
-    """Brings vaults made before the task board up to date: board views in Tasks.base, the board plugin installed."""
+    """Brings vaults made before the task board and task priority up to date: board views in Tasks.base,
+    priority and due in Templates/Task.md, the hub task list in untouched hubs (asked once per vault),
+    the board plugin installed."""
     backups = files.backup_dir(ctx.home)
     failed = False
     for name, vault in _registered_vaults(ctx):
@@ -237,6 +387,8 @@ def update_vaults(ctx: Ctx, fetch: Callable[[str], bytes] = board_plugin.downloa
         # One folder per vault: files.backup keeps only the file name for paths outside home, so two such
         # vaults' Tasks.base (and plugin folders) would otherwise land on the same backup path.
         _merge_tasks_base(ctx, vault, backups / name)
+        _add_priority_keys(ctx, vault, backups / name)
+        _replace_hub_tasks(ctx, vault, backups / name)
         failed |= _board_plugin(ctx, vault, fetch, backups / name) is False
     if not ctx.dry_run:
         ctx.say(RELOAD)

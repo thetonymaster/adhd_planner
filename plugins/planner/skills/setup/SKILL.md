@@ -49,7 +49,8 @@ Before anything else, check what's in the connected planner folder:
 cd "<planner-path>" && ls tools/*.py 2>/dev/null | wc -l && ls calendars.json tools/calendars.json habits.json inbox.md 2>/dev/null
 ```
 
-Ten scripts and the data files present → skip to step 1, this is a re-check.
+Eleven scripts and the data files present → this is a re-check: still apply
+**Tools older than the bundled ones** below, then skip to step 1.
 
 **Anything missing, seed it.** The plugin ships its own copy of `tools/` and the
 starter data files for exactly this, because a plugin can't write to itself and
@@ -59,16 +60,16 @@ the scripts have to live where they can be run and where their data is.
   history is the cleanest route — check for a tag or commit holding `tools/`
   (`git log --oneline -- tools`) and restore it. That brings back the user's own
   `calendars.json` with their real calendar ids, which a fresh seed cannot.
-  Then compare against this plugin's `tools/` (ten scripts, including
-  `planner_config.py`): copy in any bundled `.py` the restore didn't bring back.
+  Then compare against this plugin's `tools/` (eleven scripts, including
+  `planner_config.py` and `task_queue.py`): copy in any bundled `.py` the restore didn't bring back.
 - **Otherwise copy the bundled files across** from this plugin's `tools/`
-  directory into the folder: the ten `.py` files plus `calendars.json`, and
+  directory into the folder: the eleven `.py` files plus `calendars.json`, and
   `habits.json` and `inbox.md` at the folder root. These are templates — generic
   calendar tags, placeholder commitments — and steps 3–5 below are what turn them
   into the user's real config.
 
 **Tools older than the bundled ones.** A folder seeded by an earlier plugin version
-can have all its scripts yet lack `tools/planner_config.py`; its old `plan_day.py`
+can have all its scripts yet lack `tools/planner_config.py` or `tools/task_queue.py`; its old `plan_day.py`
 then ignores the working hours, lunch and Pomodoro in `calendars.json`. Copy in any
 missing bundled `.py`, and refresh tools that are present but older than the
 bundled ones from this plugin's `tools/`. Scripts are code, so refreshing them is

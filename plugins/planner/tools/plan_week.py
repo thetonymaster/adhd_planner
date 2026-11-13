@@ -13,8 +13,11 @@ Output:
 
 Usage:
   python3 tools/plan_week.py --tasks tasks.json --busy busy-week.json \
-      --week-start 2026-07-06 [--load 0.75] [--include-weekend]
+      --week-start 2026-07-06 [--load 0.75] [--include-weekend] [--keep-order]
   --work / --lunch override calendars.json.
+  --keep-order: place unpinned tasks in input order (a ranked task_queue.py list) on the
+  earliest day with room; an overdue task counts as due on the first planned day and is
+  marked (overdue); a task's priority shows as "· p1"; `source` goes into week-tasks files.
 
 tasks.json: [{"title":"...","minutes":90,"deadline":"2026-07-08","day":"tue"}]
   deadline and day are optional. day is a weekday name/abbrev pinning the task.
@@ -33,6 +36,7 @@ ABBR = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import planner_config  # noqa: E402
+from planner_config import plan_days  # noqa: E402
 
 try:
     CFG = planner_config.load()
@@ -74,27 +78,9 @@ def load_busy_by_day(path):
     return mins, titles
 
 
-def monday_of(date):
-    return date - dt.timedelta(days=date.weekday())
-
-
-def plan_days(today, week_start, include_weekend):
-    """(Monday, ISO dates to plan). No week_start: this week from today on, or
-    next week on a Saturday or Sunday. An explicit week_start plans all of it."""
-    n_days = 7 if include_weekend else 5
-    if week_start is None:
-        week_start = monday_of(today)
-        if today.weekday() >= 5:
-            week_start += dt.timedelta(days=7)
-        first = max(today, week_start)
-    else:
-        first = week_start
-    days = [week_start + dt.timedelta(days=i) for i in range(n_days)]
-    return week_start, [d.isoformat() for d in days if d >= first]
-
-
-def distribute(tasks, day_dates, capacity):
+def distribute(tasks, day_dates, capacity, keep_order=False):
     """Assign tasks to days. capacity: {date_iso: usable_minutes} (mutated).
+    keep_order: place unpinned tasks in input order (--keep-order).
     Returns {date_iso: [task,...]}, overflow list."""
     plan = {d: [] for d in day_dates}
     remaining = dict(capacity)
@@ -127,21 +113,36 @@ def distribute(tasks, day_dates, capacity):
         dl = t.get("deadline") or "9999-99-99"
         return (dl, -int(t.get("minutes", 25)))
 
-    for t in sorted(free, key=sort_key):
+    for t in (free if keep_order else sorted(free, key=sort_key)):
         mins = int(t.get("minutes", 25))
         dl = t.get("deadline")
+        if keep_order and dl and dl < day_dates[0]:
+            dl = day_dates[0]  # overdue: due on the first planned day
         eligible = [d for d in day_dates if (not dl or d <= dl)]
-        # prefer the eligible day with the MOST remaining capacity that still fits
         fits = [d for d in eligible if remaining[d] >= mins]
         if fits:
-            target = max(fits, key=lambda d: remaining[d])
+            # --keep-order: earliest day with room; else the day with the most room
+            target = fits[0] if keep_order else max(fits, key=lambda d: remaining[d])
             place(t, target)
         else:
             overflow.append(t)
     return plan, overflow
 
 
-def render(plan, day_dates, cap_free, cap_usable, meet_titles, overflow, week_start):
+def plan_line(t, first_day=None):
+    """`- [ ] <title> — <minutes>m (due <deadline>)`. Under --keep-order (first_day set)
+    the priority follows the minutes as ` · p1`, and a deadline before first_day ends
+    with ` (overdue)`."""
+    dl = t.get("deadline")
+    pri = f" · {t['priority']}" if first_day and t.get("priority") else ""
+    due = f" (due {dl})" if dl else ""
+    late = " (overdue)" if first_day and dl and dl < first_day else ""
+    return f"- [ ] {t['title']} — {t.get('minutes',25)}m{pri}{due}{late}"
+
+
+def render(plan, day_dates, cap_free, cap_usable, meet_titles, overflow, week_start,
+           keep_order=False):
+    first_day = day_dates[0] if keep_order else None
     lines = [f"# Week of {week_start.strftime('%A, %B %d, %Y')}", ""]
     for d in day_dates:
         date = dt.date.fromisoformat(d)
@@ -155,21 +156,27 @@ def render(plan, day_dates, cap_free, cap_usable, meet_titles, overflow, week_st
                      f"assigned {hm(planned)}_")
         if plan[d]:
             for t in plan[d]:
-                dl = f" (due {t['deadline']})" if t.get("deadline") else ""
-                lines.append(f"- [ ] {t['title']} — {t.get('minutes',25)}m{dl}")
+                lines.append(plan_line(t, first_day))
         else:
             lines.append("- (open — no tasks assigned)")
         lines.append("")
     if overflow:
         lines.append("## Didn't fit this week")
         for t in overflow:
-            lines.append(f"- [ ] {t['title']} — {t.get('minutes',25)}m"
-                         + (f" (due {t['deadline']})" if t.get("deadline") else ""))
+            lines.append(plan_line(t, first_day))
         lines.append("")
     total_assigned = sum(int(t.get('minutes',25)) for d in day_dates for t in plan[d])
     lines.append(f"_Planned {hm(total_assigned)} of focus work across "
                  f"{len(day_dates)} days; {len(overflow)} task(s) overflowed._")
     return "\n".join(lines)
+
+
+def week_row(t, keep_order=False):
+    """A week-tasks-<date>.json row; --keep-order carries the input row's `source`."""
+    row = {"title": t["title"], "minutes": int(t.get("minutes", 25))}
+    if keep_order and "source" in t:
+        row["source"] = t["source"]
+    return row
 
 
 def main():
@@ -184,6 +191,8 @@ def main():
                     help="fraction of free time to fill (rest left as slack)")
     ap.add_argument("--include-weekend", action="store_true")
     ap.add_argument("--out-dir", default=None)
+    ap.add_argument("--keep-order", action="store_true",
+                    help="place tasks in input order on the earliest day with room (vault runs)")
     args = ap.parse_args()
 
     week_start, day_dates = plan_days(
@@ -202,11 +211,12 @@ def main():
     cap_usable = {d: int(cap_free[d] * args.load) for d in day_dates}
 
     tasks = json.load(open(args.tasks, encoding="utf-8"))
-    plan, overflow = distribute(tasks, day_dates, dict(cap_usable))
+    plan, overflow = distribute(tasks, day_dates, dict(cap_usable), keep_order=args.keep_order)
 
     out_dir = args.out_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
     os.makedirs(out_dir, exist_ok=True)
-    md = render(plan, day_dates, cap_free, cap_usable, meet_titles, overflow, week_start)
+    md = render(plan, day_dates, cap_free, cap_usable, meet_titles, overflow, week_start,
+                args.keep_order)
     md_path = os.path.join(out_dir, f"weekly-plan-{week_start.isoformat()}.md")
     open(md_path, "w", encoding="utf-8").write(md + "\n")
 
@@ -214,8 +224,7 @@ def main():
     for d in day_dates:
         if plan[d]:
             p = os.path.join(out_dir, f"week-tasks-{d}.json")
-            json.dump([{"title": t["title"], "minutes": int(t.get("minutes", 25))}
-                       for t in plan[d]], open(p, "w", encoding="utf-8"),
+            json.dump([week_row(t, args.keep_order) for t in plan[d]], open(p, "w", encoding="utf-8"),
                       indent=2, ensure_ascii=False)
             made.append(os.path.basename(p))
         else:  # a re-run: don't leave the previous run's file for a day that now has none

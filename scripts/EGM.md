@@ -18,7 +18,7 @@ build output: it changes only through this script, never by hand.
      planner tests: it also covers the `tasks` hooks such as `vault-allow.py`,
      `load-task.sh` and `park_on_end.py`, and the skill-file checks)
   3. Lists every file under `plugins/planner`, sorted, excluding `.DS_Store`,
-     `EGM.md`, `__pycache__/` and `*.pyc`, and zips them with `zip -X` (no extra file
+     `EGM.md`, `__pycache__/`, `*.pyc` and `tools/out/` (`task_queue.py` output), and zips them with `zip -X` (no extra file
      attributes) into a temp dir.
   4. `unzip -tq` integrity check, then diffs the zip listing against the
      file list; any difference aborts with `zip contents differ from <src>`.
@@ -53,7 +53,7 @@ build output: it changes only through this script, never by hand.
 - Required tools on `PATH`: `claude`, `python3`, `zip`, `unzip`, `diff`,
   `find`, `sed`, `sort`, `mktemp`, `wc`, `tr`, `dirname`, `mv`, `rm`.
 - The header comment names `plugins/planner/` and lists the steps above (validate,
-  run `tests/`, zip minus `EGM.md` and caches, check, read the version, move); keep
+  run `tests/`, zip minus `EGM.md`, caches and `tools/out/`, check, read the version, move); keep
   it in step with the code.
 
 ## Side Effects
@@ -73,5 +73,5 @@ build output: it changes only through this script, never by hand.
 - Run: `bash scripts/build-plugin.sh` (rewrites `planner.plugin`; check that
   `git status` shows only that file changed)
 - Read-only check that the committed `planner.plugin` matches the source tree:
-  `(cd plugins/planner && find . -type f ! -name '.DS_Store' ! -name 'EGM.md' ! -path '*/__pycache__/*' ! -name '*.pyc' | sed 's|^\./||' | sort) | diff - <(unzip -Z1 planner.plugin | sort)`
+  `(cd plugins/planner && find . -type f ! -name '.DS_Store' ! -name 'EGM.md' ! -path '*/__pycache__/*' ! -path './tools/out/*' ! -name '*.pyc' | sed 's|^\./||' | sort) | diff - <(unzip -Z1 planner.plugin | sort)`
   (no output = same file list)
