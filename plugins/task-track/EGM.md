@@ -47,9 +47,8 @@ with `/note`, `/done`, `/openloop` without a model turn. Manifest:
 - Writes task notes, daily notes and `Tasks/.pomo.json` in the session's vault, every
   timer write under an OS `flock` on `Tasks/.pomo.flock` held by a `perl` helper (where perl
   can't run, the folder lock `Tasks/.pomo.lock`, made with `mkdir`, removed after;
-  where `mkdir` fails 5 times in a row with the lock confirmed gone each time (`mkdir`
-  can't work there, or rarely a lock taken and released between every try) the session
-  says so once and writes unlocked, so writes are not serialized then;
+  where `mkdir` fails for a reason other than `File exists`, i.e. it can't work there,
+  the session says so once and writes unlocked, so writes are not serialized then;
   can leave a `Tasks/.pomo.json.<id>.tmp` when `mv` fails), reads `Templates/Daily.md`,
   appends pane notes to the session as user messages, and writes `focus:*` keys in the
   plugin store (details in [hooks/EGM.md](./hooks/EGM.md)).

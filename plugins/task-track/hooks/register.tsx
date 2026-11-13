@@ -437,10 +437,10 @@ async function flushDay($: EngineInterface, lease: Lease, d: DayTotals): Promise
 /** A hold on the timer lock: `isHeld` turns false once another session broke it as stale. */
 type Lease = { isHeld: () => Promise<boolean> }
 
-/** Runs a command on the host: '' when it exits 0, else why not. */
+/** Runs a command on the host: '' when it exits 0, else why not. Messages in English (LC_ALL=C), so they can be read. */
 async function host($: EngineInterface, argv: readonly string[]): Promise<string> {
   return $.process
-    .run(argv)
+    .run(argv, { env: { LC_ALL: 'C' } })
     .then(r => (r.exitCode === 0 ? '' : `exit ${r.exitCode}: ${r.stderr.trim()}`))
     .catch((err: unknown) => (err instanceof Error ? err.message : String(err)))
 }
@@ -563,11 +563,11 @@ async function withPomoLock<T>($: EngineInterface, fn: (lease: Lease) => Promise
 /**
  * The fallback lock on the timer file where the OS lock helper can't run: a folder made with `mkdir`, which only one
  * process can create. Busy: waits LOCK_WAIT_MS up to LOCK_TRIES times, then resolves null (the round is skipped).
- * A stale lock is broken by one session (breakStaleLock). A lock confirmed gone by the time it is looked at was
- * just released: mkdir is retried at once. mkdir failing LOCK_TRIES times in a row with the lock confirmed gone
- * each time means it can't work here (no Tasks folder, no shell) or, rarely, a lock taken and released between
- * every mkdir and look: said once per session, and `fn` runs unlocked rather than freezing the timer. Any lock
- * seen in between, readable or not, is contention: the normal waits apply, and the round may be skipped.
+ * A stale lock is broken by one session (breakStaleLock). mkdir's own reason decides the rest: `File exists` is
+ * contention, never a reason to go unlocked; a lock confirmed gone by the time it is looked at was just released,
+ * so mkdir is retried at once, up to LOCK_TRIES times, then the round is skipped. Any other reason (permission,
+ * no Tasks folder, no shell) means mkdir can't work here: said once per session, and `fn` runs unlocked rather
+ * than freezing the timer.
  */
 async function withDirLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<T>): Promise<T | null> {
   const lock = `${await currentVault($)}/Tasks/.pomo.lock`
@@ -585,17 +585,18 @@ async function withDirLock<T>($: EngineInterface, fn: (lease: Lease) => Promise<
         if (await lease.isHeld()) await host($, ['rm', '-rf', lock])
       }
     }
-    const seen = await inspectLock($, lock)
-    if (!seen) {
-      if (++vanished < LOCK_TRIES) {
-        attempt--
-        continue
-      }
+    if (!/File exists/i.test(why)) {
       if (!isLockFailureTold) {
         isLockFailureTold = true
         $.ui.log(`task-track: can't make the timer lock ${lock} (${why}); changing the timer unlocked, so two sessions may log the same focus.`)
       }
       return fn({ isHeld: async () => true })
+    }
+    const seen = await inspectLock($, lock)
+    if (!seen) {
+      if (++vanished >= LOCK_TRIES) return null
+      attempt--
+      continue
     }
     vanished = 0
     if (now - seen.at >= LOCK_STALE_MS) {

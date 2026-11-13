@@ -979,6 +979,24 @@ describe('/pomo and the band controls', () => {
     expect(shared(files).pausedAt).toBe(NOW)
   })
 
+  test('a lock that vanishes after five failed mkdirs in a row is contention: the round is skipped, never run unlocked', async ($, on) => {
+    mock.env(on, { VAULT: '/v', HOME: '/home/q' })
+    mock.clock(on, { now: NOW })
+    const files = fakeVault(on, { '/v/Tasks/.active': 'set-up-vault\n', [PATH]: NOTE, [POMO]: serializePomo(running()) }, {}, {
+      noPerl: true,
+      // Every mkdir finds the lock there (another session holds it), which is gone by the time it is looked at.
+      failCommand: argv => (argv[0] === 'mkdir' && argv[1] === LOCK ? `mkdir: ${LOCK}: File exists\n` : undefined),
+    })
+    const logs: string[] = []
+    on('ui.log', ($, e) => {
+      logs.push(e.text)
+      return { value: undefined }
+    })
+    expect((await run($, 'pomo', 'pause')).text).toBe("Can't change /v/Tasks/.pomo.json: unreadable, not a timer file, or locked by another session. Nothing changed.")
+    expect(logs.filter(l => l.includes('make the timer lock'))).toEqual([])
+    expect(shared(files).pausedAt).toBe(0)
+  })
+
   test('a lock that exists but cannot be inspected counts as held: never run unlocked, never broken', async ($, on) => {
     mock.env(on, { VAULT: '/v', HOME: '/home/q' })
     const clock = mock.clock(on, { now: NOW })

@@ -105,9 +105,11 @@ state live in [../types/EGM.md](../types/EGM.md).
   `{ by: SESSION, at }`, broken by one session once 30 s old (`LOCK_STALE_MS`) via a
   `.pomo.lock.break-<owner>` marker and a re-read; the holder re-checks its owner file
   between reading and writing each note and before the timer write. A lock that exists
-  but can't be inspected counts as held. Only `mkdir` failing `LOCK_TRIES` times in a row
-  with the lock confirmed gone each time runs unlocked (said once): timer writes are then
-  not serialized.
+  but can't be inspected counts as held. `mkdir` runs with `LC_ALL=C` and its reason
+  decides: `File exists` is contention (a lock gone by the time it is looked at is retried
+  at once, up to `LOCK_TRIES` times, then the round is skipped); any other reason
+  (permission, no `Tasks/` folder, no shell) means `mkdir` can't work there, so the
+  session says so once and runs unlocked: timer writes are then not serialized.
 - Known gap, folder-lock fallback only: each check there is separate from the write it
   guards, so a holder that stalls past 30 s between its owner check and a write can
   still write once after losing the lock, and a breaker that stalls between its re-read

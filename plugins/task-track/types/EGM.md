@@ -30,9 +30,9 @@ Type declarations for the `task-track` mod, referenced from the manifest
   `notifiedBy`), and day totals (`day`, `dayMs`, `dayBlocks`, `blocksDone`,
   `creditedUntil`, `logged`). Writers hold the timer lock, an OS `flock` (the folder lock
   where `perl` can't run; see
-  [../hooks/EGM.md](../hooks/EGM.md)), except after `mkdir` fails 5 times in a row with
-  the lock confirmed gone each time (`mkdir` can't work there, or rare churn), when the
-  session writes unlocked after saying so; the file itself carries no lock fields.
+  [../hooks/EGM.md](../hooks/EGM.md)), except where neither lock can work (no perl, and
+  `mkdir` failing for a reason other than `File exists`), when the session writes
+  unlocked after saying so; the file itself carries no lock fields.
 - Module augmentation `declare module 'claude-code'` → `PluginState['task-track']`:
   `task`, `problem`, `pomo`, `isBandHidden`, `isLoopsOpen`, `isLogOpen`, `source`,
   `vaultName`, `configError`, `toldBreakUntil`, `toldMvFailed`, `projectList`,
