@@ -51,6 +51,10 @@ invalid).
   `create-task`, `task-park` and the `SessionEnd` hook write `parked`; only
   `task-finish` writes `done` (with `finished: YYYY-MM-DD`). `create-task` never writes
   `Tasks/.active` or `Tasks/.session/`.
+- Priority and due (contract: "Task priority" in [../EGM.md](../EGM.md)):
+  `create-task` and `task-start` write `priority:` (the user's value, else `p3` without
+  asking) and `due:` (only when given, else empty) directly after `up:`; `task-note`
+  is the only skill that changes them on an existing note. No hook reads either key.
 - `park_on_end.py` never blocks session end (always exits 0) and skips
   `reason: "clear"`, so `/clear` right after a start or switch keeps the task active.
 - Skill `description` fields carry routing; check named siblings when editing one.

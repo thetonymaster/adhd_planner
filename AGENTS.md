@@ -39,6 +39,8 @@ Why the tools exist twice: an installed plugin is read-only, but the scripts wri
 
 Shared fixtures for these cases live in `plugins/task-track/tests/fixtures/vault-cases.ts`; the Python tests are `tests/test_vaults.py` and `tests/test_load_task.py`.
 
+Task notes' `priority:` (`p0`..`p5`, default `p3`) and `due:` keys, the `## Next` reading rules and the ordering rule are one contract: the "Task priority" invariant in `plugins/EGM.md`. Change it there first, then the skills and tools it names.
+
 ## Conventions
 
 - `.claude/skills/planner-dev/` is a repo-local plugin (auto-loaded in this repo, not in the marketplace): the release-plugin skill, the `skill-trigger-reviewer` agent (run it after editing any skill description), a guard denying edits to `planner.plugin` / `setup/uv.lock`, and `claude plugin validate plugins/<name>` after every edit under `plugins/<name>/` (failures reach the model with the edit's result). These only run inside Claude Code; any other agent applies the same rules by hand: don't edit `planner.plugin` or `setup/uv.lock`, and run `claude plugin validate plugins/<name>` after touching a plugin.
