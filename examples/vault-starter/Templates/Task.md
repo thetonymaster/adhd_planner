@@ -1,6 +1,8 @@
 ---
 status: parked
 up: "[[]]"
+priority: p3
+due:
 repo:
 started: {{date}}
 finished:

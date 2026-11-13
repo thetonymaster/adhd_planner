@@ -48,6 +48,24 @@ code from each other: each is installed and versioned on its own.
   (task-finish). Resolution skips `done` notes; the task-track board shows Doing (`active`),
   Parked (`parked`) and Done (`done` finished in the last 7 days, today included); the
   project-tasks pane lists any non-`done` status other than `active` as parked.
+- Task priority, one note contract across plugins (spec:
+  `docs/designs/task-priority-ranked-hubs.md`, Technical Plan §1–2). Frontmatter keys, both
+  optional plain scalars, written directly after `up:`: `priority:` is exactly one of `p0`
+  (do first, ahead of dated tasks) .. `p5` (someday), absent/empty/invalid read as `p3`
+  (invalid values warned about); `due:` is `YYYY-MM-DD` or empty, a hard limit on placement,
+  invalid read as no date (warned). Frontmatter is the lines between a first-line `---` and
+  the next `---`; a scalar is the text after `key:`, trimmed, trailing ` # comment` and one
+  pair of matching quotes removed. A task's next work is the open Next items under `## Next`
+  (up to the next `## ` line): lines starting, after indentation, with `- [ ] ` plus text,
+  nested ones included, each estimated as a trailing `(~N min)` or `(~N h)` (hours to
+  minutes, rounded up per item); any open item without an estimate means `needs an
+  estimate`, none means `no Next item`. Ordering key: tier (0 `p0`, 1 `due` <= end of the
+  planning window including overdue, 2 otherwise), then `due` for tiers 0–1, then priority
+  number, then `started` (older first, undated last), then `<vault>:<slug>`. Writers:
+  `create-task` and `task-start` write `priority` (default `p3`, never asked for) and `due`
+  only when given; `task-note` sets either on an existing note. Readers must not choke on
+  unknown keys (`vaults.py`, `resolve.ts` pick fields by name).
+  `plugins/planner/tools/task_queue.py` holds the only coded copy of the ordering rule.
 - Bump `version` in a plugin's `.claude-plugin/plugin.json` when it changes; run
   `claude plugin validate plugins/<name>` after every edit under it.
 - `planner.plugin` (repo root) is built from `plugins/planner` by

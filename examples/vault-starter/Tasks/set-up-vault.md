@@ -1,6 +1,8 @@
 ---
 status: active
 up: "[[ADHD Planner]]"
+priority: p3
+due:
 started: 2026-10-12
 aliases: [Set up vault]
 tags: [task]

@@ -73,6 +73,11 @@ class TaskLifecycleTest(unittest.TestCase):
         self.assertNotIn("status: active", text)
         self.assertRegex(text, r"(?m)^started:.*\nfinished:")
 
+    def test_template_carries_priority_and_due_after_up(self):
+        text = (ROOT / "examples" / "vault-starter" / "Templates" / "Task.md").read_text(encoding="utf-8")
+        self.assertRegex(text, r"(?m)^up:.*\npriority: p3\ndue:[ \t]*$")
+        self.assertRegex(text, r"(?m)^started:.*\nfinished:")
+
     def test_task_start_sets_active_explicitly(self):
         self.assertIn("status: active", task_skill("task-start"))
 
@@ -87,6 +92,19 @@ class TaskLifecycleTest(unittest.TestCase):
         text = flat(task_skill("create-task"))
         self.assertIn("status: parked", text)
         self.assertIn("Never writes `Tasks/.active` or `Tasks/.session/`", text)
+
+    def test_new_task_skills_write_priority_and_due(self):
+        for name in ("create-task", "task-start"):
+            text = flat(task_skill(name))
+            with self.subTest(skill=name):
+                self.assertIn("`priority`", text)
+                self.assertIn("`due`", text)
+                self.assertIn("p3", text)
+
+    def test_create_task_defaults_priority_without_asking(self):
+        text = flat(task_skill("create-task"))
+        self.assertIn("writes `priority: p3` without asking", text)
+        self.assertIn("one working day", text)
 
     def test_task_finish_sets_done_and_finished_and_clears_sessions(self):
         text = flat(task_skill("task-finish"))
