@@ -123,11 +123,10 @@ the planners order tasks by one stated rule.
 
 ## Open Questions
 
-*   **Base sort behaviour**: Untested. Can a Base formula default a missing
-    `priority` to `p3`, can one view sort on more than one key, and where does a
-    note with an empty `due` land when sorting by it? Step 0 of the
-    implementation plan answers these before any file changes, and states what
-    each failure changes.
+*   ~~**Base sort behaviour**~~: answered by step 0 on 2026-11-13 (Obsidian
+    1.14.4). Formulas default a missing or invalid `priority` to `p3`, a view
+    sorts on several keys, and `dueKey` gives far or missing dates one constant.
+    Only hub membership needed a change; see section 8.
 
 ## Critical User Journeys (CUJs)
 
@@ -565,14 +564,14 @@ rebuilt in rank order.
 ### 8. Hub view and templates
 
 `Templates/Project.md` replaces its one-line Tasks section with an embedded
-Base block, the same shape as the existing Meetings block. Sketch (the shipped
-fence is `base`):
+Base block, the same shape as the existing Meetings block. This is the block
+confirmed in step 0 on Obsidian 1.14.4 (the shipped fence is `base`):
 
 ```yaml
 filters:
   and:
     - file.inFolder("Tasks")
-    - file.hasLink(this.file)
+    - up == this.file.asLink()
     - status != "done"
 formulas:
   prio: if(["p0", "p1", "p2", "p3", "p4", "p5"].contains(priority), priority, "p3")
@@ -598,16 +597,16 @@ Three points the block must get right, each checked in step 0:
     task due more than 7 days away, or with no `due`, gets one constant date,
     so those tasks are ordered by priority, as the rule in section 2 requires.
 *   **Hub membership.** `file.hasLink(this.file)` matches any link to the hub,
-    including one in a task's body. The planner assigns a task to the one hub
-    in its `up:`. If step 0 shows a task under a hub it only mentions, the
-    filter is changed to match the `up` property. That expression is not
-    established here; step 0 confirms it before it goes into the template.
+    including one in a task's body, and step 0 showed a task listed under a hub
+    it only mentions. The block therefore filters on `up == this.file.asLink()`,
+    which matches only the hub in the task's `up:`, as the planner does; an
+    `up:` written as `[[Projects/Hub|alias]]` still matches.
 
 A hub has no planning period, so it uses the next 7 days, and it has no
 `started` or slug tie-break. Among `p0` tasks it puts first only those due
 within 7 days, where the rule puts any dated `p0` first. It is an approximation
 of the rule in section 2 and can differ from a plan in those three respects.
-The syntax above is untested; see the open question "Base sort behaviour".
+Step 0 results are recorded under "Step 0: Obsidian test".
 
 `Templates/Task.md` gains `priority: p3` and `due:` directly after `up:`.
 `tests/test_skill_files.py` requires `started:` to sit directly above
@@ -864,6 +863,16 @@ as untested as the block itself.
 
 If (a), (b) or (d) fails, reword the hub goal and CUJ 3 to describe the order
 the hub can show.
+
+**Results (2026-11-13, Obsidian 1.14.4, copy of the starter vault plus the
+eight notes above).** (a) pass: `high`, `p9` and a note with neither key show
+as `p3`. (b) pass. (c) pass: the order was `p0`; `p5` due in 3 days; `p1` due
+in 2 months; the four `p3` notes; `p5` due in a month. (d) pass. (e) pass.
+(f) **fail** with `file.hasLink(this.file)`: the eighth note was listed under
+both hubs. With `up == this.file.asLink()` it is listed only under the hub in
+its `up:`, and a task whose `up:` is `[[Projects/ADHD Planner|ADHD]]` still
+appears under that hub. (g) pass. Section 8 holds the confirmed block. The
+goal and CUJ 3 stand unchanged.
 
 ### Target Files to Create/Modify
 
