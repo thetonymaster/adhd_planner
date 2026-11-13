@@ -47,3 +47,17 @@ Shared fixtures for these cases live in `plugins/task-track/tests/fixtures/vault
 - Skill `description` fields carry the routing ("not X, use Y"); when editing one, check the sibling skills it names so triggers don't overlap.
 - Features go spec → plan → implementation: `docs/superpowers/specs/` and `docs/superpowers/plans/`. `.superpowers/sdd/` is scratch from those runs.
 - User-facing install/config docs live in `docs/setup.md`; keep it in step with `setup/` and the plugin options.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `thetonymaster/adhd_planner`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` + `docs/adr/` at the repo root (created lazily). See `docs/agents/domain.md`.
