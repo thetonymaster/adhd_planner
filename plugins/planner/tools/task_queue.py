@@ -63,8 +63,15 @@ def iso_date(text):
 # --- reading a note (pure: text in, values out) -------------------------------
 
 def scalar(raw):
-    """Text after `key:`: trailing ` # comment` removed, trimmed, one pair of matching quotes removed."""
-    v = _COMMENT.sub("", raw).strip()
+    """Text after `key:`: trailing ` # comment` removed, trimmed, one pair of matching quotes removed.
+    A `#` inside the quotes is part of the value."""
+    v = raw.strip()
+    if v[:1] in ("\"", "'"):
+        end = v.find(v[0], 1)
+        rest = v[end + 1:] if end > 0 else ""
+        if end > 0 and _COMMENT.sub("", rest).strip() == "":
+            return v[1:end]
+    v = _COMMENT.sub("", v).strip()
     if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
         v = v[1:-1]
     return v

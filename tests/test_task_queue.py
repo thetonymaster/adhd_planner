@@ -250,6 +250,18 @@ class FrontmatterTest(Base):
         self.assertEqual(r["priority"], "p2")
         self.assertNotIn("deadline", r)
 
+    def test_unquoted_value_drops_a_trailing_comment(self):
+        self.assertEqual(self.row(note(priority="p1 # note"))["priority"], "p1")
+
+    def test_quoted_alias_keeps_its_hash(self):
+        self.assertEqual(self.row(note(aliases='"Fix #42 crash"'))["name"], "Fix #42 crash")
+
+    def test_quoted_up_keeps_its_hash(self):
+        self.assertEqual(self.row(note(up="[[Projects/Hub #2|x]]"))["hub"], "Hub #2")
+
+    def test_quoted_value_then_a_comment(self):
+        self.assertEqual(self.row(note(aliases='"Fix #42" # why'))["name"], "Fix #42")
+
     def test_aliases_inline_list(self):
         self.assertEqual(self.row(note(aliases="[First one, Second]"))["name"], "First one")
 
