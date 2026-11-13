@@ -304,7 +304,7 @@ tasks.
  │ Tasks/<slug>.md        │  vault paths  │ tools/task_queue.py   (new)          │
  │   priority, due,       │  passed by    │   reads frontmatter and ## Next      │
  │   status, up, ## Next  │──────────────▶│   applies the ordering rule          │
- │                        │  the skill    │   writes tools/out/queue.json         │
+ │                        │  the skill    │   writes tools/out/queue-<day>.json   │
  │ Projects/<hub>.md      │               └───────────────┬──────────────────────┘
  │   embedded base block  │                               │ tasks[] in rank order
  │   (approximate order)  │         week                  │                 day
@@ -347,20 +347,31 @@ task_queue.py --vault <name>=<path> [--vault ...]
     other than `done`, including a missing or misspelled status. This matches
     the hub view's filter and the way task resolution skips only `done` notes.
     It writes nothing in a vault.
-*   `--out` defaults to `tools/out/queue.json`, a fixed name, so a skill knows
+*   `--out` defaults to `tools/out/queue.json`. The skills always pass `--out`
+    (see below), so two planning runs in one planner folder do not read each
+    other's file. The default is a fixed name, so a person running the tool by
+    hand knows
     which file to read back. Exit code is 0 on success, including when every
     task is in `not_placed`.
 
-**How a skill calls it.** Every planning skill uses this one form, with one
-`--vault` per vault in play:
+**How a skill calls it.** Every planning skill uses one of these two forms,
+with one `--vault` per vault in play:
 
 ```text
-cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" [--date <day>]
+# a day (plan-day, morning-startup, eod-shutdown)
+cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" --date <day> --out tools/out/queue-<day>.json
+
+# a week (plan-week)
+cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" --out tools/out/queue-week.json
 ```
 
 `<name>` is the vault's name in `vaults.json`, or `vault` when there is one
 unregistered vault. Each `--vault` value is quoted, so a vault path with spaces
-stays one argument. The skill then reads `tools/out/queue.json`.
+stays one argument. The skill then reads the file it named in `--out`. A day's
+file carries the day in its name, so a run for today and a run for tomorrow in
+the same planner folder cannot read each other's output. Two runs for the same
+day read the same notes and write the same content. Unattended runs do not
+call the tool.
 
 **Output file**
 
@@ -400,6 +411,7 @@ Where each key comes from:
 | `deadline` | the note's `due`; the key is omitted when there is no valid `due` |
 | `minutes` | the sum defined in section 1 |
 | `first_day` | the first planned day (for `--date`, that date) |
+| `overdue` | `true` on a row whose `deadline` is before `first_day`; the key is omitted otherwise |
 
 `tasks` is in rank order. Each row is a valid `plan_week.py` and `plan_day.py`
 task; both tools ignore keys they do not use. `not_placed` reasons are exactly
@@ -417,6 +429,7 @@ The `detail` of a `not_placed` row is `N of M open Next items have no estimate`,
 The tool also prints a text summary:
 
 ```text
+p2 2026-11-10 (overdue) 45m vail:handoff-runbook: Review the runbook draft
 p1 2026-11-18 180m arryved:erp-pg17-rehearse: Restore last night's backup
 p3 - 25m personal:renew-domain: Log in to the registrar
 
@@ -427,7 +440,8 @@ Warnings:
 - personal:other-task: priority "high": expected p0..p5, read as p3
 ```
 
-One line per row of `tasks`, a blank line, one `Not placed (<reason>):` group
+One line per row of `tasks`, with `(overdue)` after the date of an overdue row,
+a blank line, one `Not placed (<reason>):` group
 per reason that occurs, then `Warnings:`. A group with no rows is left out.
 
 The ordering rule is one pure function in this file with `until` as a
@@ -494,13 +508,23 @@ each vault's current task and not from Monday's week file. They show the first t
 confirms which ones go to `plan_day.py` and which are the Top 3. Like
 `plan-week`, each daily skill also tells the user the `not_placed` rows and the
 warnings, so a task with a missing estimate or no open Next item is not silently
-absent from the day.
+absent from the day. A row with `overdue` is shown with `(overdue)` in the list
+the user confirms, as `plan-week` marks it in a week plan.
 
 Only `morning-startup` reads the week file, in its step 2 and in its scheduled
 prompt. It still takes rows that did not come from a vault from that file. In
 both places it leaves out rows marked `"source": "vault"`: an attended run has
 just rebuilt them from the notes, and an unattended run does not plan vault
 tasks, as now. `plan-day` and `eod-shutdown` do not read the week file.
+
+A week file written before this change has no `source` key on any row. Its
+vault rows are still titled `<vault>:<slug>: <item>` (or `<slug>: <item>` with
+one vault), the label the skills use now. So an attended run also leaves out
+an unmarked row whose label names a task note that exists in a vault in play;
+without this, the week of the upgrade would list a task twice or bring back one
+that is done. An unattended run cannot read the vault and keeps unmarked rows,
+which is what it does before this change. The case ends with the next
+`plan-week` run, which rewrites the week files with the marker.
 
 Cost, stated plainly: for vault tasks the week plan is a preview of how the
 ranked list fills the week. It does not fix a task to a day. Each day's list is
@@ -975,6 +999,8 @@ the hub can show.
         `until` to Sunday.
     *   `--out` writing to the given file, and the default writing
         `tools/out/queue.json`.
+    *   `overdue` set on a row whose `deadline` is before `first_day`, absent
+        on a row due on `first_day` or later, and `(overdue)` in the summary.
     *   A note with a missing or misspelled `status` included; `not_placed` and
         `warnings` sorted by `task`.
     *   Exit 2 for a duplicate vault name, a missing path, and a folder with no
@@ -1010,9 +1036,11 @@ In the replacement texts below, "the queue command" stands for this text, which
 is written out in full in each skill:
 `cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>"` with one quoted `--vault` per vault in play (`<name>` is the vault's name
 in `vaults.json`, or `vault` when there is one unregistered vault), then read
-`tools/out/queue.json`. Daily skills add `--date <day>`; `plan-week` adds the
-same `--week-start` value and `--include-weekend` it gives `plan_week.py`, or
-neither.
+the file named in `--out`. Daily skills add
+`--date <day> --out tools/out/queue-<day>.json`; `plan-week` adds
+`--out tools/out/queue-week.json` and the same `--week-start` value and
+`--include-weekend` it gives `plan_week.py`, or neither. Each skill shows
+`(overdue)` beside a row that has `overdue`.
 
 ##### 16. `plugins/planner/skills/plan-week/SKILL.md` (Modify)
 
@@ -1060,6 +1088,12 @@ neither.
     *   In step 2 and in the scheduled prompt, after "whichever exist," add:
         "leaving out week-plan rows marked `"source": "vault"`,". In the
         scheduled prompt those two words are split across a quoted line break.
+    *   Add a bullet to the vault block's "In this skill" list, after the
+        step 2 bullet: "**Step 2, older week plans:** a week-plan row with no
+        `source` key whose title starts with the label of a task note that
+        exists in a vault in play was written before the ranked list existed.
+        Leave it out; the queue has rebuilt it." This bullet must not contain
+        the marker text, which a test counts at exactly two.
     *   Do not repeat the week file's path, the pool phrase or the
         `plan_day.py --tasks` command in the new text:
         `tests/test_skill_files.py` pins each at exactly two occurrences.
@@ -1142,7 +1176,9 @@ neither.
     *   `task-note` contains `priority p3 → p1` and `→ (none)`;
     *   the four planning skills contain
         `tools/task_queue.py --vault "<name>=<vault-path>"` and
-        `tools/out/queue.json` outside the shared block;
+        `--out tools/out/queue-` outside the shared block;
+    *   `plan-day`, `morning-startup` and `eod-shutdown` contain `(overdue)`;
+    *   `morning-startup` contains "older week plans";
     *   the starter `Templates/Project.md` and both starter hubs no longer
         contain the original Tasks pointer line and have a `base` fence under
         `## Tasks`;
