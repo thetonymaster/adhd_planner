@@ -140,6 +140,53 @@ class TaskLifecycleTest(unittest.TestCase):
             self.assertIn(phrase, text)
 
 
+STARTER = ROOT / "examples" / "vault-starter"
+HUBS = ("Templates/Project.md", "Projects/ADHD Planner.md", "Areas/Health.md")
+OLD_TASKS_POINTER = "Tasks link here via `up:` — see the backlinks pane, or [[Tasks.base]]."
+
+
+def tasks_section(text):
+    """From the `## Tasks` heading to the next `## ` heading or the end of the file."""
+    found = re.search(r"(?ms)^## Tasks\n(.*?)(?=^## |\Z)", text)
+    return found.group(1) if found else None
+
+
+class HubTasksBaseTest(unittest.TestCase):
+    def test_hubs_drop_the_old_pointer(self):
+        for name in HUBS:
+            with self.subTest(hub=name):
+                self.assertNotIn(OLD_TASKS_POINTER, (STARTER / name).read_text(encoding="utf-8"))
+
+    def test_hubs_have_a_base_fence_under_tasks(self):
+        for name in HUBS:
+            with self.subTest(hub=name):
+                section = tasks_section((STARTER / name).read_text(encoding="utf-8"))
+                self.assertIsNotNone(section)
+                self.assertTrue(section.strip().startswith("```base\n"), section)
+                self.assertTrue(section.strip().endswith("```"), section)
+
+    def test_block_filters_on_up_not_any_link(self):
+        # Step 0 (f): file.hasLink(this.file) listed a task under a hub its body only mentions.
+        for name in HUBS:
+            with self.subTest(hub=name):
+                section = tasks_section((STARTER / name).read_text(encoding="utf-8"))
+                for phrase in ('file.inFolder("Tasks")', "up == this.file.asLink()", 'status != "done"',
+                               '"p3")', 'date("9999-12-31")', 'today() + "7 days"'):
+                    self.assertIn(phrase, section)
+                self.assertNotIn("file.hasLink", section)
+
+    def test_hubs_share_the_template_block(self):
+        template = tasks_section((STARTER / HUBS[0]).read_text(encoding="utf-8"))
+        for name in HUBS[1:]:
+            with self.subTest(hub=name):
+                self.assertEqual(tasks_section((STARTER / name).read_text(encoding="utf-8")), template)
+
+    def test_vault_guide_explains_priority(self):
+        text = flat((STARTER / "Notes" / "How this vault works.md").read_text(encoding="utf-8"))
+        for phrase in ("priority:", "due:", "p0", "p5", "p3", "task-note"):
+            self.assertIn(phrase, text)
+
+
 def description(path):
     """The frontmatter description, a folded `>` block joined to one line."""
     front = path.read_text(encoding="utf-8").split("---")[1]
