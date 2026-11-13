@@ -741,11 +741,13 @@ plan as `p3` and hubs keep their current text.
 *   [plugins/EGM.md](../../plugins/EGM.md) and
     [plugins/planner/tools/EGM.md](../../plugins/planner/tools/EGM.md): the
     contracts amended below.
-*   [task-priority-ranked-hubs-concepts-brief.md](./task-priority-ranked-hubs-concepts-brief.md):
-    the brainstorm record that preceded this design.
-*   Review reports for this document, in the repository root:
+*   [concepts_brief.md](./task-priority-ranked-hubs/concepts_brief.md): the
+    brainstorm record that preceded this design.
+*   Review reports for this document, in
+    [task-priority-ranked-hubs/](./task-priority-ranked-hubs/):
     `zoom_out_report.md`, `comprehension_report.md`, `critic_report.md`,
-    `intermediate_zoom_out_report.md`.
+    `intermediate_zoom_out_report.md`, `implementation_readiness_report.md`,
+    `goldfish_review_report.md`.
 
 ### Future Improvements
 

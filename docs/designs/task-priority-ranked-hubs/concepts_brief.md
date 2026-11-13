@@ -7,7 +7,7 @@
   could run Obsidian, so every statement about Obsidian Bases is untested.
 
 > This is the brainstorm record. The design that came out of it is
-> [task-priority-ranked-hubs.md](./task-priority-ranked-hubs.md), which is the
+> [task-priority-ranked-hubs.md](../task-priority-ranked-hubs.md), which is the
 > current source. Later review reversed some decisions listed here: the one-day
 > size rule and numbered sibling slugs were cut, `p0` now ranks ahead of dated
 > tasks, and overdue tasks respect capacity.
