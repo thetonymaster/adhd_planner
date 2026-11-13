@@ -40,6 +40,7 @@ FAR = "9999-12-31"
 
 NEEDS_ESTIMATE, NO_NEXT, UNREADABLE = "needs an estimate", "no Next item", "unreadable note"
 REASONS = (NEEDS_ESTIMATE, NO_NEXT, UNREADABLE)
+KIND_DONE, KIND_UNREADABLE, KIND_OPEN = "done", "unreadable", "open"
 PRIORITY_DETAIL = "expected p0..p5, read as p3"
 DUE_DETAIL = "expected YYYY-MM-DD, read as no due date"
 
@@ -154,20 +155,20 @@ def next_items(body):
 
 def read_note(data, vault, slug):
     """One task note from its bytes. Returns a dict with `kind` set to
-    "done", "unreadable" or "open"."""
+    KIND_DONE, KIND_UNREADABLE or KIND_OPEN."""
     base = {"vault": vault, "slug": slug, "key": f"{vault}:{slug}"}
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
-        return {**base, "kind": "unreadable", "detail": "not UTF-8"}
+        return {**base, "kind": KIND_UNREADABLE, "detail": "not UTF-8"}
     parts = split_frontmatter(text)
     if parts is None:
-        return {**base, "kind": "unreadable", "detail": "no frontmatter"}
+        return {**base, "kind": KIND_UNREADABLE, "detail": "no frontmatter"}
     front, body = parts
     f = read_frontmatter(front)
     status = f.get("status", "")
     if status == "done":
-        return {**base, "kind": "done"}
+        return {**base, "kind": KIND_DONE}
     warnings = []
     priority = f.get("priority", "")
     if priority and priority not in PRIORITIES:
@@ -179,7 +180,7 @@ def read_note(data, vault, slug):
     if due_raw and due is None:
         warnings.append({"field": "due", "value": due_raw, "detail": DUE_DETAIL})
     heading = next((l[2:].strip() for l in body if l.startswith("# ")), "")
-    return {**base, "kind": "open", "status": status, "priority": priority, "due": due,
+    return {**base, "kind": KIND_OPEN, "status": status, "priority": priority, "due": due,
             "started": iso_date(f.get("started", "")),
             "name": f["aliases"] or heading or slug,
             "hub": hub_name(f.get("up", "")),
@@ -212,7 +213,7 @@ def build(notes, first_day, until, single_vault):
     def label(n):
         return n["slug"] if single_vault else n["key"]
 
-    open_notes = [n for n in notes if n["kind"] == "open"]
+    open_notes = [n for n in notes if n["kind"] == KIND_OPEN]
     tasks, not_placed, warnings = [], [], []
     for n in sorted(open_notes, key=lambda n: sort_key(n, until)):
         for w in n["warnings"]:
@@ -237,7 +238,7 @@ def build(notes, first_day, until, single_vault):
             row["overdue"] = True
         tasks.append(row)
     for n in notes:
-        if n["kind"] == "unreadable":
+        if n["kind"] == KIND_UNREADABLE:
             not_placed.append({"task": label(n), "name": n["slug"], "reason": UNREADABLE,
                                "detail": n["detail"]})
     not_placed.sort(key=lambda r: r["task"])
