@@ -271,7 +271,7 @@ Months: [[2026-11]]
     *   a week that spans two years: `Week 53 · Dec 28, 2026 – Jan 3, 2027`.
 *   **`Months:`** lists every month the week touches (`months_touched`), joined by ` · `.
 *   **`month:`** is the month of the week's Thursday (`week_month`). It is the single "parent month" property that Obsidian search and future views can query. No code in this design reads it.
-*   **Every link resolves.** The tool creates the month notes before the week note, and a month note that exists but is Skipped still exists, so every link points to a real note. There are no links to Daily notes, which may never be written.
+*   **Every link resolves.** The tool creates the month notes before the week note, and a month note that exists but is Skipped still exists, so every link points to a real note. If a month note the week links to still doesn't exist after the month step (for example, `Monthly` is a file), a new week note is not created and is reported as `Skipped <vault>:<path>: month note Monthly/<YYYY-MM>.md missing`. There are no links to Daily notes, which may never be written.
 
 #### Month note, `Monthly/2026-11.md`
 
@@ -320,7 +320,7 @@ After routing, a day header with no rows left for that vault is dropped. For exa
     *   A row titled `<vault>:<slug>: <item>` goes to `<vault>`, and the vault label is removed, the same as in Daily notes.
     *   With one vault, every row goes to that vault.
     *   A row with no vault label (inbox, calendar or user items) goes to the current vault.
-*   **Which vaults get a section:** every vault that `ensure` did not report as `Off`. The week note usually exists for those vaults even when its Recurring section was Skipped. When `ensure` printed no `Wrote` or `Unchanged` line for a vault's week note (a `Recurring.md` that isn't UTF-8, or an `OSError`), the skill skips that vault. The skill tells you which vaults' rows were not stored.
+*   **Which vaults get a section:** every vault that `ensure` did not report as `Off`. The week note usually exists for those vaults even when its Recurring section was Skipped. The skill skips a vault only when its week note can't be edited: `ensure` printed no line for it, or a `Skipped` line whose reason is `not UTF-8`, an OS error, or `month note … missing`. A note Skipped for broken recurring markers or missing frontmatter still gets its Plan section, subject to its own plan-week marker check. The skill tells you which vaults' rows were not stored.
 *   **No capacity figures.** `plan_week.py`'s "assigned" figure counts every vault's rows, so it would be wrong next to one vault's rows. The full figures stay in `weekly-plan-<week-start>.md`.
 *   **What the section never holds:**
     *   meeting titles, which are calendar data;
@@ -417,6 +417,7 @@ All output goes to stdout, one line per event.
 | A bad Recurrence list line | `Warning <vault>:Recurring.md:<line>: <reason>`. The reason is one of `unknown rule '<rule>'`, `month <N> out of range 1–31`, `missing #id/`, or `does not match the line format`. |
 | A duplicate ID | `Warning <vault>:Recurring.md: id '<id>' on lines <a>, <b>[, …]; all skipped` |
 | `added:` missing | `Warning <vault>:<path>: added: missing; rebuilt from the body, so earlier deletions may come back` |
+| A new week note whose month note is missing | `Skipped <vault>:<path>: month note Monthly/<YYYY-MM>.md missing` |
 
 Exit codes:
 *   `0`: no `Skipped` line.
@@ -564,13 +565,14 @@ period_note.py ensure --vault NAME=PATH [--vault ...] (--date YYYY-MM-DD | --pla
     *   `python3 tools/period_note.py` is approved the same way `task_queue.py` already is: by your answer to Claude Code's Bash permission prompt. There is no new permission rule.
     *   The skill's Plan-section edits go through Edit inside the vault, which `vault-allow.py` already approves.
     *   A vault receives only rows labelled with its own name, plus unlabelled rows in the current vault. Work task titles therefore stay in the work vault.
+    *   Known limit, shared with the Daily `## Plan` routing: rows carry no vault field, so an inbox or user item whose own title begins with another vault's name and a colon (`personal:budget: renew`) is routed to that vault. Recording each row's origin in `plan_week.py`'s output would fix both places; it is a Future Improvement, not part of this slice.
 *   **Token cost.** `plan-week` gains one block of about 15 lines, which holds the Plan-section rules. `morning-startup` gains one bullet. There is no new skill and no change to any skill description.
 *   **Rollback.** Remove the skill paragraphs and the tool. The notes remain plain Markdown, and the HTML-comment markers are invisible in reading view. Deleting `Recurring.md` from a vault turns the feature off there.
 
 ### Risks and Mitigations
 
 *   **Obsidian or a sync client writes the note at the same moment.**
-    *   **Risk:** the tool reads, then replaces, a note that Obsidian has open with unsaved typing. Either the typing or the tool's added lines can be lost.
+    *   **Risk:** the tool reads, then replaces, a note that Obsidian has open with unsaved typing. Either the typing or the tool's added lines can be lost. A user edit saved between the tool's read and its `os.replace` is lost, including an edit outside the Recurring section. The design accepts this: there is no lock and no re-check before the rename (Alternatives Considered).
     *   **Mitigation:**
         *   The window between read and replace is milliseconds.
         *   Obsidian saves the whole file, so if it overwrites the tool, the new occurrence line and its `added:` ID are lost together, and the next run adds them again.
@@ -782,7 +784,8 @@ Each phase leaves the repository green. Run its check before starting the next p
     *   **Errors:**
         *   a note that isn't UTF-8 → Skipped `not UTF-8`;
         *   a `Recurring.md` that isn't UTF-8 → nothing is written to that vault;
-        *   `Weekly` existing as a file → Skipped with the `OSError` text.
+        *   `Weekly` existing as a file → Skipped with the `OSError` text;
+        *   `Monthly` existing as a file → the month note is Skipped with the `OSError` text, and no new week note is created (`month note … missing`).
     *   **Arguments:** each exit-2 case in §4 exits 2 and names the bad value.
     *   **Dates:**
         *   `--plan-week` with `today=2026-11-22` prints `Week 2026-W48 (Monday 2026-11-23)`;
@@ -897,7 +900,7 @@ Each phase leaves the repository green. Run its check before starting the next p
     *   **Add after the Pool bullet:**
         > **Plan section:** after `plan_week.py`, for each vault that `ensure` did not print as `Off`:
         > - Compare the Monday on `ensure`'s first line with the date in the `weekly-plan-<week-start>.md` file name. If they differ, write nothing and tell the user to re-run.
-        > - If `ensure` printed no `Wrote` or `Unchanged` line for that vault's `Weekly/…` note, skip the vault and name it.
+        > - Skip the vault and name it if `ensure` printed no line for its `Weekly/…` note, or a `Skipped` line for it ending in `not UTF-8`, `month note … missing`, or an OS error. Other `Skipped` reasons concern only the Recurring section: still write the Plan section.
 > - In the `Weekly/…` note `ensure` printed for that vault, replace only the text between `<!-- planner:plan-week:start -->` and `<!-- planner:plan-week:end -->`. If there isn't exactly one of each, leave the note alone and name it.
         > - Build the text from the weekly plan file: `##` headers become `###`, including `## Didn't fit this week`, which keeps its rows so they read as unscheduled; keep only rows starting `- [ ] `, drop that prefix and the `<vault>:` label, and keep the rest of the row as written; drop lines starting with `_`, `- (open`, and the `#` title.
         > - A vault gets only rows labelled with its name. Unlabelled rows go to the current vault. With one vault, it gets every row.
@@ -1049,9 +1052,9 @@ Each phase leaves the repository green. Run its check before starting the next p
     *   `claude plugin validate plugins/tasks`;
     *   `claude plugin validate .`.
 *   **Manual, in a scratch copy of `examples/vault-starter`**:
-    1. Add one weekly rule and one `month last` rule to `Recurring.md`.
+    1. Add two weekly rules and one `month last` rule to `Recurring.md`.
     2. Run `plan-week` interactively twice. Check that the second run reports no `Wrote` lines from `ensure`, and that the Plan section is replaced, not appended.
-    3. Copy the week note. Tick one occurrence and delete another, then run `plan-week` again. Run `git diff --no-index <copy> Weekly/<label>.md` and check that only the Plan section changed (CUJ 2).
+    3. Tick one weekly occurrence and delete the other, then copy the week note, then run `plan-week` again. Run `git diff --no-index <copy> Weekly/<label>.md` and check that only the Plan section changed (CUJ 2).
     4. In Obsidian, check that:
         *   the markers are hidden in reading view;
         *   the `Months:` and `month:` links resolve;
