@@ -61,3 +61,21 @@ A Hub for work that has an end.
 
 **Area**:
 A Hub for an ongoing responsibility with no end.
+
+## Period notes
+
+**Period note**:
+A week note or a month note, created by the planner in a vault that has a Recurrence list.
+
+**Week note**:
+One note per ISO week, `Weekly/2026-W48.md`, holding that week's plan and weekly occurrences.
+
+**Month note**:
+One note per month, `Monthly/2026-11.md`, holding that month's monthly occurrences.
+
+**Recurrence list**:
+The vault's `Recurring.md`, one repeat rule per line. Having one turns period notes on.
+_Avoid_: hub
+
+**Occurrence**:
+One dated checklist line made from a Recurrence list rule for one week or month.
