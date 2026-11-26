@@ -118,6 +118,13 @@ class MorningStartupTest(unittest.TestCase):
     def test_older_week_plans_are_asked_about(self):
         self.assertIn("older week plans", flat(skill("morning-startup")))
 
+    def test_vault_block_ensures_this_weeks_period_notes(self):
+        block = flat(skill("morning-startup").split("In this skill:", 1)[1])
+        self.assertIn("period_note.py ensure --date", block)
+        # A missing tool must not block planning the day: skip, don't stop.
+        self.assertIn("If `tools/period_note.py` is missing, say in one line that the tools are "
+                      "out of date and go on.", block)
+
 
 class HabitTrackerTest(unittest.TestCase):
     def test_log_no_longer_claims_to_record_the_whole_day(self):

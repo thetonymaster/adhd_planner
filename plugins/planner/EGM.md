@@ -11,7 +11,7 @@ run. Skills carry the know-how; the scripts run from the user's planner folder, 
 
 - tools: [./tools/EGM.md](./tools/EGM.md) - seed copy of the Python scripts
   (`triage.py`, `plan_day.py`, `plan_week.py`, `task_queue.py`, `make_daily.py`,
-  `make_insert.py`, `habits.py`, `add_event.py`, `setup_check.py`) and the `planner_config` /
+  `make_insert.py`, `habits.py`, `add_event.py`, `setup_check.py`, `period_note.py`) and the `planner_config` /
   `planner_common` libraries, plus template data (`calendars.json`, `habits.json`,
   `inbox.md`).
 - skills: twelve `SKILL.md` files, no code. Each runs `python3 tools/…` in the
@@ -23,9 +23,9 @@ run. Skills carry the know-how; the scripts run from the user's planner folder, 
   - [daily-page](./skills/daily-page/SKILL.md) - `make_daily.py`
   - [eod-shutdown](./skills/eod-shutdown/SKILL.md) - `triage.py`, `task_queue.py`, `plan_day.py`, `make_daily.py`
   - [habit-tracker](./skills/habit-tracker/SKILL.md) - `habits.py`
-  - [morning-startup](./skills/morning-startup/SKILL.md) - `triage.py`, `task_queue.py`, `plan_day.py`, `make_daily.py`
+  - [morning-startup](./skills/morning-startup/SKILL.md) - `triage.py`, `task_queue.py`, `period_note.py`, `plan_day.py`, `make_daily.py`
   - [plan-day](./skills/plan-day/SKILL.md) - `task_queue.py`, `plan_day.py` (printing the day is a pointer to `make_daily.py`)
-  - [plan-week](./skills/plan-week/SKILL.md) - `task_queue.py`, `plan_week.py --keep-order`
+  - [plan-week](./skills/plan-week/SKILL.md) - `task_queue.py`, `plan_week.py --keep-order`, `period_note.py`
   - [schedule-workflow](./skills/schedule-workflow/SKILL.md) - scheduled prompt runs `triage.py`
   - [setup](./skills/setup/SKILL.md) - seeds the planner folder, `setup_check.py`, then a smoke
     test of `make_insert.py`, `triage.py`, `habits.py`, `plan_day.py`, `make_daily.py`
@@ -58,9 +58,13 @@ run. Skills carry the know-how; the scripts run from the user's planner folder, 
 - Attended runs with a vault (plan-week, plan-day, morning-startup, eod-shutdown) take
   their vault task list from `task_queue.py`, one row per task in rank order, and tell
   the user its `not_placed` rows and warnings; each checks first that
-  `tools/task_queue.py` exists (stale tools → offer `planner:setup`). Unattended runs
+  `tools/task_queue.py` exists (stale tools → offer `planner:setup`). `plan-week` also
+  checks for `tools/period_note.py` and stops if it is missing; `morning-startup` skips
+  its week-note step instead. Unattended runs
   still do not read the vault; morning-startup's scheduled prompt leaves out week-plan
   rows marked `"source": "vault"`.
+- Interactive `plan-week` and `morning-startup` create period notes only through
+  `period_note.py`; `plan-week` writes a week note's Plan section with Edit.
 - Multi-vault (multi-vault spec, amended 2026-10-16; `docs/setup.md` "Several vaults"):
   with 2+ vaults registered in `$ADHD_PLANNER_VAULTS` / `~/.config/adhd-planner/vaults.json`,
   the six day-planning skills (morning-startup, plan-day, plan-week, eod-shutdown,
@@ -81,8 +85,11 @@ run. Skills carry the know-how; the scripts run from the user's planner folder, 
   planner-folder files (see [tools/EGM.md](./tools/EGM.md)), and, when a vault is
   connected, in each affected vault: the daily note (`## Plan`, Top 3, `## Shutdown`,
   `## Log` lines), task notes (`## Next` check-offs and subtasks, `## Log` lines; parking
-  via `/tasks:task-park`) and the vault inbox (emptied by capture-triage).
-- Setup seeds the planner folder (the eleven `.py` files, `calendars.json`, `habits.json`,
+  via `/tasks:task-park`), the vault inbox (emptied by capture-triage), and period notes
+  in `Weekly/` and `Monthly/` (created and updated by `period_note.py` from plan-week and
+  morning-startup in vaults that have `Recurring.md`; plan-week also writes the week
+  note's Plan section).
+- Setup seeds the planner folder (the twelve `.py` files, `calendars.json`, `habits.json`,
   `inbox.md`) and may create `.venv` there; it never touches the user's data files.
 
 ## Verification
