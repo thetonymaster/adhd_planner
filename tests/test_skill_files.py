@@ -220,6 +220,11 @@ class TaskLifecycleTest(unittest.TestCase):
                 self.assertIn("Stay in this session: after /clear this folder shows <current> again.", text)
         self.assertIn("so `keep` is never set", flat(task_skill("task-switch")))
 
+    def test_already_current_target_writes_nothing(self):
+        for name in ("task-start", "task-switch"):
+            with self.subTest(skill=name):
+                self.assertIn("reply `Already on <slug>.` and stop, writing nothing", flat(task_skill(name)))
+
     def test_switch_resolves_target_before_asking(self):
         text = flat(task_skill("task-switch"))
         self.assertLess(text.index("Resolve the target before asking anything"), text.index("Ask before replacing the current task"))

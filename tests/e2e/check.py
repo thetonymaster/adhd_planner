@@ -1,5 +1,5 @@
 """Deterministic graders: assert vault state after each e2e case. Usage: check.py <out-dir>"""
-import pathlib, re, sys
+import os, pathlib, re, sys
 
 E2E = pathlib.Path(sys.argv[1])
 
@@ -32,6 +32,9 @@ def state(case):
     return dict(status=status, active=rd(t / ".active"), session=rd(t / ".session" / rd(root / "sid")),
                 unchanged=unchanged,
                 said=(root / "turn1.txt").read_text(),  # assistant's turn-1 output only
+                repo_is_work=lambda slug: bool(re.search(r"(?m)^repo: *(\S.*)$", (t / f"{slug}.md").read_text()))
+                    and os.path.realpath(os.path.expanduser(re.search(r"(?m)^repo: *(.*)$", (t / f"{slug}.md").read_text()).group(1).strip()))
+                    == os.path.realpath(root / "work"),
                 repo=lambda slug: re.search(r"(?m)^repo: *(.*)$", (t / f"{slug}.md").read_text()).group(1).strip(),
                 # Log lines added by the skill itself (not the SessionEnd park)
                 skill_log=lambda n: [l for l in (t / n).read_text().splitlines()[len((root / "Tasks.before" / n).read_text().splitlines()):]
@@ -53,7 +56,7 @@ EXPECT = {
                           (".active=old-work", s["active"] == "old-work"),
                           ("fix-bug active", s["status"]["fix-bug"] == "active"),
                           (".session=fix-bug", s["session"] == "fix-bug")],
-    "g-park": lambda s: [("fix-bug bound to repo", s["repo"]("fix-bug") != ""),("old-work parked", s["status"]["old-work"] == "parked"),
+    "g-park": lambda s: [("fix-bug bound to this repo", s["repo_is_work"]("fix-bug")),("old-work parked", s["status"]["old-work"] == "parked"),
                          ("fix-bug active", s["status"]["fix-bug"] == "active"),
                          (".active=fix-bug", s["active"] == "fix-bug"),
                          (".session=fix-bug", s["session"] == "fix-bug")],
