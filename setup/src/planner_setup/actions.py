@@ -374,9 +374,26 @@ def _replace_hub_tasks(ctx: Ctx, vault: Path, backups: Path) -> None:
         note.write_bytes(new.encode())
 
 
+def _add_recurring(ctx: Ctx, vault: Path) -> None:
+    """Offers the starter Recurring.md, which opts the vault into week and month notes. A vault that has one
+    is never asked; no backup, since the step only creates an absent file."""
+    target = vault / "Recurring.md"
+    if target.exists():
+        return
+    if ctx.dry_run:
+        ctx.say(f"Would ask to add Recurring.md to {vault} (turns on week and month notes).")
+        return
+    if not (ctx.yes or ctx.confirm(f"Add Recurring.md to {vault}? This turns on week and month notes there.")):
+        ctx.say(f"Kept {vault} without Recurring.md (week and month notes stay off).")
+        return
+    shutil.copyfile(paths.examples() / "vault-starter" / "Recurring.md", target)
+    ctx.say(f"Added Recurring.md to {vault}.")
+
+
 def update_vaults(ctx: Ctx, fetch: Callable[[str], bytes] = board_plugin.download) -> int:
     """Brings vaults made before the task board and task priority up to date: board views in Tasks.base,
     priority and due in Templates/Task.md, the hub task list in untouched hubs (asked once per vault),
+    the starter Recurring.md that turns on week and month notes (asked once per vault that lacks one),
     the board plugin installed."""
     backups = files.backup_dir(ctx.home)
     failed = False
@@ -389,6 +406,7 @@ def update_vaults(ctx: Ctx, fetch: Callable[[str], bytes] = board_plugin.downloa
         _merge_tasks_base(ctx, vault, backups / name)
         _add_priority_keys(ctx, vault, backups / name)
         _replace_hub_tasks(ctx, vault, backups / name)
+        _add_recurring(ctx, vault)
         failed |= _board_plugin(ctx, vault, fetch, backups / name) is False
     if not ctx.dry_run:
         ctx.say(RELOAD)
