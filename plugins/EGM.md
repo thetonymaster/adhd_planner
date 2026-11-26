@@ -43,7 +43,8 @@ code from each other: each is installed and versioned on its own.
   candidates by `isSlug`; the test-only `pickTask` does not check). The board lists notes by
   file name and builds no path from a slug.
 - Task status lifecycle, one vocabulary across plugins: frontmatter `status:` is `active`
-  (task-start, task-switch), `parked` (create-task, task-park, task-switch via task-park,
+  (task-start, task-switch), `parked` (create-task, task-park, task-start and task-switch via
+  task-park once the user chose to park the current task,
   `park_on_end.py` on session end except `/clear`) or `done` with `finished: YYYY-MM-DD`
   (task-finish). Resolution skips `done` notes; the task-track board shows Doing (`active`),
   Parked (`parked`) and Done (`done` finished in the last 7 days, today included); the

@@ -195,6 +195,26 @@ class TaskLifecycleTest(unittest.TestCase):
     def test_task_start_sets_active_explicitly(self):
         self.assertIn("status: active", task_skill("task-start"))
 
+    def test_task_start_starts_new_or_existing(self):
+        text = flat(task_skill("task-start"))
+        self.assertIn("**existing** task: skip steps 2–4", text)
+        self.assertIn("**new** task: steps 2–4 create it", text)
+        self.assertNotIn("offer `/tasks:task-switch <slug>` instead", text)
+
+    def test_start_and_switch_ask_before_parking(self):
+        start = flat(task_skill("task-start"))
+        self.assertIn("**Ask before replacing the current task.**", start)
+        self.assertIn("Park <current> and start <slug>?", start)
+        self.assertIn("leave it as is and only assign <slug> to this session?", start)
+        self.assertIn("unless `keep`", start)
+        switch = flat(task_skill("task-switch"))
+        self.assertNotIn("2. Run `/tasks:task-park` on the current task.", switch)
+        self.assertIn("as task-start step 5 does", switch)
+        self.assertIn("unless `keep`", switch)
+
+    def test_create_task_points_to_task_start(self):
+        self.assertIn("Start one with /tasks:task-start <slug>.", task_skill("create-task"))
+
     def test_task_park_always_parks(self):
         text = flat(task_skill("task-park"))
         self.assertIn("status: parked", text)
