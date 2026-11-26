@@ -181,10 +181,11 @@ The CUJs use two vaults: `arryved` (opted in) and `personal` (no `Recurring.md`)
 | `Recurring.md` | vault note, new | The Recurrence list, and the opt-in signal. |
 | `plan-week` skill | prose, extended | Runs `ensure`, then writes each opted-in vault's Plan section with Edit. |
 | `morning-startup` skill | prose, extended | Runs `ensure` for today. |
+| `tools/plan_week.py` | CLI, extended | Under `--keep-order`, also writes `weekly-plan-<week-start>.json`: the same rows, each with the vault it came from. |
 | `planner-setup update-vaults` | installer, extended | Asks before adding a starter `Recurring.md`. |
 | `setup_check.py`, the `setup` skill | existing, updated | Know about the twelfth script, so a planner folder without `period_note.py` is reported as out of date. |
 
-`task_queue.py`, `plan_week.py`, `plan_day.py` and the `tasks` plugin hooks don't change.
+`task_queue.py`, `plan_day.py` and the `tasks` plugin hooks don't change. `plan_week.py` changes only under `--keep-order`, by writing one more file; its Markdown, its week-tasks files and its stdout stay byte for byte as they are.
 
 ### 2. Data flow
 
@@ -193,9 +194,10 @@ plan-week (interactive)
   1. period_note.py ensure --plan-week [--week-start D] --vault A=… --vault B=…
        └─► per vault with Recurring.md: Monthly/<M>.md (each month the week touches), Weekly/<W>.md
            per vault without it:        "Off <vault>: no Recurring.md"
-  2. task_queue.py → tasks.json → plan_week.py   (unchanged)
+  2. task_queue.py → tasks.json → plan_week.py --keep-order
+       └─► weekly-plan-<week-start>.md (unchanged) + weekly-plan-<week-start>.json (rows with origin)
   3. skill: for each vault ensure did not report as Off,
-            Edit Weekly/<W>.md between the plan-week markers with that vault's rows
+            Edit Weekly/<W>.md between the plan-week markers with that vault's rows from the .json
 
 morning-startup (interactive)
   period_note.py ensure --date <Now: date> --vault A=… --vault B=…
@@ -293,18 +295,32 @@ tags: [monthly]
 
 #### Plan section, written by the `plan-week` skill
 
-The skill builds the section from `tools/out/weekly-plan-<week-start>.md`, the file it already shows you. Each line of that file written by `plan_week.py` (`render` and `plan_line`) becomes one of the following:
+The skill builds the section from `tools/out/weekly-plan-<week-start>.json`, which `plan_week.py --keep-order` writes next to the `.md` it already shows you. The file holds the same rows as the `.md`, plus each row's vault, so no routing depends on the text of a title:
 
-| Line in `weekly-plan-<week-start>.md` | In the Plan section |
-|---|---|
-| `## Mon Nov 23` (a day header) | `### Mon Nov 23` |
-| `## Didn't fit this week` | `### Didn't fit this week` |
-| `- [ ] <title> — <N>m …` (a row) | `- <title without its vault label> — <N>m …`. The `- [ ] ` prefix is dropped; the rest of the row, such as ` · p1`, ` (due …)` or ` (overdue)`, is kept as written. |
-| a line starting with `_` (meetings, capacity, the totals footer) | dropped |
-| `- (open — no tasks assigned)` | dropped |
-| `# Week of …` and blank lines | dropped |
+```json
+{
+  "week_start": "2026-11-23",
+  "days": [
+    {"date": "2026-11-23", "header": "Mon Nov 23", "rows": [
+      {"vault": "arryved", "line": "billing: write migration plan — 90m · p1"},
+      {"vault": null, "line": "Draft the Q4 summary — 30m"}
+    ]},
+    {"date": "2026-11-24", "header": "Tue Nov 24", "rows": []}
+  ],
+  "overflow": [
+    {"vault": "arryved", "line": "infra: rotate certs — 60m · p2"}
+  ]
+}
+```
 
-After routing, a day header with no rows left for that vault is dropped. For example, for vault `arryved`:
+*   **`days`**: every planned day, in order, including days with no rows. `header` is the text of the `.md` day header without `## `.
+*   **`line`**: the `.md` row without its `- [ ] ` prefix, so ` · p1`, ` (due …)` and ` (overdue)` are kept as written. For a row with a vault, the `<vault>:` prefix is also removed from the title.
+*   **`vault`**: set only for an input row with `"source": "vault"` whose `task` is `<vault>:<slug>` (several vaults); it is the part before the first `:`. Every other row has `null`: inbox, calendar and user items, and every row of a one-vault run, whose `task` is a bare slug.
+*   **`overflow`**: the rows under `## Didn't fit this week`; always present, `[]` when empty.
+*   **What it never holds:** meeting titles, capacity figures and the totals footer.
+*   **Without `--keep-order`**, no `.json` is written. Runs that use vaults always pass `--keep-order`.
+
+The section is `### <header>` for each day with at least one row for that vault, each followed by `- <line>`, then `### Didn't fit this week` and its rows when that vault has any. For example, for vault `arryved`:
 
 ```text
 <!-- planner:plan-week:start -->
@@ -316,17 +332,17 @@ After routing, a day header with no rows left for that vault is dropped. For exa
 <!-- planner:plan-week:end -->
 ```
 
-*   **Which vault a row goes to:** by the row's origin in `tools/out/tasks.json`, not by the text of its title.
-    *   A row is a vault row when it starts with `- [ ] <title> — `, where `<title>` is the `title` of a `tasks.json` row with `"source": "vault"`. It goes to the vault named before the first `:` of that row's `task` field (`arryved:billing` → `arryved`), and the `<vault>:` label is removed from the title.
-    *   Every other row (inbox, calendar or user items) goes to the current vault with its title unchanged, even when the title begins with another vault's name and a colon. For example, a user item `personal:budget: renew` planned from the `arryved` session stays in `arryved` as written.
+*   **Which vault a row goes to:** its `vault` field, never the text of its title.
+    *   A row with `vault` set goes to that vault.
+    *   A row with `vault: null` goes to the current vault, even when its title begins with another vault's name and a colon. For example, a user item `personal:budget: renew` planned from the `arryved` session stays in `arryved` as written.
     *   With one vault, every row goes to that vault.
-    *   `plan_week.py` needs no change: `task_queue.py` already writes `source` and `task` on every vault row, and the skill already wrote `tasks.json` itself in the same run.
+    *   The origin comes from fields `task_queue.py` already writes on every vault row (`source`, `task`), so `task_queue.py` doesn't change.
 *   **Which vaults get a section:** every vault that `ensure` did not report as `Off`. The week note usually exists for those vaults even when its Recurring section was Skipped. The skill skips a vault only when its week note can't be edited: `ensure` printed no line for it, or a `Skipped` line whose reason is `not UTF-8`, an OS error, or `month note … missing`. A note Skipped for broken recurring markers or missing frontmatter still gets its Plan section, subject to its own plan-week marker check. The skill tells you which vaults' rows were not stored.
-*   **No capacity figures.** `plan_week.py`'s "assigned" figure counts every vault's rows, so it would be wrong next to one vault's rows. The full figures stay in `weekly-plan-<week-start>.md`.
+*   **No capacity figures.** `plan_week.py`'s "assigned" figure counts every vault's rows, so it would be wrong next to one vault's rows. The full figures stay in `weekly-plan-<week-start>.md`, and the `.json` doesn't carry them.
 *   **What the section never holds:**
     *   meeting titles, which are calendar data;
     *   checkboxes, so a Plan row and an occurrence can never be two separate tick boxes.
-*   **Week check:** before writing, the skill compares the Monday on `ensure`'s first line (§4) with the date in the `weekly-plan-<week-start>.md` filename. If they differ, it writes nothing and tells the user to re-run.
+*   **Week check:** before writing, the skill compares the Monday on `ensure`'s first line (§4) with the `week_start` in `weekly-plan-<week-start>.json`. If they differ, it writes nothing and tells the user to re-run.
 *   **Exact bytes are not part of the contract**, because the whole section is replaced on every run.
 *   **Broken plan-week markers:** the skill writes nothing to that note and names the file. It treats any count other than exactly one start and one end marker as broken.
 
@@ -533,10 +549,8 @@ period_note.py ensure --vault NAME=PATH [--vault ...] (--date YYYY-MM-DD | --pla
 
 *   **Pros**: Plan-section output becomes byte-reproducible and unit-tested.
 *   **Cons**:
-    *   `plan_week.py` would need a new JSON output with a schema.
-    *   `task_queue.py` rows would need a `vault` key, which they lack today (`task_queue.py`, `build`).
-    *   There would be a second subcommand, routing rules and an exact rendering grammar.
-*   **Reason for Rejection**: The Plan section is replaced whole and holds nothing of yours, so being able to reproduce it byte for byte has little value. The skill already writes the Daily `## Plan` this way, and `ensure` reports damaged plan-week markers.
+    *   There would be a second subcommand and an exact rendering grammar for the section.
+*   **Reason for Rejection**: The Plan section is replaced whole and holds nothing of yours, so being able to reproduce it byte for byte has little value. The skill already writes the Daily `## Plan` this way, and `ensure` reports damaged plan-week markers. This design does adopt the plan JSON (§3), because routing by row origin needs it; only the write stays in the skill.
 
 ### Alternative K: Extend the habit tracker (`habits.json`) with weekly and monthly cadence
 
@@ -565,8 +579,8 @@ period_note.py ensure --vault NAME=PATH [--vault ...] (--date YYYY-MM-DD | --pla
 *   **Security and privacy.**
     *   `python3 tools/period_note.py` is approved the same way `task_queue.py` already is: by your answer to Claude Code's Bash permission prompt. There is no new permission rule.
     *   The skill's Plan-section edits go through Edit inside the vault, which `vault-allow.py` already approves.
-    *   A vault receives only the vault rows whose `tasks.json` origin names it, plus non-vault rows in the current vault. Work task titles therefore stay in the work vault, and an item whose title merely looks labelled (`personal:budget: renew`) is not sent to another vault.
-    *   Known limit, Daily notes only: the Daily `## Plan` routing still routes by the title's `<vault>:` label, so it keeps that mislabel case. Applying the same origin rule there is a Future Improvement.
+    *   A vault receives only the rows whose `vault` field names it, plus `null` rows in the current vault. Work task titles therefore stay in the work vault, and an item whose title merely looks labelled (`personal:budget: renew`) is not sent to another vault.
+    *   Known limit, Daily notes only: the Daily `## Plan` routing still routes by the title's `<vault>:` label, so it keeps that mislabel case. Carrying the same `vault` field through `plan_day.py` is a Future Improvement.
 *   **Token cost.** `plan-week` gains one block of about 15 lines, which holds the Plan-section rules. `morning-startup` gains one bullet. There is no new skill and no change to any skill description.
 *   **Rollback.** Remove the skill paragraphs and the tool. The notes remain plain Markdown, and the HTML-comment markers are invisible in reading view. Deleting `Recurring.md` from a vault turns the feature off there.
 
@@ -586,7 +600,7 @@ period_note.py ensure --vault NAME=PATH [--vault ...] (--date YYYY-MM-DD | --pla
     *   **Mitigation:** the key is rebuilt from the body, so nothing is duplicated. Deletions made before the key was lost come back once, with a warning.
 *   **The week changes at midnight between steps.**
     *   **Risk:** `ensure --plan-week` runs on a Friday at 23:59 and `plan_week.py` runs on Saturday at 00:00. They then pick different weeks.
-    *   **Mitigation:** the skill compares the Monday on `ensure`'s first line, `Week … (Monday <date>)`, with the date in the `weekly-plan-<week-start>.md` filename. If they differ, it writes no Plan section and tells you to re-run.
+    *   **Mitigation:** the skill compares the Monday on `ensure`'s first line, `Week … (Monday <date>)`, with the `week_start` in `weekly-plan-<week-start>.json`. If they differ, it writes no Plan section and tells you to re-run.
 *   **Folder growth.** `Weekly/` gains 52 or 53 notes a year. The tool opens only canonical paths and never scans the folder.
 
 ### Additional Resources
@@ -606,7 +620,7 @@ period_note.py ensure --vault NAME=PATH [--vault ...] (--date YYYY-MM-DD | --pla
 *   More rule types (every N weeks, quarterly, yearly) and `month last-<day>`.
 *   Finding renamed period notes through their `period:` key.
 *   Occurrences as task notes (Alternative B), if checklist lines lack needed fields such as priority or a log.
-*   Daily `## Plan` routing by row origin, using the same `tasks.json` match as the week Plan section, so a user item titled like `personal:budget: renew` stays in the current vault there too.
+*   Daily `## Plan` routing by row origin: carry the `vault` field through `week-tasks-<date>.json` and `plan_day.py`, so a user item titled like `personal:budget: renew` stays in the current vault there too.
 
 --------------------------------------------------------------------------------
 
@@ -628,7 +642,7 @@ Each phase leaves the repository green. Run its check before starting the next p
 
 | Phase | Entries | Check |
 |---|---|---|
-| 1. Shared library and tool | 1, 2, 3, 4, 5, 6 | `python3 -m unittest discover -s tests` |
+| 1. Shared library and tool | 1, 2, 3, 4, 5, 6, 26, 27 | `python3 -m unittest discover -s tests` |
 | 2. Contracts and docs | 7, 8, 9, 10, 11, 12, 13 | none (prose only) |
 | 3. Skills | 14, 15, 16, 17, 18 | `python3 -m unittest discover -s tests`; `claude plugin validate plugins/planner`; `claude plugin validate plugins/tasks` |
 | 4. Installer | 19, 20, 21, 22, 23 | `python3 -m unittest discover -s tests`; `cd setup && uv run --locked pytest`; `cd setup && uv build` |
@@ -800,6 +814,35 @@ Each phase leaves the repository green. Run its check before starting the next p
 *   **Proposed Changes** for `test_setup_check.py`: a planner folder without `period_note.py` is reported as missing scripts.
 *   **Why**: The Coverage rule in the Verification Plan.
 
+Entries 26 and 27 belong to Phase 1. They are numbered last so that references to entries 7–25 stay stable.
+
+##### 26. `plugins/planner/tools/plan_week.py` (Modify)
+
+*   **Type / Scope**: Python CLI.
+*   **Proposed Changes**:
+    *   New pure function `plan_json(plan, day_dates, overflow, week_start) -> dict`, building the §3 document. Each row is `{"vault": …, "line": …}`:
+        *   `line` is `plan_line(t, first_day)` without its leading `- [ ] `;
+        *   `vault` is `task.split(":", 1)[0]` when the row has `"source": "vault"` and its `task` contains `:`, else `None`; when `vault` is set, the leading `<vault>:` is removed from `line`.
+        *   `header` is `date.strftime('%a %b %d')`, the same call `render` uses for the `.md` day header.
+    *   `main`: under `--keep-order` only, write `weekly-plan-<week-start>.json` next to the `.md` (`json.dump`, `indent=2`, `ensure_ascii=False`), the same way the week-tasks files are written. Without the flag, nothing new is written.
+    *   stdout, the `.md` and the week-tasks files don't change.
+    *   Docstring `Output:` list: add the `.json` line.
+*   **Why**: §3. The `.md` row drops the input row's `source` and `task`, so a Plan row's vault can't be recovered from it without matching titles.
+
+##### 27. `tests/test_plan_week.py` (Modify)
+
+*   **Type / Scope**: Unit and CLI tests.
+*   **Proposed Changes**: `run_cli` also returns the parsed `weekly-plan-2026-11-16.json` when it exists (`None` otherwise). New tests:
+    *   a two-vault input (`{"title": "a:fix: Reproduce", "task": "a:fix", "source": "vault", …}`) → `vault` is `"a"` and `line` is `"fix: Reproduce — …"`;
+    *   a user item titled `b:budget: renew` with no `source` → `vault` is `null` and `line` keeps `b:budget: renew`;
+    *   a one-vault row (`"task": "fix"`, `"source": "vault"`) → `vault` is `null` and `line` is unchanged;
+    *   `overflow` holds the row that didn't fit, and is `[]` when everything fits;
+    *   `days` lists every planned day, including a day with `rows: []`, and `header` equals the `.md` header without `## `;
+    *   `line` keeps ` · p1`, ` (due …)` and ` (overdue)` exactly as in the `.md` row;
+    *   without `--keep-order`, no `.json` is written.
+    *   The existing byte-for-byte test of the non-`--keep-order` output stays unchanged and must pass.
+*   **Why**: §3 and the Coverage rule in the Verification Plan.
+
 #### Phase 2: contracts and docs
 
 ##### 7. `plugins/planner/tools/EGM.md` (Modify)
@@ -814,7 +857,7 @@ Each phase leaves the repository green. Run its check before starting the next p
         > `task_queue.py` and `period_note.py` are the tools that read a vault, only from the `--vault` paths the caller gives. `task_queue.py` writes nothing there. `period_note.py` writes only `Weekly/<label>.md` and `Monthly/<label>.md` in vaults that have `Recurring.md`, atomically, and never rewrites an unchanged file.
     *   **New invariant**, modelled on `:79-81`:
         > `period_note.py` exits 0 when nothing was Skipped, 1 when a note was Skipped (the other notes and vaults are still processed), and 2 on bad arguments.
-    *   **Side Effects:** add "`period_note.py` creates `Weekly/` and `Monthly/` notes and writes their Recurring sections in opted-in vaults."
+    *   **Side Effects:** add "`period_note.py` creates `Weekly/` and `Monthly/` notes and writes their Recurring sections in opted-in vaults." In the `plan_week.py` bullet (`:95-97`), add: "under `--keep-order`, also `weekly-plan-<week-start>.json` (`week_start`, `days` with `date`, `header`, `rows`, and `overflow`; each row is `{vault, line}`)".
     *   **Verification:** add `test_period_note`.
 *   **Why**: The contract currently says only `task_queue.py` touches a vault.
 
@@ -901,11 +944,11 @@ Each phase leaves the repository green. Run its check before starting the next p
         > **Week notes:** run `cd "<planner-path>" && python3 tools/period_note.py ensure --plan-week`, with one quoted `--vault "<name>=<vault-path>"` per vault in play. Report its `Wrote`, `Skipped` and `Warning` lines, naming each file and its fix. If it exits 2, report the message and skip the Plan-section writes below; the rest of the skill runs as usual.
     *   **Add after the Pool bullet:**
         > **Plan section:** after `plan_week.py`, for each vault that `ensure` did not print as `Off`:
-        > - Compare the Monday on `ensure`'s first line with the date in the `weekly-plan-<week-start>.md` file name. If they differ, write nothing and tell the user to re-run.
+        > - Compare the Monday on `ensure`'s first line with the `week_start` in `tools/out/weekly-plan-<week-start>.json`. If they differ, write nothing and tell the user to re-run.
         > - Skip the vault and name it if `ensure` printed no line for its `Weekly/…` note, or a `Skipped` line for it ending in `not UTF-8`, `month note … missing`, or an OS error. Other `Skipped` reasons concern only the Recurring section: still write the Plan section.
 > - In the `Weekly/…` note `ensure` printed for that vault, replace only the text between `<!-- planner:plan-week:start -->` and `<!-- planner:plan-week:end -->`. If there isn't exactly one of each, leave the note alone and name it.
-        > - Build the text from the weekly plan file: `##` headers become `###`, including `## Didn't fit this week`, which keeps its rows so they read as unscheduled; keep only rows starting `- [ ] `, drop that prefix and the `<vault>:` label, and keep the rest of the row as written; drop lines starting with `_`, `- (open`, and the `#` title.
-        > - Route by origin, not by title text. A row is a vault row only when it starts with `- [ ] <title> — ` and `<title>` is the `title` of a `tools/out/tasks.json` row with `"source": "vault"`; it goes to the vault named before the first `:` of that row's `task`. Every other row goes to the current vault unchanged, even if its title starts with another vault's name and a colon. With one vault, it gets every row.
+        > - Build the text from that `.json` file, not the `.md`: for each day with rows for this vault, write `### <header>` and then `- <line>` per row; then `### Didn't fit this week` and its `overflow` rows for this vault, if any, so they read as unscheduled. Copy each `line` as written.
+        > - Route by origin, not by title text: a row goes to the vault in its `vault` field; a row with `vault: null` goes to the current vault, even if its title starts with another vault's name and a colon. With one vault, it gets every row.
         > - The Plan section has no checkboxes and no meeting titles. Drop a day header that has no rows left.
         >
         > Then name each vault printed as `Off` and say that its rows were not stored.
@@ -1062,6 +1105,6 @@ Each phase leaves the repository green. Run its check before starting the next p
         *   the `Months:` and `month:` links resolve;
         *   after you edit a property, `added:` becomes a block list, and the next run reads it, writes it back as a flow list, and re-adds no deleted occurrence.
     5. With the week note open in Obsidian and unsaved typing in it, add a new rule and run `ensure`. Record what Obsidian does (Risks, first item).
-*   **Coverage**: every ledger row, marker case, output line and exit-2 case in §4 has a test. Coverage is judged by that rule, not by a percentage.
+*   **Coverage**: every ledger row, marker case, output line and exit-2 case in §4 has a test, and so does each field rule of the §3 plan JSON. Coverage is judged by that rule, not by a percentage.
 
 *Drafted with EGM*
