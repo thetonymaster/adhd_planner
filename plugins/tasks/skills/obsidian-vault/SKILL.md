@@ -27,7 +27,11 @@ Claude writes is an edge the user will see. Wrong links = wrong graph.
 | `Notes/` | Evergreen knowledge: concepts, runbooks, decisions, references | `Templates/Note.md` |
 | `People/` | One note per person the user works with | `Templates/Person.md` |
 | `Meetings/` | One note per meeting, created by the Meetings Plus plugin from the calendar. Set `up:` to the project/area it served; action items that are real work become task notes (create-task). | `Templates/Meeting.md` |
+| `Weekly/` | `2026-W48.md` (ISO year, `W`, two-digit ISO week), one per week, created by the planner. No `up:`. | — |
+| `Monthly/` | `YYYY-MM.md`, one per month, created by the planner. No `up:`. | — |
 | `Attachments/` | Images, PDFs | — |
+
+Files at the vault root: `Recurring.md`, the Recurrence list (one repeat rule per line; having it turns on week and month notes).
 
 Create notes from the template file: copy its content, then fill the fields.
 Task notes are made by `create-task` (backlog, `status: parked`); to start working on one now, suggest `/tasks:task-start`.
@@ -39,6 +43,7 @@ Don't invent new top-level folders; ask the user.
    frontmatter/tags. Never link to a status or type.
 2. **Every note links up once** via the `up:` property (`up: "[[Website relaunch]]"`).
    Task → project/area. Note → project, area, or a parent note. Person → area.
+   Period notes and `Recurring.md` are the exceptions to 'every note links up once via `up:`'.
 3. **No unresolved links from Claude.** Before writing `[[X]]`, confirm X exists
    (`ls ~/vault/**/X.md`, or `obsidian search query="X"` for aliases). If it doesn't:
    create it from a template (and give it an `up`), or write plain text. Never guess.
@@ -52,6 +57,7 @@ Don't invent new top-level folders; ask the user.
 8. **Never move or rename with `mv`.** Use the CLI (from the vault root) so links update:
    `obsidian rename file=X name=Y`, `obsidian move file=X to=Folder`.
 9. **Never delete lines** in Log / Open loops sections; strike through `~~text~~` and say why.
+10. **Never edit inside a period note's owned sections** (between `<!-- planner:… -->` markers) or its `added:` key. Write outside them.
 
 ## After writing — verify (Obsidian CLI, needs the app; the first call launches it)
 
@@ -61,11 +67,11 @@ active, which can be a different one. So every CLI call runs from the vault root
 
 ```bash
 cd "<vault root>" && obsidian unresolved verbose format=json   # must not contain links Claude wrote
-cd "<vault root>" && obsidian deadends                          # notes with no outgoing links; only Inbox may appear
+cd "<vault root>" && obsidian deadends                          # notes with no outgoing links; only Inbox, Monthly/* and Recurring.md may appear
 cd "<vault root>" && obsidian backlinks file="<note>"           # check a hub picked up the new note
 ```
 
-Report what the check returned: `VERIFY: unresolved=0, deadends=Inbox only`.
+Report what the check returned: `VERIFY: unresolved=0, deadends=Inbox, Monthly/*, Recurring.md only`.
 If the CLI is unavailable, say so and fall back to `grep -o '\[\[[^]]*\]\]'` + `ls`.
 
 ## Reading
