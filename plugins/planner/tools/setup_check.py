@@ -48,7 +48,7 @@ def check():
     # 3. Scripts present
     needed = ["make_insert.py", "make_daily.py", "plan_day.py", "plan_week.py",
               "add_event.py", "triage.py", "habits.py", "planner_config.py",
-              "task_queue.py"]
+              "task_queue.py", "period_note.py"]
     missing = [f for f in needed if not os.path.exists(os.path.join(HERE, f))]
     # shared drawing module
     if not os.path.exists(os.path.join(HERE, "planner_common.py")):

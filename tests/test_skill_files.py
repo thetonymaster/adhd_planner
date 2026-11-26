@@ -127,6 +127,15 @@ class HabitTrackerTest(unittest.TestCase):
         self.assertIn("can't un-mark", text)
 
 
+class SetupSkillTest(unittest.TestCase):
+    def test_setup_counts_twelve_scripts_including_period_note(self):
+        text = skill("setup")
+        self.assertIn("twelve", text.lower())
+        self.assertNotIn("eleven", text.lower())
+        self.assertIn("`planner_config.py`, `task_queue.py` and `period_note.py`", flat(text))
+        self.assertIn("tools/period_note.py", text)
+
+
 def task_skill(name):
     return (TASK_SKILLS / name / "SKILL.md").read_text(encoding="utf-8")
 
