@@ -386,7 +386,14 @@ def _add_recurring(ctx: Ctx, vault: Path) -> None:
     if not (ctx.yes or ctx.confirm(f"Add Recurring.md to {vault}? This turns on week and month notes there.")):
         ctx.say(f"Kept {vault} without Recurring.md (week and month notes stay off).")
         return
-    shutil.copyfile(paths.examples() / "vault-starter" / "Recurring.md", target)
+    starter = (paths.examples() / "vault-starter" / "Recurring.md").read_bytes()
+    try:
+        # "x": the prompt can take a while, and a Recurring.md made meanwhile is never replaced.
+        with open(target, "xb") as f:
+            f.write(starter)
+    except FileExistsError:
+        ctx.say(f"Kept the Recurring.md that appeared in {vault} meanwhile.")
+        return
     ctx.say(f"Added Recurring.md to {vault}.")
 
 

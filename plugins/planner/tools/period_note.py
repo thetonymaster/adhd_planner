@@ -188,6 +188,11 @@ MarkerCount = collections.namedtuple("MarkerCount", "start end start_idx end_idx
 
 _LINE_SPLIT = re.compile(r".*?(?:\r\n|\n|\r)|.+", re.S)
 _BLOCK_ITEM = re.compile(r"^\s*-\s+(.*)$")
+_TOP_KEY = re.compile(r"^([A-Za-z_][\w-]*):")
+
+
+class LedgerError(ValueError):
+    """An `added:` key too damaged to read without guessing; its note is Skipped."""
 MISSING_ADDED = "added: missing; rebuilt from the body, so earlier deletions may come back"
 
 
@@ -228,18 +233,32 @@ def read_added(lines, close):
         value = planner_config.scalar(text[len("added:"):])
         end = i + 1
         if value.startswith("["):
-            while not value.endswith("]") and end < close:
-                value += " " + planner_config.scalar(content(lines[end]))
+            while not value.endswith("]"):
+                if end == close:
+                    raise LedgerError("added: flow list not closed before the end of the frontmatter")
+                nxt = content(lines[end])
+                if key := _TOP_KEY.match(nxt):
+                    raise LedgerError(f"added: flow list not closed before '{key[1]}:'")
+                value += " " + planner_config.scalar(nxt)
                 end += 1
             ids = [planner_config.scalar(v) for v in value.strip("[]").split(",")]
             return AddedKey([v for v in ids if v], i, end)
         if value:
             return AddedKey([value], i, end)
-        ids = []
-        while end < close and (m := _BLOCK_ITEM.match(content(lines[end]))):
-            if planner_config.scalar(m[1]):
-                ids.append(planner_config.scalar(m[1]))
-            end += 1
+        # A block list may hold comments and blank lines between its items; `end` stops after
+        # the last item, so a comment or blank line that follows the list is kept on rewrite.
+        ids, j = [], end
+        while j < close:
+            item = content(lines[j])
+            if m := _BLOCK_ITEM.match(item):
+                if planner_config.scalar(m[1]):
+                    ids.append(planner_config.scalar(m[1]))
+                j += 1
+                end = j
+            elif not item.strip() or item.lstrip().startswith("#"):
+                j += 1
+            else:
+                break
         return AddedKey(ids, i, end)
     return None
 
@@ -316,7 +335,10 @@ def update_note(text, kind, occs):
     if recurring.end_idx < recurring.start_idx:
         return None, events + [("Skipped", "recurring end marker comes before start marker")]
 
-    key = read_added(lines, close)
+    try:
+        key = read_added(lines, close)
+    except LedgerError as e:
+        return None, events + [("Skipped", str(e))]
     if key is None:
         events.append(("Warning", MISSING_ADDED))
     old = key.ids if key else []

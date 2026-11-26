@@ -173,8 +173,10 @@ In this skill:
     Recurring section: still write the Plan section.
   - In the `Weekly/…` note `ensure` printed for that vault, replace only the
     text between `<!-- planner:plan-week:start -->` and
-    `<!-- planner:plan-week:end -->`. If there isn't exactly one of each, leave
-    the note alone and name it.
+    `<!-- planner:plan-week:end -->`. Count only markers on their own line and
+    outside fenced code blocks (```` ``` ```` or `~~~` at column 0). If there
+    isn't exactly one of each, or the end comes before the start, leave the
+    note alone and name it.
   - Build the text from that `.json` file, not the `.md`: for each day with
     rows for this vault, write `### <header>` and then `- <line>` per row; then
     `### Didn't fit this week` and its `overflow` rows for this vault, if any,

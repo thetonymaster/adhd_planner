@@ -191,6 +191,23 @@ class WriteAtomicTest(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["note.md"])
         self.assertEqual(self.path.read_text(), "old")
 
+    def test_a_failed_mode_change_closes_the_temp_descriptor(self):
+        fds, real_mkstemp = [], tempfile.mkstemp
+
+        def mkstemp(*a, **kw):
+            fd, name = real_mkstemp(*a, **kw)
+            fds.append(fd)
+            return fd, name
+
+        with mock.patch("tempfile.mkstemp", mkstemp), \
+             mock.patch("os.chmod", side_effect=OSError("boom")), \
+             mock.patch("os.fchmod", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                self.write("new")
+        with self.assertRaises(OSError):
+            os.fstat(fds[0])
+        self.assertEqual(list(self.dir.iterdir()), [])
+
 
 class ScalarTest(unittest.TestCase):
     """The "Task priority" scalar rule in plugins/EGM.md, shared by task_queue and period_note."""

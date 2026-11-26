@@ -127,14 +127,15 @@ def write_atomic(path, text, prefix):
     mode; a new one gets 0o666 & ~umask (mkstemp alone would make it 0600)."""
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), prefix=prefix, suffix=".tmp")
     try:
-        if os.path.exists(path):
-            mode = os.stat(path).st_mode & 0o7777
-        else:
-            umask = os.umask(0)
-            os.umask(umask)
-            mode = 0o666 & ~umask
-        os.chmod(tmp, mode)
+        # Own the descriptor first, so any failure below still closes it.
         with os.fdopen(fd, "wb") as f:
+            if os.path.exists(path):
+                mode = os.stat(path).st_mode & 0o7777
+            else:
+                umask = os.umask(0)
+                os.umask(umask)
+                mode = 0o666 & ~umask
+            os.chmod(tmp, mode)
             f.write(text.encode("utf-8"))
         os.replace(tmp, path)
     except BaseException:

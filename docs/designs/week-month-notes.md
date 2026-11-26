@@ -435,6 +435,7 @@ All output goes to stdout, one line per event.
 | A duplicate ID | `Warning <vault>:Recurring.md: id '<id>' on lines <a>, <b>[, …]; all skipped` |
 | `added:` missing | `Warning <vault>:<path>: added: missing; rebuilt from the body, so earlier deletions may come back` |
 | A new week note whose month note is missing | `Skipped <vault>:<path>: month note Monthly/<YYYY-MM>.md missing` |
+| An `added: [` flow list with no `]` before the next key or the frontmatter's end | `Skipped <vault>:<path>: added: flow list not closed before '<key>:'` (or `before the end of the frontmatter`) |
 
 Exit codes:
 *   `0`: no `Skipped` line.

@@ -86,8 +86,10 @@ code from each other: each is installed and versioned on its own.
   `- [ ] <text> — <YYYY-MM-DD> ^<id>-<period>`, `<period>` the lowercased label
   (`^weekly-review-2026-w48`, `^close-books-2026-11`); a line carries an ID only when `^ID`
   is its last token outside fenced code. Ledger: frontmatter `added:` lists every occurrence
-  ID ever added (read as a flow list on one line or several, a block list, empty, a scalar, quoted IDs as in "Task
-  priority"; written back as one flow-list line); an ID in the ledger is never re-added, so
+  ID ever added (read as a flow list on one line or several, a block list (comments and blank
+  lines between items allowed), empty, a scalar, quoted IDs as in "Task priority"; written back
+  as one flow-list line; a flow list whose `]` never comes before the next key or the end of
+  the frontmatter makes the note Skipped, never guessed); an ID in the ledger is never re-added, so
   a deleted occurrence stays deleted. `period_note.py` keeps each line's ending and leaves
   unchanged files untouched. "Scheduled runs never touch the vault"
   (`planner/EGM.md`) still holds: only interactive `plan-week` and `morning-startup` run

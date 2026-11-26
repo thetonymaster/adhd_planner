@@ -387,6 +387,40 @@ class MergeTest(Base):
                                   "^weekly-review-2026-w48\n- [ ] Retro — 2026-11-27 ^retro-2026-w48\n")
                          .replace("## Notes\n", "## Notes\nmy notes\n"))
 
+    # --- damaged or commented ledgers (PR #35 review) ---------------------------
+
+    def test_unterminated_flow_list_skips_the_note_and_keeps_later_properties(self):
+        v = self.vault("v", self.REC)
+        text = W48_NOTE.replace("added: [weekly-review-2026-w48]",
+                                "added: [weekly-review-2026-w48,\ntags-of-mine: [x]")
+        path = self.note(v, text)
+        lines = self.ensure(v, expect=1)
+        self.assertEqual(lines[-1], "Skipped v:Weekly/2026-W48.md: added: flow list "
+                                    "not closed before 'tags-of-mine:'")
+        self.assertEqual(path.read_text(encoding="utf-8"), text)
+
+    def test_block_list_with_comments_and_blank_lines_is_read_whole(self):
+        v = self.vault("v", self.REC)
+        text = W48_NOTE.replace("added: [weekly-review-2026-w48]",
+                                "added:\n  - weekly-review-2026-w48\n  # keep deletions\n\n"
+                                "  - retro-2026-w48")
+        path = self.note(v, text)
+        self.assertEqual(self.ensure(v)[-1], "Unchanged v:Weekly/2026-W48.md")
+        self.assertEqual(path.read_text(encoding="utf-8"), text)
+        self.assertNotIn("^retro-2026-w48", path.read_text(encoding="utf-8"))
+
+    def test_block_list_rewrite_consumes_every_item_and_keeps_trailing_comments(self):
+        v = self.vault("v", self.REC + "- [ ] Gym — every: tue #id/gym\n")
+        text = W48_NOTE.replace("added: [weekly-review-2026-w48]",
+                                "added:\n  - weekly-review-2026-w48\n  # keep deletions\n"
+                                "  - retro-2026-w48\n# about tags")
+        path = self.note(v, text)
+        self.assertEqual(self.ensure(v)[-1], "Wrote v:Weekly/2026-W48.md")
+        out = path.read_text(encoding="utf-8")
+        self.assertIn("added: [weekly-review-2026-w48, retro-2026-w48, gym-2026-w48]\n"
+                      "# about tags\n", out)
+        self.assertNotIn("  - retro-2026-w48", out)
+
     # --- ledger table rows 2-4 -------------------------------------------------
 
     def test_line_present_but_not_in_ledger_only_adds_the_id(self):

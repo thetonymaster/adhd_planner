@@ -851,6 +851,21 @@ def test_update_vaults_dry_run_only_says_it_would_ask_about_recurring(ctx):
     assert f"Would ask to add Recurring.md to {v} (turns on week and month notes)." in ctx.lines
 
 
+def test_update_vaults_never_overwrites_a_recurring_made_during_the_prompt(ctx):
+    v = task_vault(ctx)
+    mine = b"# Made while you were asked\n"
+
+    def confirm(q):
+        if "Recurring.md" in q:
+            (v / "Recurring.md").write_bytes(mine)
+        return True
+
+    ctx = changed(ctx, yes=False, confirm=confirm)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Recurring.md").read_bytes() == mine
+    assert f"Kept the Recurring.md that appeared in {v} meanwhile." in ctx.lines
+
+
 def test_update_vaults_yes_adds_the_recurring(ctx):
     v = task_vault(ctx)
     ctx = changed(ctx, yes=True, confirm=lambda q: False)
