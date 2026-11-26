@@ -22,7 +22,8 @@ import os
 import re
 import sys
 
-import planner_config
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import planner_config  # noqa: E402
 
 Rule = collections.namedtuple("Rule", "id text kind spec")
 Occurrence = collections.namedtuple("Occurrence", "id text date")
@@ -41,6 +42,16 @@ _MONTH_FIRST = re.compile(r"^month first-(mon|tue|wed|thu|fri|sat|sun)$")
 def is_fence(line):
     """A fenced code block opens and closes with a line starting at column 0 with ``` or ~~~."""
     return line.startswith("```") or line.startswith("~~~")
+
+
+def unfenced(lines):
+    """(index, line) for every line outside fenced code; fence lines are left out."""
+    fenced = False
+    for i, line in enumerate(lines):
+        if is_fence(line):
+            fenced = not fenced
+        elif not fenced:
+            yield i, line
 
 
 def parse_rule(rule):
@@ -64,12 +75,10 @@ def parse_rule(rule):
 def parse_recurring(text):
     """Recurring.md text → (rules in file order, warnings). Each warning is the text
     after `<vault>:` on its `Warning` line, e.g. `Recurring.md:3: missing #id/`."""
-    found, warnings, fenced = [], [], False
-    for n, line in enumerate(text.splitlines(), 1):
-        if is_fence(line):
-            fenced = not fenced
-            continue
-        if fenced or "every:" not in line:
+    found, warnings = [], []
+    for i, line in unfenced(text.splitlines()):
+        n = i + 1
+        if "every:" not in line:
             continue
         m = _LINE.match(line)
         if not m:
@@ -207,49 +216,41 @@ def frontmatter_end(lines):
     return None
 
 
-def unquote(value):
-    """A frontmatter scalar as `plugins/EGM.md` "Task priority" reads it: trimmed,
-    trailing ` # comment` removed, one pair of matching quotes removed."""
-    value = value.strip()
-    if " #" in value:
-        value = value[:value.index(" #")].rstrip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-        value = value[1:-1]
-    return value
-
-
-def read_added(fm_lines):
-    """The `added:` key in the frontmatter lines (no `---` lines) → AddedKey(ids, start,
-    end) with `end` exclusive, or None when the key is missing. Reads a flow list, a block
-    list, an empty value, `[]`, a scalar and quoted IDs."""
-    for i, line in enumerate(fm_lines):
-        text = content(line)
+def read_added(lines, close):
+    """The `added:` key between line 0 (`---`) and `lines[close]` (the closing `---`) →
+    AddedKey(ids, start, end), indexes into `lines` with `end` exclusive, or None when the
+    key is missing. Reads a flow list (on one line or several), a block list, an empty
+    value, `[]`, a scalar and quoted IDs; values follow `planner_config.scalar`."""
+    for i in range(1, close):
+        text = content(lines[i])
         if not text.startswith("added:"):
             continue
-        value = unquote(text[len("added:"):])
-        if value.startswith("[") and value.endswith("]"):
-            ids = [unquote(v) for v in value[1:-1].split(",")]
-            return AddedKey([v for v in ids if v], i, i + 1)
+        value = planner_config.scalar(text[len("added:"):])
+        end = i + 1
+        if value.startswith("["):
+            while not value.endswith("]") and end < close:
+                value += " " + planner_config.scalar(content(lines[end]))
+                end += 1
+            ids = [planner_config.scalar(v) for v in value.strip("[]").split(",")]
+            return AddedKey([v for v in ids if v], i, end)
         if value:
-            return AddedKey([value], i, i + 1)
-        end, ids = i + 1, []
-        while end < len(fm_lines) and (m := _BLOCK_ITEM.match(content(fm_lines[end]))):
-            if unquote(m[1]):
-                ids.append(unquote(m[1]))
+            return AddedKey([value], i, end)
+        ids = []
+        while end < close and (m := _BLOCK_ITEM.match(content(lines[end]))):
+            if planner_config.scalar(m[1]):
+                ids.append(planner_config.scalar(m[1]))
             end += 1
         return AddedKey(ids, i, end)
     return None
 
 
-def write_added(lines, ids, key):
-    """The note's lines (at least through the closing `---`) → lines with `added:` as one
-    flow-list line. `key` is read_added's result on lines[1:close], so its indexes are one
-    less than in `lines`; with None the line goes after `month:`, else after `period:`,
-    else last in the frontmatter."""
+def write_added(lines, close, ids, key):
+    """The note's lines → lines with `added:` as one flow-list line. `key` is read_added's
+    result on the same lines; with None the line goes after `month:`, else after `period:`,
+    else last in the frontmatter (`lines[close]` is the closing `---`)."""
     line = f"added: [{', '.join(ids)}]" + ending(lines)
     if key is not None:
-        return lines[:key.start + 1] + [line] + lines[key.end + 1:]
-    close = frontmatter_end(lines)
+        return lines[:key.start] + [line] + lines[key.end:]
     keys = [content(l).split(":", 1)[0] for l in lines[1:close]]
     for name in ("month", "period"):
         if name in keys:
@@ -261,26 +262,21 @@ def write_added(lines, ids, key):
 def count_markers(body_lines, name):
     """The `planner:<name>` start/end markers on their own lines, outside fenced code."""
     start_m, end_m = f"<!-- planner:{name}:start -->", f"<!-- planner:{name}:end -->"
-    starts, ends, fenced = [], [], False
-    for i, line in enumerate(body_lines):
-        if is_fence(line):
-            fenced = not fenced
-        elif not fenced and content(line).strip() == start_m:
+    starts, ends = [], []
+    for i, line in unfenced(body_lines):
+        if content(line).strip() == start_m:
             starts.append(i)
-        elif not fenced and content(line).strip() == end_m:
+        elif content(line).strip() == end_m:
             ends.append(i)
     return MarkerCount(len(starts), len(ends), starts[0] if starts else None, ends[0] if ends else None)
 
 
 def block_ids(body_lines):
     """Every `^ID` that is the last token of a line outside fenced code."""
-    found, fenced = set(), False
-    for line in body_lines:
-        if is_fence(line):
-            fenced = not fenced
-            continue
+    found = set()
+    for _, line in unfenced(body_lines):
         tokens = line.split()
-        if not fenced and tokens and tokens[-1].startswith("^"):
+        if tokens and tokens[-1].startswith("^"):
             found.add(tokens[-1][1:])
     return found
 
@@ -313,21 +309,21 @@ def update_note(text, kind, occs):
         if (plan.start, plan.end) != (1, 1):
             events.append(("Warning", "expected one plan-week start/end marker pair, "
                                       f"found start={plan.start} end={plan.end}"))
-    rec = count_markers(body, "recurring")
-    if (rec.start, rec.end) != (1, 1):
+    recurring = count_markers(body, "recurring")
+    if (recurring.start, recurring.end) != (1, 1):
         return None, events + [("Skipped", "expected one recurring start/end marker pair, "
-                                           f"found start={rec.start} end={rec.end}")]
-    if rec.end_idx < rec.start_idx:
+                                           f"found start={recurring.start} end={recurring.end}")]
+    if recurring.end_idx < recurring.start_idx:
         return None, events + [("Skipped", "recurring end marker comes before start marker")]
 
-    key = read_added(lines[1:close])
+    key = read_added(lines, close)
     if key is None:
         events.append(("Warning", MISSING_ADDED))
     old = key.ids if key else []
     new_body, ledger = apply_occurrences(body, old, occs, ending(lines))
     if key is not None and ledger == old:
         return "".join(lines[:close + 1] + new_body), events
-    return "".join(write_added(lines[:close + 1], ledger, key) + new_body), events
+    return "".join(write_added(lines[:close + 1], close, ledger, key) + new_body), events
 
 
 # --- the vault side (IO) -----------------------------------------------------------
@@ -372,12 +368,12 @@ def ensure(vaults, monday, out):
     skipped = False
 
     for name, root in vaults.items():
-        rec = os.path.join(root, "Recurring.md")
-        if not os.path.exists(rec):
+        recurring_path = os.path.join(root, "Recurring.md")
+        if not os.path.exists(recurring_path):
             print(f"Off {name}: no Recurring.md", file=out)
             continue
         try:
-            rules, warnings = parse_recurring(read_text(rec))
+            rules, warnings = parse_recurring(read_text(recurring_path))
         except UnicodeDecodeError:
             print(f"Skipped {name}:Recurring.md: not UTF-8", file=out)
             skipped = True
@@ -392,10 +388,10 @@ def ensure(vaults, monday, out):
         months = planner_config.months_touched(monday)
         for m in months:
             occs = occurrences(rules, "month", m)
-            lines, s = ensure_note(name, root, f"Monthly/{m}.md", "month", occs,
-                                   lambda m=m, occs=occs: new_month_note(m, occs))
+            lines, note_skipped = ensure_note(name, root, f"Monthly/{m}.md", "month", occs,
+                                              lambda m=m, occs=occs: new_month_note(m, occs))
             print(*lines, sep="\n", file=out)
-            skipped |= s
+            skipped |= note_skipped
 
         rel = f"Weekly/{week}.md"
         missing = [m for m in months if not os.path.isfile(os.path.join(root, "Monthly", f"{m}.md"))]
@@ -404,22 +400,22 @@ def ensure(vaults, monday, out):
             skipped = True
             continue
         occs = occurrences(rules, "week", week)
-        lines, s = ensure_note(name, root, rel, "week", occs, lambda: new_week_note(monday, occs))
+        lines, note_skipped = ensure_note(name, root, rel, "week", occs, lambda: new_week_note(monday, occs))
         print(*lines, sep="\n", file=out)
-        skipped |= s
+        skipped |= note_skipped
     return 1 if skipped else 0
 
 
 def main(argv=None, today=None):
-    p = argparse.ArgumentParser(prog="period_note.py", description=__doc__.split("\n")[0])
-    sub = p.add_subparsers(dest="command", required=True)
-    e = sub.add_parser("ensure", help="find or create the week's period notes")
-    e.add_argument("--vault", action="append", default=[], metavar="NAME=PATH")
-    e.add_argument("--date", metavar="YYYY-MM-DD", help="use the week that contains this date")
-    e.add_argument("--plan-week", action="store_true",
-                   help="use the week plan_week.py plans today (next week on a weekend)")
-    e.add_argument("--week-start", metavar="YYYY-MM-DD", help="with --plan-week: this Monday's week")
-    args = p.parse_args(argv)
+    parser = argparse.ArgumentParser(prog="period_note.py", description=__doc__.split("\n")[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    ensure_cmd = sub.add_parser("ensure", help="find or create the week's period notes")
+    ensure_cmd.add_argument("--vault", action="append", default=[], metavar="NAME=PATH")
+    ensure_cmd.add_argument("--date", metavar="YYYY-MM-DD", help="use the week that contains this date")
+    ensure_cmd.add_argument("--plan-week", action="store_true",
+                            help="use the week plan_week.py plans today (next week on a weekend)")
+    ensure_cmd.add_argument("--week-start", metavar="YYYY-MM-DD", help="with --plan-week: this Monday's week")
+    args = parser.parse_args(argv)
 
     if not args.vault:
         planner_config.fail("ensure needs at least one --vault NAME=PATH")

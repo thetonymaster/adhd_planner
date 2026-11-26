@@ -183,9 +183,11 @@ Weekly items appear once in each week note, monthly items once in the month note
 
 **Fixing a Skipped note.** The tool never rewrites a note it doesn't recognize; it prints `Skipped <vault>:<path>: <reason>` and leaves the file as it is. Either fix the note or delete it so the next run recreates it:
 
-- `no frontmatter`: add the frontmatter (`period:`, `added: []`, and for a week note `month: "[[YYYY-MM]]"`) at the top.
+- `no frontmatter (note not created by the planner)`: add the frontmatter (`period:`, `added: []`, and for a week note `month: "[[YYYY-MM]]"`) at the top.
 - `expected one recurring start/end marker pair` or `recurring end marker comes before start marker`: under `## Recurring`, put exactly one `<!-- planner:recurring:start -->` line followed by one `<!-- planner:recurring:end -->` line, with the item lines between them.
 - `not UTF-8`: save the file as UTF-8.
+- An OS error such as `Permission denied` or `Is a directory` (the system's text for the error): fix the file's permissions, or move away whatever is at that path, so the tool can read and write the note.
+- `month note Monthly/<YYYY-MM>.md missing` (on a week note): the month note couldn't be created; fix the `Skipped` line printed for that month note above it, then run again.
 
 ## What each plugin needs
 

@@ -1103,7 +1103,7 @@ Entries 26 and 27 belong to Phase 1. They are numbered last so that references t
     4. In Obsidian, check that:
         *   the markers are hidden in reading view;
         *   the `Months:` and `month:` links resolve;
-        *   after you edit a property, `added:` becomes a block list, and the next run reads it, writes it back as a flow list, and re-adds no deleted occurrence.
+        *   after you edit a property, `added:` becomes a block list; every run reads it and re-adds no deleted occurrence, and the next run that changes the note rewrites it as a flow list (repeat runs with nothing to add stay `Unchanged`).
     5. With the week note open in Obsidian and unsaved typing in it, add a new rule and run `ensure`. Record what Obsidian does (Risks, first item).
 *   **Coverage**: every ledger row, marker case, output line and exit-2 case in §4 has a test, and so does each field rule of the §3 plan JSON. Coverage is judged by that rule, not by a percentage.
 

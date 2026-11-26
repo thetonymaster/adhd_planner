@@ -192,6 +192,20 @@ class WriteAtomicTest(unittest.TestCase):
         self.assertEqual(self.path.read_text(), "old")
 
 
+class ScalarTest(unittest.TestCase):
+    """The "Task priority" scalar rule in plugins/EGM.md, shared by task_queue and period_note."""
+
+    def test_hash_inside_quotes_is_part_of_the_value(self):
+        self.assertEqual(planner_config.scalar(' "a #b"'), "a #b")
+        self.assertEqual(planner_config.scalar(" 'a #b'  # note"), "a #b")
+
+    def test_comment_after_a_tab_is_removed(self):
+        self.assertEqual(planner_config.scalar(" p1\t# urgent"), "p1")
+
+    def test_comment_only_value_is_empty(self):
+        self.assertEqual(planner_config.scalar(" # none"), "")
+
+
 class ParseVaultsTest(unittest.TestCase):
     def setUp(self):
         self.dir = pathlib.Path(tempfile.mkdtemp())
