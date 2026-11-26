@@ -28,7 +28,7 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from planner_config import fail, iso_date, parse_day, parse_vaults, plan_days  # noqa: E402,F401
+from planner_config import iso_date, parse_day, parse_vaults, plan_days, scalar  # noqa: E402
 
 FORMAT = "task-queue/1"
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
@@ -46,26 +46,10 @@ DUE_DETAIL = "expected YYYY-MM-DD, read as no due date"
 
 _OPEN_ITEM = re.compile(r"^\s*- \[ \][ \t]+(\S.*)$")
 _ESTIMATE = re.compile(r"\s*\(~\s*(\d+(?:\.\d+)?)\s*(min|h)\)\s*$")
-_COMMENT = re.compile(r"(^|\s)#.*$")
 _KEY = re.compile(r"^([A-Za-z_][\w-]*):(.*)$")
 
 
 # --- reading a note (pure: text in, values out) -------------------------------
-
-def scalar(raw):
-    """Text after `key:`: trailing ` # comment` removed, trimmed, one pair of matching quotes removed.
-    A `#` inside the quotes is part of the value."""
-    v = raw.strip()
-    if v[:1] in ("\"", "'"):
-        end = v.find(v[0], 1)
-        rest = v[end + 1:] if end > 0 else ""
-        if end > 0 and _COMMENT.sub("", rest).strip() == "":
-            return v[1:end]
-    v = _COMMENT.sub("", v).strip()
-    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
-        v = v[1:-1]
-    return v
-
 
 def split_frontmatter(text):
     """(frontmatter lines, body lines), or None when the text has no frontmatter."""

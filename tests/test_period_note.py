@@ -473,6 +473,28 @@ class MergeTest(Base):
                 self.assertNotIn("^retro-2026-w48", text)  # in the ledger: deleted, not re-added
                 shutil.rmtree(self.tmp / "v")
 
+    def test_comment_only_ledger_is_empty(self):
+        text = self.ledger_after("added: # none\n")
+        self.assertIn("\nadded: [weekly-review-2026-w48, retro-2026-w48]\ntags: [weekly]\n", text)
+        self.assertEqual(text.count("^weekly-review-2026-w48"), 1)
+
+    def test_comment_after_a_tab_is_not_part_of_the_ledger(self):
+        form = "added: [weekly-review-2026-w48, retro-2026-w48]\t# both done\n"
+        text = self.ledger_after(form)
+        self.assertNotIn("^retro-2026-w48", text)  # in the ledger: deleted, not re-added
+        self.assertIn(form, text)  # nothing new, so the note is left as it was
+
+    def test_multi_line_flow_list_is_read_as_a_list(self):
+        form = "added: [weekly-review-2026-w48,\n  retro-2026-w48]\n"
+        text = self.ledger_after(form)
+        self.assertNotIn("^retro-2026-w48", text)
+        self.assertIn(form, text)  # nothing new, so the note is left as it was
+
+    def test_multi_line_flow_list_is_written_back_as_one_line(self):
+        text = self.ledger_after("added: [\n  weekly-review-2026-w48\n]\n")
+        self.assertIn("\nadded: [weekly-review-2026-w48, retro-2026-w48]\ntags: [weekly]\n", text)
+        self.assertEqual(text.count("^weekly-review-2026-w48"), 1)
+
     def test_id_inside_a_fence_does_not_count(self):
         v = self.vault("v", self.REC)
         path = self.note(v, W48_NOTE.replace("## Notes\n", "## Notes\n```\n- [ ] x ^retro-2026-w48\n```\n"))
