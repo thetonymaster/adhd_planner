@@ -54,6 +54,39 @@ class PlanWeekTest(unittest.TestCase):
                  "plugin version: say so, offer `planner:setup`, and stop. Do not build the task list by hand.")
         self.assertIn("In this skill: - " + check, text)
 
+    def test_vault_block_stops_when_period_note_tool_is_missing(self):
+        check = ("If `<planner-path>/tools/period_note.py` is missing, the folder's tools predate this "
+                 "plugin version: say so, offer `planner:setup`, and stop.")
+        self.assertIn(check, flat(skill("plan-week")))
+
+    def test_include_weekend_goes_to_queue_and_plan_week_only(self):
+        text = flat(skill("plan-week"))
+        self.assertIn("Give `task_queue.py`, `plan_week.py` and `period_note.py` the same `--week-start` value", text)
+        self.assertIn("`--include-weekend` to `task_queue.py` and `plan_week.py` only", text)
+
+    def vault_block(self):
+        text = skill("plan-week")
+        return flat(text[text.index("## Vault (optional)"):text.index("## Behavior notes")])
+
+    def test_vault_block_writes_each_vaults_plan_section(self):
+        block = self.vault_block()
+        self.assertIn("period_note.py ensure --plan-week", block)
+        self.assertIn("<!-- planner:plan-week:start -->", block)
+        self.assertIn("no checkboxes", block)
+        self.assertIn("Route by origin, not by title text", block)
+
+    def test_plan_section_skips_a_vault_only_when_its_week_note_cant_be_edited(self):
+        block = self.vault_block()
+        self.assertIn("ending in `not UTF-8`, `month note … missing`, or an OS error", block)
+        self.assertIn("Other `Skipped` reasons concern only the Recurring section: still write the Plan section.",
+                      block)
+
+    def test_week_plan_goes_into_week_notes_not_future_daily_notes(self):
+        self.assertIn("Don't write future daily notes. Each opted-in vault's share of the week plan goes into its "
+                      "week note's Plan section, and the full plan stays in "
+                      "`tools/out/weekly-plan-<week-start>.md`. Only `period_note.py` writes the Recurring section.",
+                      self.vault_block())
+
     def test_queue_rows_are_not_decomposed(self):
         self.assertIn("Rows from `task_queue.py` are not decomposed here.", flat(skill("plan-week")))
 

@@ -141,6 +141,14 @@ In this skill:
 - If `<planner-path>/tools/task_queue.py` is missing, the folder's tools
   predate this plugin version: say so, offer `planner:setup`, and stop. Do not
   build the task list by hand.
+- If `<planner-path>/tools/period_note.py` is missing, the folder's tools
+  predate this plugin version: say so, offer `planner:setup`, and stop.
+- **Week notes:** run
+  `cd "<planner-path>" && python3 tools/period_note.py ensure --plan-week`,
+  with one quoted `--vault "<name>=<vault-path>"` per vault in play. Report its
+  `Wrote`, `Skipped` and `Warning` lines, naming each file and its fix. If it
+  exits 2, report the message and skip the Plan-section writes below; the rest
+  of the skill runs as usual.
 - **Pool:** run the queue command,
   `cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>"`,
   with one quoted `--vault` per vault in play (`<name>` is the vault's name in
@@ -148,13 +156,41 @@ In this skill:
   file, then read the path on the tool's last output line, `Wrote <path>`, and
   that file only. Put its `tasks` first in `tools/out/tasks.json`, in their
   order, then any inbox or user items, and run `plan_week.py --keep-order`.
-  Give both tools the same period flags: the same `--week-start` value and
-  `--include-weekend` when the user asked for them, neither otherwise; never
-  pass one tool a date taken from the other's output. Show `(overdue)` beside a
+  Give `task_queue.py`, `plan_week.py` and `period_note.py` the same
+  `--week-start` value when the user asked for one, and `--include-weekend`
+  to `task_queue.py` and `plan_week.py` only; never pass one tool a date taken
+  from another's output. Show `(overdue)` beside a
   row that has `overdue`. Tell the user the `not_placed` rows (each with its
   reason and detail) and the warnings.
-- Don't write future daily notes; the week plan stays in
-  `tools/out/weekly-plan-<week-start>.md`.
+- **Plan section:** after `plan_week.py`, for each vault that `ensure` did not
+  print as `Off`:
+  - Compare the Monday on `ensure`'s first line with the `week_start` in
+    `tools/out/weekly-plan-<week-start>.json`. If they differ, write nothing
+    and tell the user to re-run.
+  - Skip the vault and name it if `ensure` printed no line for its `Weekly/…`
+    note, or a `Skipped` line for it ending in `not UTF-8`, `month note …
+    missing`, or an OS error. Other `Skipped` reasons concern only the
+    Recurring section: still write the Plan section.
+  - In the `Weekly/…` note `ensure` printed for that vault, replace only the
+    text between `<!-- planner:plan-week:start -->` and
+    `<!-- planner:plan-week:end -->`. If there isn't exactly one of each, leave
+    the note alone and name it.
+  - Build the text from that `.json` file, not the `.md`: for each day with
+    rows for this vault, write `### <header>` and then `- <line>` per row; then
+    `### Didn't fit this week` and its `overflow` rows for this vault, if any,
+    so they read as unscheduled. Copy each `line` as written.
+  - Route by origin, not by title text: a row goes to the vault in its `vault`
+    field; a row with `vault: null` goes to the current vault, even if its
+    title starts with another vault's name and a colon. With one vault, it
+    gets every row.
+  - The Plan section has no checkboxes and no meeting titles. Drop a day
+    header that has no rows left.
+
+  Then name each vault printed as `Off` and say that its rows were not stored.
+- Don't write future daily notes. Each opted-in vault's share of the week plan
+  goes into its week note's Plan section, and the full plan stays in
+  `tools/out/weekly-plan-<week-start>.md`. Only `period_note.py` writes the
+  Recurring section.
 
 ## Behavior notes
 
