@@ -25,7 +25,9 @@ export ADHD_PLANNER_VAULTS=$r/vaults.json
 rc=0
 claude -p "$t1" --session-id "$sid" "${common[@]}" </dev/null > "$r/turn1.txt" 2>&1 || rc=$?
 { echo "### turn 1: $t1"; cat "$r/turn1.txt"; } > "$r/transcript.txt"
-# State after turn 1 and its SessionEnd: turn-2 effects are graded against this.
+# Undo turn 1's SessionEnd park (a live session does not end between question and answer),
+# then snapshot: turn-2 effects are graded against this.
+if [ -n "$t2" ]; then python3 "$here/session_end.py" "$r/vault/Tasks"; fi
 cp -R "$r/vault/Tasks" "$r/Tasks.turn1"
 if [ "$rc" -eq 0 ] && [ -n "$t2" ]; then
   { echo; echo "### turn 2: $t2"; } >> "$r/transcript.txt"

@@ -1,6 +1,9 @@
 """Deterministic graders: assert vault state after each e2e case. Usage: check.py <out-dir>"""
 import os, pathlib, re, sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+import session_end  # noqa: E402
+
 E2E = pathlib.Path(sys.argv[1])
 
 
@@ -8,19 +11,10 @@ def state(case):
     root = E2E / f"run-{case}"
     t = root / "vault" / "Tasks"
     rd = lambda p: p.read_text().strip() if p.is_file() else None
-    # SessionEnd (park_on_end.py) parks the session's active task when `claude -p` exits. Only when
-    # its line is the note's LAST Log line was that park the final transition: then the note counts
-    # as active at session end, and undoing that one park gives what the skill left behind.
-    END_LINE = re.compile(r"^- \[\[[\d-]+\]\] [\d:]+ — parked: session ended$")
-
-    def ended_last(text):
-        logs = [l for l in text.splitlines() if l.startswith("- [[")]
-        return bool(logs) and bool(END_LINE.match(logs[-1]))
-
-    def undo_end(text):  # drop the final SessionEnd line, restore its status flip
-        lines = text.splitlines(keepends=True)
-        i = max(n for n, l in enumerate(lines) if l.startswith("- [["))
-        return "".join(lines[:i] + lines[i + 1:]).replace("status: parked", "status: active", 1)
+    # SessionEnd (park_on_end.py) parks the session's active task when `claude -p` exits. When its
+    # line is a note's LAST Log line, that park was the final transition: undo it to see what the
+    # skill left behind (run_case.sh already undid turn 1's before the reply).
+    ended_last, undo_end = session_end.ended_last, session_end.undo
 
     def status_of(text):
         return re.search(r"(?m)^status: *(\S*)", (undo_end(text) if ended_last(text) else text)).group(1)
@@ -42,7 +36,12 @@ def state(case):
                 turn2_log=lambda n: [l for l in (t / n).read_text().splitlines()
                                      if l.startswith("- [[") and "parked: session ended" not in l
                                      and l not in (root / "Tasks.turn1" / n).read_text().splitlines()],
-                turn2_untouched=lambda n: (root / "Tasks.turn1" / n).read_text() == (t / n).read_text(),
+                # turn 2 left the note as the snapshot had it, apart from turn 2's own SessionEnd park
+                turn2_untouched=lambda n: (root / "Tasks.turn1" / n).read_text()
+                    == (undo_end((t / n).read_text()) if ended_last((t / n).read_text()) else (t / n).read_text()),
+                was_active_after_turn1=lambda n: re.search(r"(?m)^status: *active", (root / "Tasks.turn1" / n).read_text()) is not None,
+                parked_by_skill=lambda n: re.search(r"(?m)^status: *parked", (t / n).read_text()) is not None
+                    and not ended_last((t / n).read_text()),
                 # Log lines added by the skill itself (not the SessionEnd park)
                 skill_log=lambda n: [l for l in (t / n).read_text().splitlines()
                                      if l.startswith("- [[") and "parked: session ended" not in l
@@ -51,7 +50,9 @@ def state(case):
 
 EXPECT = {
     "s-yes": lambda s: [("asked park-or-stop", "Park" in s["said"] and "old-work" in s["said"]),
-                        ("old-work parked by task-park in turn 2", bool(s["turn2_log"]("old-work.md")) and s["raw"]["old-work"] == "parked"),
+                        ("old-work active when 'yes' arrived", s["was_active_after_turn1"]("old-work.md")),
+                        ("old-work parked by task-park in turn 2 (not SessionEnd)",
+                         s["parked_by_skill"]("old-work.md") and bool(s["turn2_log"]("old-work.md"))),
                         ("fix-bug active", s["status"]["fix-bug"] == "active"),
                         (".active=fix-bug", s["active"] == "fix-bug"),
                         (".session=fix-bug", s["session"] == "fix-bug")],
