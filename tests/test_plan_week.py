@@ -67,18 +67,23 @@ MIXED = [
 ]
 
 
+def invoke(d, tasks, flags):
+    """Run plan_week.py on a fixed week in temp dir d; return (out dir, completed process)."""
+    (d / "tasks.json").write_text(json.dumps(tasks), encoding="utf-8")
+    (d / "busy.json").write_text(json.dumps(BUSY), encoding="utf-8")
+    out = d / "out"
+    r = subprocess.run(
+        [sys.executable, str(TOOLS / "plan_week.py"), "--tasks", str(d / "tasks.json"),
+         "--busy", str(d / "busy.json"), "--week-start", "2026-11-16", "--work", "09:00-17:00",
+         "--lunch", "12:00-13:00", "--load", "0.5", "--out-dir", str(out), *flags],
+        capture_output=True, text=True, check=True)
+    return out, r
+
+
 def run_cli(tasks, *flags):
     """Run plan_week.py on a fixed week; return (plan markdown, {week file: text}, stdout)."""
     with tempfile.TemporaryDirectory() as tmp:
-        d = pathlib.Path(tmp)
-        (d / "tasks.json").write_text(json.dumps(tasks), encoding="utf-8")
-        (d / "busy.json").write_text(json.dumps(BUSY), encoding="utf-8")
-        out = d / "out"
-        r = subprocess.run(
-            [sys.executable, str(TOOLS / "plan_week.py"), "--tasks", str(d / "tasks.json"),
-             "--busy", str(d / "busy.json"), "--week-start", "2026-11-16", "--work", "09:00-17:00",
-             "--lunch", "12:00-13:00", "--load", "0.5", "--out-dir", str(out), *flags],
-            capture_output=True, text=True, check=True)
+        out, r = invoke(pathlib.Path(tmp), tasks, flags)
         md = (out / "weekly-plan-2026-11-16.md").read_text(encoding="utf-8")
         files = {p.name: p.read_text(encoding="utf-8") for p in sorted(out.glob("week-tasks-*.json"))}
         return md, files, r.stdout.replace(str(out), "<out>")
@@ -218,6 +223,75 @@ class KeepOrderOutputTest(unittest.TestCase):
         self.assertIn("## Wed Nov 18\n_Free 7h · planning up to 3h30 · assigned 0h30_\n"
                       "- [ ] on wed — 30m · p2\n", md)
         self.assertEqual(sorted(files), ["week-tasks-2026-11-16.json", "week-tasks-2026-11-18.json"])
+
+
+def run_json(tasks, *flags):
+    """Run plan_week.py; return (plan markdown, parsed weekly-plan JSON or None if not written)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out, _ = invoke(pathlib.Path(tmp), tasks, flags)
+        md = (out / "weekly-plan-2026-11-16.md").read_text(encoding="utf-8")
+        jp = out / "weekly-plan-2026-11-16.json"
+        return md, (json.loads(jp.read_text(encoding="utf-8")) if jp.exists() else None)
+
+
+class PlanJsonTest(unittest.TestCase):
+    """weekly-plan-<week-start>.json under --keep-order (design doc, section 3 "Plan section")."""
+
+    def test_a_two_vault_row_gets_its_vault_and_loses_the_prefix(self):
+        tasks = [{"title": "a:fix: Reproduce", "task": "a:fix", "source": "vault", "minutes": 60,
+                  "priority": "p1"}]
+        _, plan = run_json(tasks, "--keep-order")
+        self.assertEqual(plan["days"][0]["rows"],
+                         [{"vault": "a", "line": "fix: Reproduce — 60m · p1"}])
+
+    def test_a_user_item_with_a_vault_like_title_has_no_vault_and_keeps_its_title(self):
+        _, plan = run_json([{"title": "b:budget: renew", "minutes": 30}], "--keep-order")
+        self.assertEqual(plan["days"][0]["rows"], [{"vault": None, "line": "b:budget: renew — 30m"}])
+
+    def test_a_one_vault_row_has_no_vault_and_an_unchanged_line(self):
+        tasks = [{"title": "fix: Reproduce", "task": "fix", "source": "vault", "minutes": 60,
+                  "priority": "p2"}]
+        md, plan = run_json(tasks, "--keep-order")
+        self.assertIn("- [ ] fix: Reproduce — 60m · p2\n", md)
+        self.assertEqual(plan["days"][0]["rows"], [{"vault": None, "line": "fix: Reproduce — 60m · p2"}])
+
+    def test_days_list_every_planned_day_with_the_md_header(self):
+        md, plan = run_json([{"title": "only", "minutes": 30}], "--keep-order")
+        self.assertEqual(plan["week_start"], "2026-11-16")
+        self.assertEqual([(d["date"], d["header"]) for d in plan["days"]], [
+            ("2026-11-16", "Mon Nov 16"), ("2026-11-17", "Tue Nov 17"), ("2026-11-18", "Wed Nov 18"),
+            ("2026-11-19", "Thu Nov 19"), ("2026-11-20", "Fri Nov 20")])
+        for d in plan["days"]:
+            self.assertIn(f"## {d['header']}\n", md)
+        self.assertEqual([d["rows"] for d in plan["days"][1:]], [[], [], [], []])
+
+    def test_lines_match_the_md_rows_with_no_meetings_capacity_or_totals(self):
+        md, plan = run_json(MIXED, "--keep-order")
+        # MIXED rows carry no `task`, so none has a vault and every line is the .md row as written
+        rows = [r for d in plan["days"] for r in d["rows"]] + plan["overflow"]
+        self.assertEqual([r["line"] for r in rows], [ln[len("- [ ] "):] for ln in plan_lines(md)])
+        self.assertEqual({r["vault"] for r in rows}, {None})
+        self.assertIn("c:old-thing: Finish it — 200m · p3 (due 2026-11-10) (overdue)",
+                      [r["line"] for r in rows])
+        text = json.dumps(plan, ensure_ascii=False)
+        for absent in ("Planning", "Free", "assigned", "Planned", "overflowed"):
+            self.assertNotIn(absent, text)
+
+    def test_overflow_holds_the_rows_that_did_not_fit(self):
+        tasks = [{"title": "c:old: Finish it", "task": "c:old", "source": "vault", "minutes": 400,
+                  "deadline": "2026-11-10", "priority": "p3"}]
+        md, plan = run_json(tasks, "--keep-order")
+        self.assertIn("## Didn't fit this week\n- [ ] c:old: Finish it — 400m · p3 (due 2026-11-10) (overdue)\n", md)
+        self.assertEqual(plan["overflow"],
+                         [{"vault": "c", "line": "old: Finish it — 400m · p3 (due 2026-11-10) (overdue)"}])
+
+    def test_overflow_is_empty_when_everything_fits(self):
+        _, plan = run_json([{"title": "small", "minutes": 30}], "--keep-order")
+        self.assertEqual(plan["overflow"], [])
+
+    def test_no_json_without_the_flag(self):
+        _, plan = run_json(MIXED)
+        self.assertIsNone(plan)
 
 
 if __name__ == "__main__":
