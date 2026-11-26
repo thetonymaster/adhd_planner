@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run_case.sh <out-dir> <case> <scenario> <turn1> [turn2]
 # One headless case: fresh fixture vault, turn 1 with a preset session id, optional scripted reply via --resume.
-# Writes <out-dir>/run-<case>/{vault,Tasks.before,sid,turn1.txt,transcript.txt}; exits non-zero if a claude call fails.
+# Writes <out-dir>/run-<case>/{vault,Tasks.before,Tasks.turn1,sid,turn1.txt,transcript.txt}; exits non-zero if a claude call fails.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$1"
@@ -25,6 +25,8 @@ export ADHD_PLANNER_VAULTS=$r/vaults.json
 rc=0
 claude -p "$t1" --session-id "$sid" "${common[@]}" </dev/null > "$r/turn1.txt" 2>&1 || rc=$?
 { echo "### turn 1: $t1"; cat "$r/turn1.txt"; } > "$r/transcript.txt"
+# State after turn 1 and its SessionEnd: turn-2 effects are graded against this.
+cp -R "$r/vault/Tasks" "$r/Tasks.turn1"
 if [ "$rc" -eq 0 ] && [ -n "$t2" ]; then
   { echo; echo "### turn 2: $t2"; } >> "$r/transcript.txt"
   claude -p "$t2" --resume "$sid" "${common[@]}" </dev/null >> "$r/transcript.txt" 2>&1 || rc=$?

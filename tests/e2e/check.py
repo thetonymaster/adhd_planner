@@ -37,18 +37,26 @@ def state(case):
                     and os.path.realpath(os.path.expanduser(re.search(r"(?m)^repo: *(.*)$", (t / f"{slug}.md").read_text()).group(1).strip()))
                     == os.path.realpath(root / "work"),
                 repo=lambda slug: re.search(r"(?m)^repo: *(.*)$", (t / f"{slug}.md").read_text()).group(1).strip(),
+                # Log lines turn 2 added (diffed against the post-turn-1 snapshot, so turn 1's
+                # SessionEnd park can't count), minus turn 2's own SessionEnd line
+                turn2_log=lambda n: [l for l in (t / n).read_text().splitlines()
+                                     if l.startswith("- [[") and "parked: session ended" not in l
+                                     and l not in (root / "Tasks.turn1" / n).read_text().splitlines()],
+                turn2_untouched=lambda n: (root / "Tasks.turn1" / n).read_text() == (t / n).read_text(),
                 # Log lines added by the skill itself (not the SessionEnd park)
-                skill_log=lambda n: [l for l in (t / n).read_text().splitlines()[len((root / "Tasks.before" / n).read_text().splitlines()):]
-                                     if l.startswith("- [[") and "parked: session ended" not in l])
+                skill_log=lambda n: [l for l in (t / n).read_text().splitlines()
+                                     if l.startswith("- [[") and "parked: session ended" not in l
+                                     and l not in (root / "Tasks.before" / n).read_text().splitlines()])
 
 
 EXPECT = {
     "s-yes": lambda s: [("asked park-or-stop", "Park" in s["said"] and "old-work" in s["said"]),
-                        ("old-work parked by task-park", bool(s["skill_log"]("old-work.md")) and s["raw"]["old-work"] == "parked"),
+                        ("old-work parked by task-park in turn 2", bool(s["turn2_log"]("old-work.md")) and s["raw"]["old-work"] == "parked"),
                         ("fix-bug active", s["status"]["fix-bug"] == "active"),
                         (".active=fix-bug", s["active"] == "fix-bug"),
                         (".session=fix-bug", s["session"] == "fix-bug")],
     "s-no": lambda s: [("old-work untouched", s["unchanged"]("old-work.md")),
+                       ("turn 2 ('no') wrote nothing to old-work", s["turn2_untouched"]("old-work.md")),
                        ("fix-bug untouched", s["unchanged"]("fix-bug.md")),
                        (".active=old-work", s["active"] == "old-work"),
                        (".session=old-work", s["session"] == "old-work")],
