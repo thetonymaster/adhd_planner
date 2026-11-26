@@ -223,7 +223,9 @@ class TaskLifecycleTest(unittest.TestCase):
     def test_already_current_target_writes_nothing(self):
         for name in ("task-start", "task-switch"):
             with self.subTest(skill=name):
-                self.assertIn("reply `Already on <slug>.` and stop, writing nothing", flat(task_skill(name)))
+                text = flat(task_skill(name))
+                self.assertIn("this session's task → reply `Already on <slug>.` and stop, writing nothing", text)
+                self.assertIn("but global → set `keep`, ask nothing", text)
 
     def test_switch_resolves_target_before_asking(self):
         text = flat(task_skill("task-switch"))

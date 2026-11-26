@@ -24,12 +24,13 @@ def state(case):
 
     def status_of(text):
         return re.search(r"(?m)^status: *(\S*)", (undo_end(text) if ended_last(text) else text)).group(1)
-    status = {p.stem: status_of(p.read_text()) for p in t.glob("*.md")}
+    status = {p.stem: status_of(p.read_text()) for p in t.glob("*.md")}  # for "active" checks
+    raw = {p.stem: re.search(r"(?m)^status: *(\S*)", p.read_text()).group(1) for p in t.glob("*.md")}  # for "parked" checks
 
     def unchanged(n):  # equal, after undoing only the SessionEnd park (active -> parked + its Log line)
         before, after = (root / "Tasks.before" / n).read_text(), (t / n).read_text()
         return before == (undo_end(after) if ended_last(after) else after)
-    return dict(status=status, active=rd(t / ".active"), session=rd(t / ".session" / rd(root / "sid")),
+    return dict(status=status, raw=raw, active=rd(t / ".active"), session=rd(t / ".session" / rd(root / "sid")),
                 unchanged=unchanged,
                 said=(root / "turn1.txt").read_text(),  # assistant's turn-1 output only
                 repo_is_work=lambda slug: bool(re.search(r"(?m)^repo: *(\S.*)$", (t / f"{slug}.md").read_text()))
@@ -43,7 +44,7 @@ def state(case):
 
 EXPECT = {
     "s-yes": lambda s: [("asked park-or-stop", "Park" in s["said"] and "old-work" in s["said"]),
-                        ("old-work parked by task-park", bool(s["skill_log"]("old-work.md"))),
+                        ("old-work parked by task-park", bool(s["skill_log"]("old-work.md")) and s["raw"]["old-work"] == "parked"),
                         ("fix-bug active", s["status"]["fix-bug"] == "active"),
                         (".active=fix-bug", s["active"] == "fix-bug"),
                         (".session=fix-bug", s["session"] == "fix-bug")],
@@ -56,7 +57,7 @@ EXPECT = {
                           (".active=old-work", s["active"] == "old-work"),
                           ("fix-bug active", s["status"]["fix-bug"] == "active"),
                           (".session=fix-bug", s["session"] == "fix-bug")],
-    "g-park": lambda s: [("fix-bug bound to this repo", s["repo_is_work"]("fix-bug")),("old-work parked", s["status"]["old-work"] == "parked"),
+    "g-park": lambda s: [("fix-bug bound to this repo", s["repo_is_work"]("fix-bug")),("old-work parked", s["raw"]["old-work"] == "parked"),
                          ("fix-bug active", s["status"]["fix-bug"] == "active"),
                          (".active=fix-bug", s["active"] == "fix-bug"),
                          (".session=fix-bug", s["session"] == "fix-bug")],
