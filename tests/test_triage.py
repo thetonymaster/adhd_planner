@@ -19,6 +19,7 @@ class TriageTest(unittest.TestCase):
         self.root = pathlib.Path(tempfile.mkdtemp())
         (self.root / "tools").mkdir()
         shutil.copy(SRC, self.root / "tools" / "triage.py")
+        shutil.copy(SRC.parent / "planner_config.py", self.root / "tools" / "planner_config.py")
         self.inbox = self.root / "inbox.md"
         self.archive = self.root / "inbox-archive.md"
 

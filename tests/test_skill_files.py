@@ -54,6 +54,39 @@ class PlanWeekTest(unittest.TestCase):
                  "plugin version: say so, offer `planner:setup`, and stop. Do not build the task list by hand.")
         self.assertIn("In this skill: - " + check, text)
 
+    def test_vault_block_stops_when_period_note_tool_is_missing(self):
+        check = ("If `<planner-path>/tools/period_note.py` is missing, the folder's tools predate this "
+                 "plugin version: say so, offer `planner:setup`, and stop.")
+        self.assertIn(check, flat(skill("plan-week")))
+
+    def test_include_weekend_goes_to_queue_and_plan_week_only(self):
+        text = flat(skill("plan-week"))
+        self.assertIn("Give `task_queue.py`, `plan_week.py` and `period_note.py` the same `--week-start` value", text)
+        self.assertIn("`--include-weekend` to `task_queue.py` and `plan_week.py` only", text)
+
+    def vault_block(self):
+        text = skill("plan-week")
+        return flat(text[text.index("## Vault (optional)"):text.index("## Behavior notes")])
+
+    def test_vault_block_writes_each_vaults_plan_section(self):
+        block = self.vault_block()
+        self.assertIn("period_note.py ensure --plan-week", block)
+        self.assertIn("<!-- planner:plan-week:start -->", block)
+        self.assertIn("no checkboxes", block)
+        self.assertIn("Route by origin, not by title text", block)
+
+    def test_plan_section_skips_a_vault_only_when_its_week_note_cant_be_edited(self):
+        block = self.vault_block()
+        self.assertIn("ending in `not UTF-8`, `month note … missing`, or an OS error", block)
+        self.assertIn("Other `Skipped` reasons concern only the Recurring section: still write the Plan section.",
+                      block)
+
+    def test_week_plan_goes_into_week_notes_not_future_daily_notes(self):
+        self.assertIn("Don't write future daily notes. Each opted-in vault's share of the week plan goes into its "
+                      "week note's Plan section, and the full plan stays in "
+                      "`tools/out/weekly-plan-<week-start>.md`. Only `period_note.py` writes the Recurring section.",
+                      self.vault_block())
+
     def test_queue_rows_are_not_decomposed(self):
         self.assertIn("Rows from `task_queue.py` are not decomposed here.", flat(skill("plan-week")))
 
@@ -118,6 +151,13 @@ class MorningStartupTest(unittest.TestCase):
     def test_older_week_plans_are_asked_about(self):
         self.assertIn("older week plans", flat(skill("morning-startup")))
 
+    def test_vault_block_ensures_this_weeks_period_notes(self):
+        block = flat(skill("morning-startup").split("In this skill:", 1)[1])
+        self.assertIn("period_note.py ensure --date", block)
+        # A missing tool must not block planning the day: skip, don't stop.
+        self.assertIn("If `tools/period_note.py` is missing, say in one line that the tools are "
+                      "out of date and go on.", block)
+
 
 class HabitTrackerTest(unittest.TestCase):
     def test_log_no_longer_claims_to_record_the_whole_day(self):
@@ -125,6 +165,15 @@ class HabitTrackerTest(unittest.TestCase):
         self.assertNotIn("So log once", text)
         self.assertNotIn("records the **whole day**", text)
         self.assertIn("can't un-mark", text)
+
+
+class SetupSkillTest(unittest.TestCase):
+    def test_setup_counts_twelve_scripts_including_period_note(self):
+        text = skill("setup")
+        self.assertIn("twelve", text.lower())
+        self.assertNotIn("eleven", text.lower())
+        self.assertIn("`planner_config.py`, `task_queue.py` and `period_note.py`", flat(text))
+        self.assertIn("tools/period_note.py", text)
 
 
 def task_skill(name):
@@ -252,6 +301,23 @@ class SkillDescriptionLengthTest(unittest.TestCase):
             with self.subTest(skill=str(path.relative_to(ROOT))):
                 self.assertTrue(text)
                 self.assertLessEqual(len(text), self.LIMIT, text)
+
+
+class ObsidianVaultTest(unittest.TestCase):
+    def setUp(self):
+        self.text = task_skill("obsidian-vault")
+
+    def test_folder_table_lists_period_note_folders(self):
+        rows = [line for line in self.text.splitlines() if line.startswith("| `")]
+        for folder in ("Weekly/", "Monthly/"):
+            with self.subTest(folder=folder):
+                row = next((r for r in rows if r.startswith(f"| `{folder}`")), None)
+                self.assertIsNotNone(row, f"no folder-table row for {folder}")
+                self.assertIn("No `up:`", row)
+
+    def test_names_the_recurrence_list_at_the_vault_root(self):
+        text = flat(self.text)
+        self.assertIn("Files at the vault root: `Recurring.md`, the Recurrence list", text)
 
 
 if __name__ == "__main__":

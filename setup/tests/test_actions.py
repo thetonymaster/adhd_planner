@@ -437,7 +437,7 @@ def test_update_vaults_asks_before_download(ctx):
     ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) and False)
     assert actions.update_vaults(ctx, fake_fetch(calls)) == 0
     assert calls == []
-    assert asked == [DOWNLOAD_Q.format(v) for v in vaults.values()]
+    assert [q for q in asked if q.startswith("Download ")] == [DOWNLOAD_Q.format(v) for v in vaults.values()]
     for v in vaults.values():
         assert (v / "Tasks.base").read_text() == PERSONAL_BASE + BOARD_VIEW + DONE_VIEW
         assert not (v / ".obsidian" / "plugins").exists()
@@ -606,7 +606,7 @@ def test_update_vaults_adds_the_template_keys_without_a_prompt(ctx):
     ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) and False)
     assert actions.update_vaults(ctx, fake_fetch()) == 0
     assert (v / "Templates" / "Task.md").read_text() == NEW_TASK
-    assert asked == [DOWNLOAD_Q.format(v)]
+    assert [q for q in asked if q.startswith("Download ")] == [DOWNLOAD_Q.format(v)]
 
 
 def test_update_vaults_dry_run_leaves_the_task_template(ctx):
@@ -804,3 +804,71 @@ def test_update_vaults_keeps_crlf_in_a_hub(ctx):
     v = hub_vault(ctx, {"Projects/X.md": OLD_HUB.replace("\n", "\r\n")})
     assert actions.update_vaults(ctx, fake_fetch()) == 0
     assert (v / "Projects" / "X.md").read_bytes() == NEW_HUB.replace("\n", "\r\n").encode()
+
+
+STARTER_RECURRING = (paths.examples() / "vault-starter" / "Recurring.md").read_bytes()
+
+
+def recurring_questions(asked):
+    return [q for q in asked if "Recurring.md" in q]
+
+
+def test_update_vaults_adds_the_starter_recurring_on_yes(ctx):
+    v, asked = task_vault(ctx), []
+    ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) or True)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert recurring_questions(asked) == [f"Add Recurring.md to {v}? This turns on week and month notes there."]
+    assert (v / "Recurring.md").read_bytes() == STARTER_RECURRING
+    assert f"Added Recurring.md to {v}." in ctx.lines
+
+
+def test_update_vaults_keeps_a_vault_without_recurring_on_no(ctx):
+    v, asked = task_vault(ctx), []
+    ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) and False)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert len(recurring_questions(asked)) == 1
+    assert not (v / "Recurring.md").exists()
+    assert f"Kept {v} without Recurring.md (week and month notes stay off)." in ctx.lines
+
+
+def test_update_vaults_never_asks_about_an_existing_recurring(ctx):
+    v, asked = task_vault(ctx), []
+    mine = b"# Mine\n- [ ] Pay rent \xe2\x80\x94 every: month 1 #id/rent\n"
+    (v / "Recurring.md").write_bytes(mine)
+    ctx = changed(ctx, yes=False, confirm=lambda q: asked.append(q) or True)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert recurring_questions(asked) == []
+    assert (v / "Recurring.md").read_bytes() == mine
+    assert "Recurring.md" not in text(ctx)
+
+
+def test_update_vaults_dry_run_only_says_it_would_ask_about_recurring(ctx):
+    v = task_vault(ctx)
+    before = snapshot(ctx.home)
+    ctx = changed(ctx, dry_run=True)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert snapshot(ctx.home) == before
+    assert f"Would ask to add Recurring.md to {v} (turns on week and month notes)." in ctx.lines
+
+
+def test_update_vaults_never_overwrites_a_recurring_made_during_the_prompt(ctx):
+    v = task_vault(ctx)
+    mine = b"# Made while you were asked\n"
+
+    def confirm(q):
+        if "Recurring.md" in q:
+            (v / "Recurring.md").write_bytes(mine)
+        return True
+
+    ctx = changed(ctx, yes=False, confirm=confirm)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Recurring.md").read_bytes() == mine
+    assert f"Kept the Recurring.md that appeared in {v} meanwhile." in ctx.lines
+
+
+def test_update_vaults_yes_adds_the_recurring(ctx):
+    v = task_vault(ctx)
+    ctx = changed(ctx, yes=True, confirm=lambda q: False)
+    assert actions.update_vaults(ctx, fake_fetch()) == 0
+    assert (v / "Recurring.md").read_bytes() == STARTER_RECURRING
+    assert f"Added Recurring.md to {v}." in ctx.lines

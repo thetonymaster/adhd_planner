@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import zoneinfo
 
 PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calendars.json")
@@ -96,3 +97,115 @@ def plan_days(today, week_start, include_weekend):
         first = week_start
     days = [week_start + dt.timedelta(days=i) for i in range(n_days)]
     return week_start, [d.isoformat() for d in days if d >= first]
+
+
+def iso_week(date):
+    """ISO week label like "2026-W48" (%G-W%V), from isocalendar(), never %W."""
+    year, week, _ = date.isocalendar()
+    return f"{year}-W{week:02d}"
+
+
+def week_month(monday):
+    """The "YYYY-MM" a week belongs to: the month of its Thursday (the ISO rule)."""
+    return (monday + dt.timedelta(days=3)).strftime("%Y-%m")
+
+
+def months_touched(monday):
+    """Every distinct "YYYY-MM" from Monday to Sunday, in order."""
+    months = []
+    for i in range(7):
+        m = (monday + dt.timedelta(days=i)).strftime("%Y-%m")
+        if m not in months:
+            months.append(m)
+    return months
+
+
+def write_atomic(path, text, prefix):
+    """Write `text` as UTF-8 bytes to a fresh `<prefix>*.tmp` beside `path`, then rename
+    it over: a crash mid-write can't truncate `path`, and a leftover or linked temp name
+    is never reused. Bytes, so "\\r\\n" is written as is. An existing file keeps its
+    mode; a new one gets 0o666 & ~umask (mkstemp alone would make it 0600)."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), prefix=prefix, suffix=".tmp")
+    try:
+        # Own the descriptor first, so any failure below still closes it.
+        with os.fdopen(fd, "wb") as f:
+            if os.path.exists(path):
+                mode = os.stat(path).st_mode & 0o7777
+            else:
+                umask = os.umask(0)
+                os.umask(umask)
+                mode = 0o666 & ~umask
+            os.chmod(tmp, mode)
+            f.write(text.encode("utf-8"))
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+# --- frontmatter scalars (the "Task priority" rule in plugins/EGM.md) ---------
+
+_COMMENT = re.compile(r"(^|\s)#.*$")
+
+
+def scalar(raw):
+    """Text after `key:`: trailing ` # comment` removed, trimmed, one pair of matching quotes removed.
+    A `#` inside the quotes is part of the value."""
+    v = raw.strip()
+    if v[:1] in ("\"", "'"):
+        end = v.find(v[0], 1)
+        rest = v[end + 1:] if end > 0 else ""
+        if end > 0 and _COMMENT.sub("", rest).strip() == "":
+            return v[1:end]
+    v = _COMMENT.sub("", v).strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        v = v[1:-1]
+    return v
+
+
+# --- command-line argument checks shared by the tools ------------------------
+
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def fail(msg):
+    """Print `ERROR: <msg>` to stderr and exit 2 (bad arguments)."""
+    print(f"ERROR: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def iso_date(text):
+    """`text` as a YYYY-MM-DD string when it is a real date, else None."""
+    if not _DATE.match(text):
+        return None
+    try:
+        return dt.date.fromisoformat(text).isoformat()
+    except ValueError:
+        return None
+
+
+def parse_day(value, flag):
+    day = iso_date(value)
+    if day is None:
+        fail(f"{flag} expects YYYY-MM-DD, got {value!r}")
+    return dt.date.fromisoformat(day)
+
+
+def parse_vaults(values, require=()):
+    """`--vault NAME=PATH` values → {name: path}. Each folder in `require` must exist
+    inside every vault (task_queue.py passes ("Tasks",))."""
+    vaults = {}
+    for v in values:
+        name, sep, path = v.partition("=")
+        if not sep or not name or not path:
+            fail(f"--vault expects <name>=<path>, got {v!r}")
+        if name in vaults:
+            fail(f"--vault name {name!r} given twice")
+        if not os.path.isdir(path):
+            fail(f"--vault {v!r}: {path!r} is not a folder")
+        for sub in require:
+            if not os.path.isdir(os.path.join(path, sub)):
+                fail(f"--vault {v!r}: {path!r} has no {sub}/ folder")
+        vaults[name] = path
+    return vaults

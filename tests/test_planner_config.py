@@ -4,14 +4,19 @@ Run: python3 -m unittest tests.test_planner_config
 Script tests copy the tools into a temp planner folder, because plan_day.py and
 plan_week.py read calendars.json and write out/ next to themselves.
 """
+import contextlib
 import datetime as dt
+import io
 import json
+import os
 import pathlib
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 TOOLS = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "planner" / "tools"
 sys.path.insert(0, str(TOOLS))
@@ -119,6 +124,121 @@ class PlanDaysTest(unittest.TestCase):
 
     def test_monday_of_a_sunday_is_the_monday_before(self):
         self.assertEqual(planner_config.monday_of(dt.date(2026, 10, 18)), dt.date(2026, 10, 12))
+
+
+class IsoWeekTest(unittest.TestCase):
+    """Week labels come from isocalendar() (%G-W%V), so year ends land in the ISO year."""
+
+    def test_iso_week_labels(self):
+        cases = {
+            "2026-11-22": "2026-W47",
+            "2026-11-23": "2026-W48",
+            "2026-12-28": "2026-W53",
+            "2027-01-03": "2026-W53",
+            "2024-12-30": "2025-W01",
+        }
+        for day, want in cases.items():
+            with self.subTest(day=day):
+                self.assertEqual(planner_config.iso_week(dt.date.fromisoformat(day)), want)
+
+    def test_week_month_is_the_month_of_thursday(self):
+        self.assertEqual(planner_config.week_month(dt.date(2026, 11, 30)), "2026-12")
+
+    def test_months_touched(self):
+        cases = {
+            "2026-11-23": ["2026-11"],             # W48
+            "2026-11-30": ["2026-11", "2026-12"],  # W49
+            "2026-12-28": ["2026-12", "2027-01"],  # W53
+        }
+        for monday, want in cases.items():
+            with self.subTest(monday=monday):
+                self.assertEqual(planner_config.months_touched(dt.date.fromisoformat(monday)), want)
+
+
+class WriteAtomicTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.path = self.dir / "note.md"
+
+    def write(self, text):
+        planner_config.write_atomic(str(self.path), text, prefix=".test-")
+
+    def test_keeps_an_existing_files_mode(self):
+        self.path.write_text("old")
+        os.chmod(self.path, 0o640)
+        self.write("new")
+        self.assertEqual(self.path.read_text(), "new")
+        self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o640)
+
+    def test_a_new_file_gets_the_umask_mode(self):
+        old = os.umask(0o027)
+        try:
+            self.write("new")
+        finally:
+            os.umask(old)
+        self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o640)
+
+    def test_crlf_is_written_unchanged(self):
+        self.write("a\r\nb\r\n")
+        self.assertEqual(self.path.read_bytes(), b"a\r\nb\r\n")
+
+    def test_a_failed_replace_leaves_no_temp_file(self):
+        self.path.write_text("old")
+        with mock.patch("os.replace", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                self.write("new")
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["note.md"])
+        self.assertEqual(self.path.read_text(), "old")
+
+    def test_a_failed_mode_change_closes_the_temp_descriptor(self):
+        fds, real_mkstemp = [], tempfile.mkstemp
+
+        def mkstemp(*a, **kw):
+            fd, name = real_mkstemp(*a, **kw)
+            fds.append(fd)
+            return fd, name
+
+        with mock.patch("tempfile.mkstemp", mkstemp), \
+             mock.patch("os.chmod", side_effect=OSError("boom")), \
+             mock.patch("os.fchmod", side_effect=OSError("boom")):
+            with self.assertRaises(OSError):
+                self.write("new")
+        with self.assertRaises(OSError):
+            os.fstat(fds[0])
+        self.assertEqual(list(self.dir.iterdir()), [])
+
+
+class ScalarTest(unittest.TestCase):
+    """The "Task priority" scalar rule in plugins/EGM.md, shared by task_queue and period_note."""
+
+    def test_hash_inside_quotes_is_part_of_the_value(self):
+        self.assertEqual(planner_config.scalar(' "a #b"'), "a #b")
+        self.assertEqual(planner_config.scalar(" 'a #b'  # note"), "a #b")
+
+    def test_comment_after_a_tab_is_removed(self):
+        self.assertEqual(planner_config.scalar(" p1\t# urgent"), "p1")
+
+    def test_comment_only_value_is_empty(self):
+        self.assertEqual(planner_config.scalar(" # none"), "")
+
+
+class ParseVaultsTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir)
+
+    def test_require_tasks_exits_2_on_a_missing_tasks_folder(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            planner_config.parse_vaults([f"v={self.dir}"], require=("Tasks",))
+        self.assertEqual(cm.exception.code, 2)
+        self.assertEqual(err.getvalue(),
+                         f"ERROR: --vault 'v={self.dir}': '{self.dir}' has no Tasks/ folder\n")
+
+    def test_no_requirement_accepts_a_folder_without_tasks(self):
+        self.assertEqual(planner_config.parse_vaults([f"v={self.dir}"], require=()), {"v": str(self.dir)})
+        self.assertEqual(planner_config.parse_vaults([f"v={self.dir}"]), {"v": str(self.dir)})
 
 
 class ScriptTest(unittest.TestCase):

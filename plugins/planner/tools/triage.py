@@ -26,7 +26,9 @@ import json
 import os
 import re
 import sys
-import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from planner_config import write_atomic  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
@@ -74,22 +76,6 @@ def cmd_parse(args):
                      indent=2, ensure_ascii=False))
     if not items:
         print("\n(inbox empty — nothing to triage)", file=sys.stderr)
-
-
-def write_atomic(path, text):
-    """Write a fresh temp file beside `path`, then rename it over: a crash mid-write
-    can't truncate `path`, and a leftover or linked temp name is never reused."""
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), prefix=".inbox-", suffix=".tmp")
-    try:
-        if os.path.exists(path):
-            os.chmod(tmp, os.stat(path).st_mode & 0o7777)  # mkstemp makes 0600; keep the inbox's mode
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp, path)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
 
 
 def cmd_apply(args):
@@ -150,7 +136,7 @@ def cmd_apply(args):
             f.write(f"\n## {date}\n")
             for line in bullets:
                 f.write(line + "\n")
-    write_atomic(args.inbox, INBOX_TEMPLATE + "".join(line + "\n" for line in unparsed))
+    write_atomic(args.inbox, INBOX_TEMPLATE + "".join(line + "\n" for line in unparsed), prefix=".inbox-")
 
     print(summary)
     print("\n---")

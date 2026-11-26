@@ -159,6 +159,37 @@ To change a task's priority, ask `task-note` (for example "set <task> to p1"): i
 
 A hub (a note in `Projects/` or `Areas/` made from `Templates/Project.md`) lists its open tasks under `## Tasks`: every task whose `up:` names that hub and whose `status` isn't `done`, with priority, due date and status. The order is every `p0` task first, then tasks due within 7 days by date (soonest first), then the rest by priority. The planner's own order can differ in small ways (it uses the planning period, not a fixed 7 days). Hubs from before this list get it through `update-vaults` (see above).
 
+## Week and month notes
+
+A vault gets week notes (`Weekly/2026-W48.md`) and month notes (`Monthly/2026-11.md`) only when it has a `Recurring.md` at its root. That file is the opt-in and the list of recurring items. A vault without it is never written: `period_note.py ensure` (run by `plan-week` and `morning-startup`) prints `Off <vault>: no Recurring.md` for it and moves on. `Weekly/` and `Monthly/` are created the first time a note needs them.
+
+**Opting in.** A new starter vault has `Recurring.md` already. For a vault you already have, `update-vaults` (see "Task board in Obsidian") asks once per vault that has no `Recurring.md`: **"Add Recurring.md to <vault>? This turns on week and month notes there."** Yes copies the starter file and prints `Added Recurring.md to <vault>.`; no prints `Kept <vault> without Recurring.md (week and month notes stay off).` A vault that already has `Recurring.md` is never asked and its file is never touched. `--dry-run` prints `Would ask to add Recurring.md to <vault> (turns on week and month notes).` and writes nothing; `--yes` adds the file. You can also create the file yourself; an empty one is enough to opt in.
+
+**The line format.** The starter file holds its examples in a fenced code block, so it adds nothing until you write a rule outside the block. Each rule is one line:
+
+```text
+- [ ] Weekly review (~30 min) — every: mon #id/weekly-review
+- [ ] Pay rent — every: month 1 #id/rent
+```
+
+- The separator is ` — ` (an em dash with a space on each side); rule keywords are lowercase.
+- Rules: `mon` … `sun` (weekly, on that day); `month <N>` with 1 ≤ N ≤ 31 (past the month's end, its last day); `month last`; `month first-<mon..sun>` (the first such weekday of the month).
+- `#id/` is required, lowercase `a-z`, `0-9` and `-`, unique in the file. Two lines with the same id are both skipped, with a warning.
+- Headings, blank lines, other text and anything inside a fenced code block are ignored. A line that contains `every:` but doesn't match the format is skipped with a warning naming its line number.
+
+Weekly items appear once in each week note, monthly items once in the month note of the month that contains their date. An item is written once: editing its rule changes only notes for periods not created yet, and an item line you delete is never added back.
+
+**Periodic Notes.** No community plugin is needed. If you use Periodic Notes, set its weekly format to `GGGG-[W]WW` (ISO week year and week, e.g. `2026-W48`) and its folder to `Weekly/`, so both tools find the same file.
+
+**Fixing a Skipped note.** The tool never rewrites a note it doesn't recognize; it prints `Skipped <vault>:<path>: <reason>` and leaves the file as it is. Either fix the note or delete it so the next run recreates it:
+
+- `no frontmatter (note not created by the planner)`: add the frontmatter (`period:`, `added: []`, and for a week note `month: "[[YYYY-MM]]"`) at the top.
+- `expected one recurring start/end marker pair` or `recurring end marker comes before start marker`: under `## Recurring`, put exactly one `<!-- planner:recurring:start -->` line followed by one `<!-- planner:recurring:end -->` line, with the item lines between them.
+- `not UTF-8`: save the file as UTF-8.
+- `added: flow list not closed before '<key>:'` (or `before the end of the frontmatter`): the `added: [` list lost its closing `]`. Add the `]` after the last ID, so the tool doesn't have to guess where the list ends.
+- An OS error such as `Permission denied` or `Is a directory` (the system's text for the error): fix the file's permissions, or move away whatever is at that path, so the tool can read and write the note.
+- `month note Monthly/<YYYY-MM>.md missing` (on a week note): the month note couldn't be created; fix the `Skipped` line printed for that month note above it, then run again.
+
 ## What each plugin needs
 
 - **planner**: Python 3.10+ in the planner folder; `reportlab` for the printing skills;
