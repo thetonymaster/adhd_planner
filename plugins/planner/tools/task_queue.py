@@ -28,7 +28,7 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from planner_config import plan_days  # noqa: E402
+from planner_config import fail, iso_date, parse_day, parse_vaults, plan_days  # noqa: E402,F401
 
 FORMAT = "task-queue/1"
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
@@ -44,21 +44,10 @@ KIND_DONE, KIND_UNREADABLE, KIND_OPEN = "done", "unreadable", "open"
 PRIORITY_DETAIL = "expected p0..p5, read as p3"
 DUE_DETAIL = "expected YYYY-MM-DD, read as no due date"
 
-_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _OPEN_ITEM = re.compile(r"^\s*- \[ \][ \t]+(\S.*)$")
 _ESTIMATE = re.compile(r"\s*\(~\s*(\d+(?:\.\d+)?)\s*(min|h)\)\s*$")
 _COMMENT = re.compile(r"(^|\s)#.*$")
 _KEY = re.compile(r"^([A-Za-z_][\w-]*):(.*)$")
-
-
-def iso_date(text):
-    """`text` as a YYYY-MM-DD string when it is a real date, else None."""
-    if not _DATE.match(text):
-        return None
-    try:
-        return dt.date.fromisoformat(text).isoformat()
-    except ValueError:
-        return None
 
 
 # --- reading a note (pure: text in, values out) -------------------------------
@@ -266,34 +255,6 @@ def summary(doc):
 
 # --- IO edge -------------------------------------------------------------------
 
-def fail(msg):
-    print(f"ERROR: {msg}", file=sys.stderr)
-    sys.exit(2)
-
-
-def parse_vaults(values):
-    vaults = {}
-    for v in values:
-        name, sep, path = v.partition("=")
-        if not sep or not name or not path:
-            fail(f"--vault expects <name>=<path>, got {v!r}")
-        if name in vaults:
-            fail(f"--vault name {name!r} given twice")
-        if not os.path.isdir(path):
-            fail(f"--vault {v!r}: {path!r} is not a folder")
-        if not os.path.isdir(os.path.join(path, "Tasks")):
-            fail(f"--vault {v!r}: {path!r} has no Tasks/ folder")
-        vaults[name] = path
-    return vaults
-
-
-def parse_day(value, flag):
-    day = iso_date(value)
-    if day is None:
-        fail(f"{flag} expects YYYY-MM-DD, got {value!r}")
-    return dt.date.fromisoformat(day)
-
-
 def window(args, today):
     """(first_day, until) as ISO strings."""
     if args.date:
@@ -353,7 +314,7 @@ def main(argv=None):
     ap.add_argument("--out", help="write here instead of a new tools/out/queue-run-*.json")
     args = ap.parse_args(argv)
 
-    vaults = parse_vaults(args.vault)
+    vaults = parse_vaults(args.vault, require=("Tasks",))
     first_day, until = window(args, dt.date.today())
     notes = [n for name, path in vaults.items() for n in read_vault(name, path)]
     doc = build(notes, first_day, until, single_vault=len(vaults) == 1)
