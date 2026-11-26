@@ -1,6 +1,6 @@
 [project]
 name = "planner-setup"
-version = "0.1.0"
+version = "0.2.0"
 description = "Set up the adhd-planner marketplace for Claude Code and Cowork."
 requires-python = ">=3.10"
 license = "MIT"
