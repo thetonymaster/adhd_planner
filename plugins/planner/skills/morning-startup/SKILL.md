@@ -140,6 +140,11 @@ In this skill:
 - If `<planner-path>/tools/task_queue.py` is missing, the folder's tools
   predate this plugin version: say so, offer `planner:setup`, and stop. Do not
   build the task list by hand.
+- **Week notes:** once, before step 2, run
+  `cd "<planner-path>" && python3 tools/period_note.py ensure --date <the Now: date>`
+  with one quoted `--vault "<name>=<vault-path>"` per vault in play. Report
+  only its `Skipped` and `Warning` lines. If `tools/period_note.py` is
+  missing, say in one line that the tools are out of date and go on.
 - **Step 2, candidates for the Top 3:** run the queue command,
   `cd "<planner-path>" && python3 tools/task_queue.py --vault "<name>=<vault-path>" --date <today>`,
   with one quoted `--vault` per vault in play (`<name>` is the vault's name in

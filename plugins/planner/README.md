@@ -31,6 +31,8 @@ with `Tasks/` and `Daily/`), the planning skills use it too: morning-startup and
 plan-day write the Top 3 and the timed plan into today's daily note, capture-triage
 also empties the vault inbox, break-down-task writes subtasks into the task note,
 and eod-shutdown reads the day's log, parks the current task and seeds tomorrow's note.
+plan-week and morning-startup create week and month notes in vaults that have
+`Recurring.md`, and plan-week stores each vault's share of the week plan in its week note.
 Attended runs of plan-week, plan-day, morning-startup and eod-shutdown take their
 vault tasks from `task_queue.py`, one row per task in rank order; unattended runs
 still do not read the vault. With two or more vaults registered in
