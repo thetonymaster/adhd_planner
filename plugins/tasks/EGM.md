@@ -71,7 +71,8 @@ invalid).
   `Tasks/.session/<session-id>` and `Tasks/.active` (not `.active` when the user left a
   global current task as is), and delete the other vault's `.session/<id>` on a
   cross-vault move. `task-start` and `task-finish` append to (and may create) today's
-  daily note; both write the target's `status:` and (when empty) `repo:` frontmatter.
+  daily note; both write the target's `status:` and, when empty and the user did not leave a
+  global current task as is, its `repo:` frontmatter.
   `task-finish` deletes every `Tasks/.session/*` file naming the slug and empties
   `Tasks/.active` when it holds it. `create-task` writes only new notes. `task-list`
   is read-only.

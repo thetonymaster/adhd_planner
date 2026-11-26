@@ -212,6 +212,19 @@ class TaskLifecycleTest(unittest.TestCase):
         self.assertIn("as task-start step 5 does", switch)
         self.assertIn("unless `keep`", switch)
 
+    def test_keep_never_binds_the_target_or_suggests_clear(self):
+        for name in ("task-start", "task-switch"):
+            text = flat(task_skill(name))
+            with self.subTest(skill=name):
+                self.assertIn("Unless `keep`: if the target's `repo:` is empty", text)
+                self.assertIn("Stay in this session: after /clear this folder shows <current> again.", text)
+        self.assertIn("so `keep` is never set", flat(task_skill("task-switch")))
+
+    def test_switch_resolves_target_before_asking(self):
+        text = flat(task_skill("task-switch"))
+        self.assertLess(text.index("Resolve the target before asking anything"), text.index("Ask before replacing the current task"))
+        self.assertIn("`status: done` → say it is finished and stop", text)
+
     def test_create_task_points_to_task_start(self):
         self.assertIn("Start one with /tasks:task-start <slug>.", task_skill("create-task"))
 

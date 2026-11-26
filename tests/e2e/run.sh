@@ -13,6 +13,7 @@ case_ g-leave  global        "/tasks:task-start fix-bug" "Leave it as is"
 case_ g-park   global        "/tasks:task-start fix-bug" "Park it"
 case_ new      new           "/tasks:task-start new-thing" "Goal: prove e2e works. Project: ADHD Planner. First action: write the harness."
 case_ done     done          "/tasks:task-start fix-bug"
+case_ sw-done  done          "/tasks:task-switch fix-bug"
 case_ sw-leave global        "/tasks:task-switch fix-bug" "Leave it as is"
 wait
 
