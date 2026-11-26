@@ -316,10 +316,11 @@ After routing, a day header with no rows left for that vault is dropped. For exa
 <!-- planner:plan-week:end -->
 ```
 
-*   **Which vault a row goes to:**
-    *   A row titled `<vault>:<slug>: <item>` goes to `<vault>`, and the vault label is removed, the same as in Daily notes.
+*   **Which vault a row goes to:** by the row's origin in `tools/out/tasks.json`, not by the text of its title.
+    *   A row is a vault row when it starts with `- [ ] <title> — `, where `<title>` is the `title` of a `tasks.json` row with `"source": "vault"`. It goes to the vault named before the first `:` of that row's `task` field (`arryved:billing` → `arryved`), and the `<vault>:` label is removed from the title.
+    *   Every other row (inbox, calendar or user items) goes to the current vault with its title unchanged, even when the title begins with another vault's name and a colon. For example, a user item `personal:budget: renew` planned from the `arryved` session stays in `arryved` as written.
     *   With one vault, every row goes to that vault.
-    *   A row with no vault label (inbox, calendar or user items) goes to the current vault.
+    *   `plan_week.py` needs no change: `task_queue.py` already writes `source` and `task` on every vault row, and the skill already wrote `tasks.json` itself in the same run.
 *   **Which vaults get a section:** every vault that `ensure` did not report as `Off`. The week note usually exists for those vaults even when its Recurring section was Skipped. The skill skips a vault only when its week note can't be edited: `ensure` printed no line for it, or a `Skipped` line whose reason is `not UTF-8`, an OS error, or `month note … missing`. A note Skipped for broken recurring markers or missing frontmatter still gets its Plan section, subject to its own plan-week marker check. The skill tells you which vaults' rows were not stored.
 *   **No capacity figures.** `plan_week.py`'s "assigned" figure counts every vault's rows, so it would be wrong next to one vault's rows. The full figures stay in `weekly-plan-<week-start>.md`.
 *   **What the section never holds:**
@@ -564,8 +565,8 @@ period_note.py ensure --vault NAME=PATH [--vault ...] (--date YYYY-MM-DD | --pla
 *   **Security and privacy.**
     *   `python3 tools/period_note.py` is approved the same way `task_queue.py` already is: by your answer to Claude Code's Bash permission prompt. There is no new permission rule.
     *   The skill's Plan-section edits go through Edit inside the vault, which `vault-allow.py` already approves.
-    *   A vault receives only rows labelled with its own name, plus unlabelled rows in the current vault. Work task titles therefore stay in the work vault.
-    *   Known limit, shared with the Daily `## Plan` routing: rows carry no vault field, so an inbox or user item whose own title begins with another vault's name and a colon (`personal:budget: renew`) is routed to that vault. Recording each row's origin in `plan_week.py`'s output would fix both places; it is a Future Improvement, not part of this slice.
+    *   A vault receives only the vault rows whose `tasks.json` origin names it, plus non-vault rows in the current vault. Work task titles therefore stay in the work vault, and an item whose title merely looks labelled (`personal:budget: renew`) is not sent to another vault.
+    *   Known limit, Daily notes only: the Daily `## Plan` routing still routes by the title's `<vault>:` label, so it keeps that mislabel case. Applying the same origin rule there is a Future Improvement.
 *   **Token cost.** `plan-week` gains one block of about 15 lines, which holds the Plan-section rules. `morning-startup` gains one bullet. There is no new skill and no change to any skill description.
 *   **Rollback.** Remove the skill paragraphs and the tool. The notes remain plain Markdown, and the HTML-comment markers are invisible in reading view. Deleting `Recurring.md` from a vault turns the feature off there.
 
@@ -605,6 +606,7 @@ period_note.py ensure --vault NAME=PATH [--vault ...] (--date YYYY-MM-DD | --pla
 *   More rule types (every N weeks, quarterly, yearly) and `month last-<day>`.
 *   Finding renamed period notes through their `period:` key.
 *   Occurrences as task notes (Alternative B), if checklist lines lack needed fields such as priority or a log.
+*   Daily `## Plan` routing by row origin, using the same `tasks.json` match as the week Plan section, so a user item titled like `personal:budget: renew` stays in the current vault there too.
 
 --------------------------------------------------------------------------------
 
@@ -903,7 +905,7 @@ Each phase leaves the repository green. Run its check before starting the next p
         > - Skip the vault and name it if `ensure` printed no line for its `Weekly/…` note, or a `Skipped` line for it ending in `not UTF-8`, `month note … missing`, or an OS error. Other `Skipped` reasons concern only the Recurring section: still write the Plan section.
 > - In the `Weekly/…` note `ensure` printed for that vault, replace only the text between `<!-- planner:plan-week:start -->` and `<!-- planner:plan-week:end -->`. If there isn't exactly one of each, leave the note alone and name it.
         > - Build the text from the weekly plan file: `##` headers become `###`, including `## Didn't fit this week`, which keeps its rows so they read as unscheduled; keep only rows starting `- [ ] `, drop that prefix and the `<vault>:` label, and keep the rest of the row as written; drop lines starting with `_`, `- (open`, and the `#` title.
-        > - A vault gets only rows labelled with its name. Unlabelled rows go to the current vault. With one vault, it gets every row.
+        > - Route by origin, not by title text. A row is a vault row only when it starts with `- [ ] <title> — ` and `<title>` is the `title` of a `tools/out/tasks.json` row with `"source": "vault"`; it goes to the vault named before the first `:` of that row's `task`. Every other row goes to the current vault unchanged, even if its title starts with another vault's name and a colon. With one vault, it gets every row.
         > - The Plan section has no checkboxes and no meeting titles. Drop a day header that has no rows left.
         >
         > Then name each vault printed as `Off` and say that its rows were not stored.
@@ -954,7 +956,7 @@ Each phase leaves the repository green. Run its check before starting the next p
     *   **`PlanWeekTest`:**
         *   `test_vault_block_checks_for_a_stale_tools_folder_first` stays unchanged.
         *   A new test asserts the `period_note.py` stale-tools sentence from entry 14 word for word.
-        *   A new test asserts that the vault block contains `period_note.py ensure --plan-week`, `<!-- planner:plan-week:start -->`, "no checkboxes" and "A vault gets only rows labelled with its name".
+        *   A new test asserts that the vault block contains `period_note.py ensure --plan-week`, `<!-- planner:plan-week:start -->`, "no checkboxes" and "Route by origin, not by title text".
         *   A new test asserts that `--include-weekend` is given "to `task_queue.py` and `plan_week.py` only".
         *   The unattended-skip test stays unchanged.
     *   **`MorningStartupTest`:**
@@ -1052,8 +1054,8 @@ Each phase leaves the repository green. Run its check before starting the next p
     *   `claude plugin validate plugins/tasks`;
     *   `claude plugin validate .`.
 *   **Manual, in a scratch copy of `examples/vault-starter`**:
-    1. Add two weekly rules and one `month last` rule to `Recurring.md`.
-    2. Run `plan-week` interactively twice. Check that the second run reports no `Wrote` lines from `ensure`, and that the Plan section is replaced, not appended.
+    1. Add two weekly rules and one `month last` rule to `Recurring.md`. Use a second scratch vault too, and add a user item titled `<second-vault>:x: test` when `plan-week` asks for items.
+    2. Run `plan-week` interactively twice. Check that the second run reports no `Wrote` lines from `ensure`, and that the Plan section is replaced, not appended. Check that the `<second-vault>:x: test` item is in the current vault's Plan section with its title unchanged, and not in the second vault's.
     3. Tick one weekly occurrence and delete the other, then copy the week note, then run `plan-week` again. Run `git diff --no-index <copy> Weekly/<label>.md` and check that only the Plan section changed (CUJ 2).
     4. In Obsidian, check that:
         *   the markers are hidden in reading view;
