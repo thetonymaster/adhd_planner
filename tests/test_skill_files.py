@@ -263,5 +263,22 @@ class SkillDescriptionLengthTest(unittest.TestCase):
                 self.assertLessEqual(len(text), self.LIMIT, text)
 
 
+class ObsidianVaultTest(unittest.TestCase):
+    def setUp(self):
+        self.text = task_skill("obsidian-vault")
+
+    def test_folder_table_lists_period_note_folders(self):
+        rows = [line for line in self.text.splitlines() if line.startswith("| `")]
+        for folder in ("Weekly/", "Monthly/"):
+            with self.subTest(folder=folder):
+                row = next((r for r in rows if r.startswith(f"| `{folder}`")), None)
+                self.assertIsNotNone(row, f"no folder-table row for {folder}")
+                self.assertIn("No `up:`", row)
+
+    def test_names_the_recurrence_list_at_the_vault_root(self):
+        text = flat(self.text)
+        self.assertIn("Files at the vault root: `Recurring.md`, the Recurrence list", text)
+
+
 if __name__ == "__main__":
     unittest.main()
