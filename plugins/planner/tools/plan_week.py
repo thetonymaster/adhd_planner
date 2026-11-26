@@ -10,6 +10,9 @@ Output:
   * weekly-plan-<week-start>.md  — day-by-day plan + capacity + overflow
   * week-tasks-<YYYY-MM-DD>.json  — one file per planned day, ready for plan_day.py
                                     (not tasks-<date>.json, which triage.py writes)
+  * weekly-plan-<week-start>.json — --keep-order only: the same rows, each with the vault
+                                    it came from ({"vault", "line"}), by day plus overflow;
+                                    no meetings, capacity or totals
 
 Usage:
   python3 tools/plan_week.py --tasks tasks.json --busy busy-week.json \
@@ -129,15 +132,46 @@ def distribute(tasks, day_dates, capacity, keep_order=False):
     return plan, overflow
 
 
-def plan_line(t, first_day=None):
+def plan_line(t, first_day=None, title=None):
     """`- [ ] <title> — <minutes>m (due <deadline>)`. Under --keep-order (first_day set)
     the priority follows the minutes as ` · p1`, and a deadline before first_day ends
-    with ` (overdue)`."""
+    with ` (overdue)`. title overrides t["title"] (the JSON plan drops the vault prefix)."""
     dl = t.get("deadline")
     pri = f" · {t['priority']}" if first_day and t.get("priority") else ""
     due = f" (due {dl})" if dl else ""
     late = " (overdue)" if first_day and dl and dl < first_day else ""
-    return f"- [ ] {t['title']} — {t.get('minutes',25)}m{pri}{due}{late}"
+    return f"- [ ] {t['title'] if title is None else title} — {t.get('minutes',25)}m{pri}{due}{late}"
+
+
+def row_vault(t):
+    """The vault a row came from: the part of `task` before the first `:`, for a
+    `"source": "vault"` row whose task is `<vault>:<slug>` (several vaults). Else None."""
+    task = t.get("task")
+    if t.get("source") != "vault" or not isinstance(task, str) or ":" not in task:
+        return None
+    return task.split(":", 1)[0]
+
+
+def json_row(t, first_day):
+    """A weekly-plan JSON row: {"vault", "line"}; line is the .md row without `- [ ] `
+    and, for a row with a vault, without the `<vault>:` title prefix."""
+    vault = row_vault(t)
+    title = t["title"]
+    if vault is not None and title.startswith(vault + ":"):
+        title = title[len(vault) + 1:]
+    return {"vault": vault, "line": plan_line(t, first_day, title)[len("- [ ] "):]}
+
+
+def plan_json(plan, day_dates, overflow, week_start):
+    """The weekly-plan-<week-start>.json written under --keep-order: the .md's rows with
+    each one's vault; no meeting titles, capacity figures or totals."""
+    first_day = day_dates[0]
+    return {
+        "week_start": week_start.isoformat(),
+        "days": [{"date": d, "header": dt.date.fromisoformat(d).strftime("%a %b %d"),
+                  "rows": [json_row(t, first_day) for t in plan[d]]} for d in day_dates],
+        "overflow": [json_row(t, first_day) for t in overflow],
+    }
 
 
 def render(plan, day_dates, cap_free, cap_usable, meet_titles, overflow, week_start,
@@ -219,6 +253,11 @@ def main():
                 args.keep_order)
     md_path = os.path.join(out_dir, f"weekly-plan-{week_start.isoformat()}.md")
     open(md_path, "w", encoding="utf-8").write(md + "\n")
+    if args.keep_order:
+        json_path = os.path.join(out_dir, f"weekly-plan-{week_start.isoformat()}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(plan_json(plan, day_dates, overflow, week_start), f,
+                      indent=2, ensure_ascii=False)
 
     made = []
     for d in day_dates:
