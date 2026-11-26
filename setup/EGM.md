@@ -10,7 +10,8 @@ The `planner-setup` installer. It is a uv project with one runtime dependency, `
 - seeds a vault from the repo's `examples/vault-starter/`;
 - adds the task board to vaults: merges the Board and Done (7 days) views into each vault's `Tasks.base` and installs the pinned community Obsidian plugin `kanban-bases-view` (xiwcx/obsidian-bases-kanban 0.10.6) from its GitHub release (`src/planner_setup/board_plugin.py`, `update-vaults` and the vault starter);
 - adds `priority: p3` and `due:` to an existing vault's `Templates/Task.md` when missing (`update-vaults`, no prompt);
-- replaces the original one-line `## Tasks` section of `Templates/Project.md` and of each note directly in `Projects/` and `Areas/` with the starter Project template's Base block (`update-vaults`, one prompt per vault; edited sections are listed and left alone).
+- replaces the original one-line `## Tasks` section of `Templates/Project.md` and of each note directly in `Projects/` and `Areas/` with the starter Project template's Base block (`update-vaults`, one prompt per vault; edited sections are listed and left alone);
+- offers `Recurring.md`, which turns on week and month notes (`update-vaults`, one prompt per vault that has none; an existing `Recurring.md` is never asked about or touched).
 
 The user-facing documentation for all of this is [`docs/setup.md`](../docs/setup.md). Keep it in step with this directory.
 
@@ -23,7 +24,7 @@ The user-facing documentation for all of this is [`docs/setup.md`](../docs/setup
   2. **From an unpacked sdist:** it uses the copies already under `src/planner_setup/examples`. `[tool.hatch.build.targets.sdist.force-include]` in `pyproject.toml` puts them there.
   3. **Neither found:** it raises `FileNotFoundError` naming both locations.
 - **`pyproject.toml`:**
-  - name `planner-setup`, version `0.1.0`;
+  - name `planner-setup`, version `0.2.0`;
   - `requires-python >=3.10`;
   - dev group `pytest>=8`;
   - wheel packages `src/planner_setup`.
