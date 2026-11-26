@@ -149,6 +149,10 @@ tags: [monthly]
 """
 
 
+DEC_MINE = ("---\nperiod: 2026-12\nadded: []\ntags: [monthly]\n---\n# December 2026\n\n"
+            "## Recurring\n<!-- planner:recurring:start -->\n<!-- planner:recurring:end -->\n\n"
+            "## Notes\nmine\n").encode()
+
 class NewNoteTest(unittest.TestCase):
     def test_week_titles(self):
         self.assertEqual(period_note.title_week(D(2026, 11, 23)), "Week 48 · Nov 23 – Nov 29, 2026")
@@ -266,7 +270,7 @@ class CujTest(Base):
         arryved = self.vault("arryved", "- [ ] Weekly review — every: mon #id/weekly-review\n"
                              "- [ ] Retro — every: fri #id/retro\n")
         (arryved / "Monthly").mkdir()
-        (arryved / "Monthly" / "2026-12.md").write_bytes(b"---\nperiod: 2026-12\n---\nmine\n")
+        (arryved / "Monthly" / "2026-12.md").write_bytes(DEC_MINE)
         lines = self.run_main("ensure", "--date", "2026-12-07", "--vault", f"arryved={arryved}",
                               today=D(2026, 12, 7))
         self.assertEqual(lines, [
@@ -278,8 +282,7 @@ class CujTest(Base):
         self.assertIn("<!-- planner:plan-week:start -->\n<!-- planner:plan-week:end -->\n", week)
         self.assertIn("- [ ] Weekly review — 2026-12-07 ^weekly-review-2026-w50\n"
                       "- [ ] Retro — 2026-12-11 ^retro-2026-w50\n", week)
-        self.assertEqual((arryved / "Monthly" / "2026-12.md").read_bytes(),
-                         b"---\nperiod: 2026-12\n---\nmine\n")
+        self.assertEqual((arryved / "Monthly" / "2026-12.md").read_bytes(), DEC_MINE)
 
 
 class EnsureTest(Base):
@@ -306,15 +309,6 @@ class EnsureTest(Base):
         self.assertEqual(lines[1:], ["Unchanged v:Monthly/2026-11.md", "Unchanged v:Weekly/2026-W48.md"])
         self.assertEqual([f.read_bytes() for f in files], [b for b, _ in old])
         self.assertEqual([os.stat(f).st_mtime_ns for f in files], [1_000_000_000] * 2)
-
-    def test_existing_note_is_never_rewritten(self):
-        v = self.vault("v", self.REC)
-        (v / "Weekly").mkdir()
-        mine = b"---\r\nperiod: 2026-W48\r\n---\r\n# my week\r\n"
-        (v / "Weekly" / "2026-W48.md").write_bytes(mine)
-        lines = self.run_main("ensure", "--date", "2026-11-23", "--vault", f"v={v}")
-        self.assertEqual(lines[-1], "Unchanged v:Weekly/2026-W48.md")
-        self.assertEqual((v / "Weekly" / "2026-W48.md").read_bytes(), mine)
 
     def test_off_vault_creates_nothing_and_exits_0(self):
         v = self.vault("v")
@@ -364,6 +358,257 @@ class EnsureTest(Base):
         self.run_main("ensure", "--date", "2026-11-23", "--vault", f"v={v}")
         self.assertEqual(os.listdir(v / "Weekly"), ["2026-W48.md"])
         self.assertEqual(os.listdir(v / "Monthly"), ["2026-11.md"])
+
+
+class MergeTest(Base):
+    """§4: an existing note is merged, never replaced."""
+    REC = ("- [ ] Weekly review (~30 min) — every: mon #id/weekly-review\n"
+           "- [ ] Retro — every: fri #id/retro\n")
+    PATH = ("Weekly", "2026-W48.md")
+
+    def note(self, v, text):
+        path = v.joinpath(*self.PATH)
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(text.encode("utf-8") if isinstance(text, str) else text)
+        return path
+
+    def ensure(self, v, expect=0):
+        return self.run_main("ensure", "--date", "2026-11-25", "--vault", f"v={v}", expect=expect)
+
+    def test_new_rule_is_appended_before_the_end_marker_and_added_to_the_ledger(self):
+        v = self.vault("v", self.REC)
+        path = self.note(v, W48_NOTE.replace("## Notes\n", "## Notes\nmy notes\n"))
+        lines = self.ensure(v)
+        self.assertEqual(lines[-1], "Wrote v:Weekly/2026-W48.md")
+        self.assertEqual(path.read_text(encoding="utf-8"), W48_NOTE
+                         .replace("added: [weekly-review-2026-w48]",
+                                  "added: [weekly-review-2026-w48, retro-2026-w48]")
+                         .replace("^weekly-review-2026-w48\n",
+                                  "^weekly-review-2026-w48\n- [ ] Retro — 2026-11-27 ^retro-2026-w48\n")
+                         .replace("## Notes\n", "## Notes\nmy notes\n"))
+
+    # --- ledger table rows 2-4 -------------------------------------------------
+
+    def test_line_present_but_not_in_ledger_only_adds_the_id(self):
+        v = self.vault("v", self.REC)
+        text = W48_NOTE.replace("## Notes\n", "## Notes\n- [x] moved here — ^retro-2026-w48\n")
+        path = self.note(v, text)
+        self.assertEqual(self.ensure(v)[-1], "Wrote v:Weekly/2026-W48.md")
+        self.assertEqual(path.read_text(encoding="utf-8"), text.replace(
+            "added: [weekly-review-2026-w48]", "added: [weekly-review-2026-w48, retro-2026-w48]"))
+
+    def test_in_ledger_and_present_leaves_everything_alone(self):
+        v = self.vault("v", "- [ ] Weekly review (~30 min) — every: mon #id/weekly-review\n")
+        text = W48_NOTE.replace("- [ ] Weekly review", "- [x] Weekly review, renamed by me")
+        path = self.note(v, text)
+        self.assertEqual(self.ensure(v)[-1], "Unchanged v:Weekly/2026-W48.md")
+        self.assertEqual(path.read_text(encoding="utf-8"), text)
+
+    def test_in_ledger_but_deleted_is_never_re_added(self):
+        v = self.vault("v", self.REC)
+        text = W48_NOTE.replace("added: [weekly-review-2026-w48]",
+                                "added: [weekly-review-2026-w48, retro-2026-w48]")
+        path = self.note(v, text)
+        self.assertEqual(self.ensure(v)[-1], "Unchanged v:Weekly/2026-W48.md")
+        self.assertEqual(path.read_text(encoding="utf-8"), text)
+
+    def test_missing_ledger_warns_and_adds_no_duplicate(self):
+        v = self.vault("v", self.REC)
+        path = self.note(v, W48_NOTE.replace("added: [weekly-review-2026-w48]\n", ""))
+        lines = self.ensure(v)
+        self.assertEqual(lines[-2:], [
+            "Warning v:Weekly/2026-W48.md: added: missing; rebuilt from the body, "
+            "so earlier deletions may come back",
+            "Wrote v:Weekly/2026-W48.md"])
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(text.count("^weekly-review-2026-w48"), 1)
+        self.assertIn('month: "[[2026-11]]"\nadded: [weekly-review-2026-w48, retro-2026-w48]\n'
+                      "tags: [weekly]\n", text)
+        self.assertEqual(self.ensure(v)[-1], "Unchanged v:Weekly/2026-W48.md")
+
+    def test_missing_ledger_goes_after_period_without_month(self):
+        v = self.vault("v", "- [ ] Rent — every: month 1 #id/rent\n")
+        path = v / "Monthly" / "2026-11.md"
+        path.parent.mkdir()
+        path.write_text(NOV_NOTE.replace("added: [close-books-2026-11]\n", ""), encoding="utf-8")
+        self.ensure(v)
+        self.assertTrue(path.read_text(encoding="utf-8").startswith(
+            "---\nperiod: 2026-11\nadded: [rent-2026-11]\ntags: [monthly]\n---\n"))
+
+    def test_missing_ledger_goes_last_without_period_or_month(self):
+        v = self.vault("v", self.REC)
+        text = W48_NOTE.replace("period: 2026-W48\n", "").replace('month: "[[2026-11]]"\n', "") \
+            .replace("added: [weekly-review-2026-w48]\n", "")
+        path = self.note(v, text)
+        self.ensure(v)
+        self.assertTrue(path.read_text(encoding="utf-8").startswith(
+            "---\ntags: [weekly]\nadded: [weekly-review-2026-w48, retro-2026-w48]\n---\n"))
+
+    # --- ledger forms ---------------------------------------------------------------
+
+    def ledger_after(self, added_lines):
+        v = self.vault("v", self.REC)
+        path = self.note(v, W48_NOTE.replace("added: [weekly-review-2026-w48]\n", added_lines))
+        self.ensure(v)
+        return path.read_text(encoding="utf-8")
+
+    def test_block_list_is_read_and_written_back_as_a_flow_list(self):
+        text = self.ledger_after("added:\n  - weekly-review-2026-w48\n")
+        self.assertIn("\nadded: [weekly-review-2026-w48, retro-2026-w48]\ntags: [weekly]\n", text)
+        self.assertEqual(text.count("^weekly-review-2026-w48"), 1)
+
+    def test_empty_ledger_forms(self):
+        for form in ("added:\n", "added: []\n"):
+            with self.subTest(form=form):
+                text = self.ledger_after(form)
+                self.assertIn("\nadded: [weekly-review-2026-w48, retro-2026-w48]\n", text)
+                self.assertEqual(text.count("^weekly-review-2026-w48"), 1)
+                shutil.rmtree(self.tmp / "v")
+
+    def test_scalar_and_quoted_ids(self):
+        for form in ("added: retro-2026-w48\n", "added: 'retro-2026-w48'\n",
+                     'added: ["retro-2026-w48", \'weekly-review-2026-w48\']\n'):
+            with self.subTest(form=form):
+                text = self.ledger_after(form)
+                self.assertNotIn("^retro-2026-w48", text)  # in the ledger: deleted, not re-added
+                shutil.rmtree(self.tmp / "v")
+
+    def test_id_inside_a_fence_does_not_count(self):
+        v = self.vault("v", self.REC)
+        path = self.note(v, W48_NOTE.replace("## Notes\n", "## Notes\n```\n- [ ] x ^retro-2026-w48\n```\n"))
+        self.ensure(v)
+        self.assertIn("^weekly-review-2026-w48\n- [ ] Retro — 2026-11-27 ^retro-2026-w48\n"
+                      "<!-- planner:recurring:end -->", path.read_text(encoding="utf-8"))
+
+    # --- markers and frontmatter ------------------------------------------------------
+
+    START, END = "<!-- planner:recurring:start -->\n", "<!-- planner:recurring:end -->\n"
+
+    def test_broken_recurring_markers_are_skipped_and_the_rest_goes_on(self):
+        occ = "- [ ] Weekly review (~30 min) — 2026-11-23 ^weekly-review-2026-w48\n"
+        pair = self.START + occ + self.END
+        cases = [
+            (pair.replace(self.START, "").replace(self.END, ""), "found start=0 end=0"),
+            (pair.replace(self.END, ""), "found start=1 end=0"),
+            (pair.replace(self.START, ""), "found start=0 end=1"),
+            (pair + "\n" + self.START + self.END, "found start=2 end=2"),
+            (self.END + occ + self.START, None),
+            ("```\n" + pair + "```\n", "found start=0 end=0"),
+        ]
+        for body, found in cases:
+            with self.subTest(body=body):
+                v = self.vault("v", self.REC)
+                other = self.vault("other", self.REC)
+                text = W48_NOTE.replace(pair, body)
+                path = self.note(v, text)
+                lines = self.run_main("ensure", "--date", "2026-11-25", "--vault", f"v={v}",
+                                      "--vault", f"other={other}", expect=1)
+                reason = (f"expected one recurring start/end marker pair, {found}" if found
+                          else "recurring end marker comes before start marker")
+                self.assertEqual(lines[1:], ["Wrote v:Monthly/2026-11.md",
+                                             f"Skipped v:Weekly/2026-W48.md: {reason}",
+                                             "Wrote other:Monthly/2026-11.md",
+                                             "Wrote other:Weekly/2026-W48.md"])
+                self.assertEqual(path.read_text(encoding="utf-8"), text)
+                shutil.rmtree(v)
+                shutil.rmtree(other)
+
+    def test_broken_plan_week_pair_warns_only(self):
+        v = self.vault("v", self.REC)
+        path = self.note(v, W48_NOTE.replace("<!-- planner:plan-week:end -->\n", ""))
+        lines = self.ensure(v)
+        self.assertEqual(lines[-2:], [
+            "Warning v:Weekly/2026-W48.md: expected one plan-week start/end marker pair, "
+            "found start=1 end=0",
+            "Wrote v:Weekly/2026-W48.md"])
+        self.assertIn("^retro-2026-w48\n", path.read_text(encoding="utf-8"))
+
+    def test_month_note_never_gets_a_plan_week_warning(self):
+        v = self.vault("v", "- [ ] Rent — every: month 1 #id/rent\n")
+        (v / "Monthly").mkdir()
+        (v / "Monthly" / "2026-11.md").write_text(NOV_NOTE, encoding="utf-8")
+        lines = self.ensure(v)
+        self.assertEqual(lines[1], "Wrote v:Monthly/2026-11.md")
+        self.assertFalse(any(l.startswith("Warning") for l in lines), lines)
+
+    def test_note_without_frontmatter_is_skipped(self):
+        v = self.vault("v", self.REC)
+        text = W48_NOTE[W48_NOTE.index("# Week"):]
+        path = self.note(v, text)
+        lines = self.ensure(v, expect=1)
+        self.assertEqual(lines[-1], "Skipped v:Weekly/2026-W48.md: no frontmatter "
+                                    "(note not created by the planner)")
+        self.assertEqual(path.read_text(encoding="utf-8"), text)
+
+    # --- line endings ---------------------------------------------------------------
+
+    def test_crlf_note_stays_crlf(self):
+        v = self.vault("v", self.REC)
+        path = self.note(v, W48_NOTE.replace("\n", "\r\n").encode())
+        self.ensure(v)
+        data = path.read_bytes()
+        self.assertIn("^weekly-review-2026-w48\r\n- [ ] Retro — 2026-11-27 ^retro-2026-w48\r\n"
+                      "<!-- planner:recurring:end -->\r\n".encode(), data)
+        self.assertIn(b"added: [weekly-review-2026-w48, retro-2026-w48]\r\n", data)
+        self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
+
+    def test_no_trailing_newline_keeps_none(self):
+        v = self.vault("v", self.REC)
+        path = self.note(v, W48_NOTE.rstrip("\n"))
+        self.ensure(v)
+        text = path.read_text(encoding="utf-8")
+        self.assertTrue(text.endswith("\n## Notes"), repr(text[-20:]))
+        self.assertIn("^retro-2026-w48\n", text)
+
+    # --- repeat runs and CUJs --------------------------------------------------------
+
+    def test_merge_then_repeat_run_is_byte_identical_and_unchanged(self):
+        v = self.vault("v", self.REC)
+        path = self.note(v, W48_NOTE.replace("\n", "\r\n"))
+        self.ensure(v)
+        first = path.read_bytes()
+        os.utime(path, ns=(1_000_000_000, 1_000_000_000))
+        self.assertEqual(self.ensure(v)[1:], ["Unchanged v:Monthly/2026-11.md",
+                                              "Unchanged v:Weekly/2026-W48.md"])
+        self.assertEqual(path.read_bytes(), first)
+        self.assertEqual(os.stat(path).st_mtime_ns, 1_000_000_000)
+
+    def test_cuj2_replan_keeps_ticks_deletions_and_notes(self):
+        v = self.vault("arryved", self.REC)
+        self.run_main("ensure", "--plan-week", "--vault", f"arryved={v}")  # Sunday, W48
+        path = v / "Weekly" / "2026-W48.md"
+        edited = path.read_text(encoding="utf-8") \
+            .replace("- [ ] Weekly review", "- [x] Weekly review") \
+            .replace("- [ ] Retro — 2026-11-27 ^retro-2026-w48\n", "") \
+            .replace("## Notes\n", "## Notes\nTalked to Ana about billing.\n")
+        path.write_text(edited, encoding="utf-8")
+        lines = self.run_main("ensure", "--plan-week", "--vault", f"arryved={v}",
+                              today=D(2026, 11, 25))
+        self.assertEqual(lines[-1], "Unchanged arryved:Weekly/2026-W48.md")
+        self.assertEqual(path.read_text(encoding="utf-8"), edited)
+
+    def test_cuj5_broken_marker_stops_the_write(self):
+        arryved = self.vault("arryved", "- [ ] Weekly review (~30 min) — every: mon #id/weekly-review\n"
+                             "- [ ] Close books — every: month last #id/close-books\n")
+        personal = self.vault("personal", self.REC)
+        self.run_main("ensure", "--plan-week", "--vault", f"arryved={arryved}")
+        path = arryved / "Weekly" / "2026-W48.md"
+        broken = path.read_text(encoding="utf-8").replace("<!-- planner:recurring:end -->\n", "")
+        path.write_text(broken, encoding="utf-8")
+        (arryved / "Recurring.md").write_text(
+            (arryved / "Recurring.md").read_text(encoding="utf-8") + "- [ ] Retro — every: fri #id/retro\n",
+            encoding="utf-8")
+        lines = self.run_main("ensure", "--plan-week", "--vault", f"arryved={arryved}",
+                              "--vault", f"personal={personal}", expect=1)
+        self.assertEqual(lines, [
+            "Week 2026-W48 (Monday 2026-11-23)",
+            "Unchanged arryved:Monthly/2026-11.md",
+            "Skipped arryved:Weekly/2026-W48.md: expected one recurring start/end marker pair, "
+            "found start=1 end=0",
+            "Wrote personal:Monthly/2026-11.md",
+            "Wrote personal:Weekly/2026-W48.md",
+        ])
+        self.assertEqual(path.read_text(encoding="utf-8"), broken)
 
 
 class DatesTest(Base):

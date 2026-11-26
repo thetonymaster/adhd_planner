@@ -68,6 +68,30 @@ code from each other: each is installed and versioned on its own.
   only when given; `task-note` sets either on an existing note. Readers must not choke on
   unknown keys (`vaults.py`, `resolve.ts` pick fields by name).
   `plugins/planner/tools/task_queue.py` holds the only coded copy of the ordering rule.
+- Period notes, one vault contract (spec: `docs/designs/week-month-notes.md`, Technical
+  Plan §3–§4). Opt-in: only a vault with a Recurrence list (`<vault>/Recurring.md`) gets
+  period notes; any other vault is never written. Paths: week note `Weekly/<GGGG-Www>.md`
+  (ISO label `%G-W%V`, e.g. `2026-W48`), month note `Monthly/<YYYY-MM>.md`. Thursday rule:
+  a week note's `month:` is the month of the week's Thursday; its `Months:` line links every
+  month the week touches, and those month notes are created before the week note. Owned
+  sections, each between one start and one end marker on their own lines outside fenced
+  code (a line starting at column 0 with ```` ``` ```` or `~~~`): the Plan section
+  (`<!-- planner:plan-week:start -->` … `:end -->`, week notes only) is written by the
+  `plan-week` skill, which replaces it whole; the Recurring section
+  (`<!-- planner:recurring:start -->` … `:end -->`) is written only by
+  `plugins/planner/tools/period_note.py`, which skips a note whose recurring markers aren't
+  exactly one start then one end, or that has no frontmatter. The rest of a period note is
+  the user's. Recurrence list line: `- [ ] <text> — every: <rule> #id/<id>` (`<rule>`:
+  `mon`..`sun`, `month <1-31>`, `month last`, `month first-<mon..sun>`). Occurrence line:
+  `- [ ] <text> — <YYYY-MM-DD> ^<id>-<period>`, `<period>` the lowercased label
+  (`^weekly-review-2026-w48`, `^close-books-2026-11`); a line carries an ID only when `^ID`
+  is its last token outside fenced code. Ledger: frontmatter `added:` lists every occurrence
+  ID ever added (read as a flow or block list, empty, a scalar, quoted IDs as in "Task
+  priority"; written back as one flow-list line); an ID in the ledger is never re-added, so
+  a deleted occurrence stays deleted. `period_note.py` keeps each line's ending and leaves
+  unchanged files untouched. "Scheduled runs never touch the vault"
+  (`planner/EGM.md`) still holds: only interactive `plan-week` and `morning-startup` run
+  `period_note.py`.
 - Bump `version` in a plugin's `.claude-plugin/plugin.json` when it changes; run
   `claude plugin validate plugins/<name>` after every edit under it.
 - `planner.plugin` (repo root) is built from `plugins/planner` by
@@ -77,7 +101,9 @@ code from each other: each is installed and versioned on its own.
 
 - User's Obsidian vault: task notes (including `status:` flips by `park_on_end.py` at
   session end), `Tasks/.active`, `Tasks/.session/*`, `Tasks/.pomo.json` (and its lock file `Tasks/.pomo.flock`, or folder `Tasks/.pomo.lock` without perl), daily notes
-  (`Daily/<date>.md` focus lines from task-track).
+  (`Daily/<date>.md` focus lines from task-track), period notes `Weekly/` and `Monthly/`
+  (`period_note.py` and the `plan-week` skill, only in a vault that has `Recurring.md`) and
+  `Recurring.md` itself (written by the user, or seeded by `planner-setup`).
 - task-track's `/task` pane "Open in Obsidian" button runs `open obsidian://open?path=…`.
 - User's planner folder: `inbox.md`, `inbox-archive.md`, `habits-log.json`, and `tools/out/`
   files written by the planner tools.
