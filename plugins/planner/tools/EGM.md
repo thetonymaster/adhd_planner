@@ -94,7 +94,8 @@ Seed data files (templates, copied by setup):
   `gcal-events-<date>.json`, `daily-events-<date>.json` to the out dir.
 - `plan_week.py`: writes `weekly-plan-<week-start>.md` and one
   `week-tasks-<date>.json` per planned day; on a re-run, deletes the
-  `week-tasks-<date>.json` of any day that now has no tasks.
+  `week-tasks-<date>.json` of any day that now has no tasks. Under `--keep-order`
+  it also writes `weekly-plan-<week-start>.json` (the same rows, each with its vault).
 - `make_daily.py`, `make_insert.py`: write PDFs to `tools/out/`.
 - `task_queue.py`: writes one `task-queue/1` JSON file (`format`, `first_day`,
   `until`, `tasks`, `not_placed`, `warnings`): a new `tools/out/queue-run-<random>.json`
