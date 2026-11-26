@@ -8,22 +8,30 @@ def state(case):
     root = E2E / f"run-{case}"
     t = root / "vault" / "Tasks"
     rd = lambda p: p.read_text().strip() if p.is_file() else None
-    # SessionEnd (park_on_end.py) parks the session's active task when `claude -p` exits:
-    # a note it parked counts as active, and its edits are stripped before comparing.
-    END = re.compile(r"(?m)^- \[\[[\d-]+\]\] [\d:]+ — parked: session ended\n?")
+    # SessionEnd (park_on_end.py) parks the session's active task when `claude -p` exits. Only when
+    # its line is the note's LAST Log line was that park the final transition: then the note counts
+    # as active at session end, and undoing that one park gives what the skill left behind.
+    END_LINE = re.compile(r"^- \[\[[\d-]+\]\] [\d:]+ — parked: session ended$")
+
+    def ended_last(text):
+        logs = [l for l in text.splitlines() if l.startswith("- [[")]
+        return bool(logs) and bool(END_LINE.match(logs[-1]))
+
+    def undo_end(text):  # drop the final SessionEnd line, restore its status flip
+        lines = text.splitlines(keepends=True)
+        i = max(n for n, l in enumerate(lines) if l.startswith("- [["))
+        return "".join(lines[:i] + lines[i + 1:]).replace("status: parked", "status: active", 1)
+
     def status_of(text):
-        st = re.search(r"(?m)^status: *(\S*)", text).group(1)
-        return "active" if st == "parked" and END.search(text) else st
+        return re.search(r"(?m)^status: *(\S*)", (undo_end(text) if ended_last(text) else text)).group(1)
     status = {p.stem: status_of(p.read_text()) for p in t.glob("*.md")}
 
     def unchanged(n):  # equal, after undoing only the SessionEnd park (active -> parked + its Log line)
         before, after = (root / "Tasks.before" / n).read_text(), (t / n).read_text()
-        if END.search(after):
-            after = END.sub("", after).replace("status: parked", "status: active", 1)
-        return before == after
+        return before == (undo_end(after) if ended_last(after) else after)
     return dict(status=status, active=rd(t / ".active"), session=rd(t / ".session" / rd(root / "sid")),
                 unchanged=unchanged,
-                said=(root / "transcript.txt").read_text(),
+                said=(root / "turn1.txt").read_text(),  # assistant's turn-1 output only
                 repo=lambda slug: re.search(r"(?m)^repo: *(.*)$", (t / f"{slug}.md").read_text()).group(1).strip(),
                 # Log lines added by the skill itself (not the SessionEnd park)
                 skill_log=lambda n: [l for l in (t / n).read_text().splitlines()[len((root / "Tasks.before" / n).read_text().splitlines()):]

@@ -6,7 +6,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 out=${1:-$(mktemp -d "${TMPDIR:-/tmp}/planner-e2e.XXXXXX")}
 mkdir -p "$out"
 
-case_() { "$here/run_case.sh" "$out" "$@" >/dev/null & }
+pids=()
+case_() { "$here/run_case.sh" "$out" "$@" >/dev/null & pids+=($!); }
 case_ s-yes    session-owned "/tasks:task-start fix-bug" "yes"
 case_ s-no     session-owned "/tasks:task-start fix-bug" "no"
 case_ g-leave  global        "/tasks:task-start fix-bug" "Leave it as is"
@@ -15,7 +16,9 @@ case_ new      new           "/tasks:task-start new-thing" "Goal: prove e2e work
 case_ done     done          "/tasks:task-start fix-bug"
 case_ sw-done  done          "/tasks:task-switch fix-bug"
 case_ sw-leave global        "/tasks:task-switch fix-bug" "Leave it as is"
-wait
+failed=0
+for p in "${pids[@]}"; do wait "$p" || failed=$((failed + 1)); done
 
 echo "Runs: $out (transcript.txt per case)"
 python3 "$here/check.py" "$out"
+if [ "$failed" -ne 0 ]; then echo "$failed case(s) had a failed claude call" >&2; exit 1; fi
