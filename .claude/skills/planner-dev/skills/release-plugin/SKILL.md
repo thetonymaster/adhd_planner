@@ -20,6 +20,8 @@ Work from the repo root. Report each step's outcome as observed; stop at the fir
    | `.claude/skills/planner-dev/` | `claude plugin validate .claude/skills/planner-dev` and `cd .claude/skills/planner-dev && claude plugin test .` |
    | `setup/`, `examples/`, `docs/setup.md` | `cd setup && uv run pytest` |
 
+   If `plugins/tasks/skills/task-start`, `task-switch` or `task-park`, or `plugins/tasks/hooks/` changed, also offer `bash tests/e2e/run.sh` (headless `claude -p` runs, about 14 Sonnet turns; run it only on the user's yes). A failure whose note diff is only a `parked: session ended` Log line is the SessionEnd hook, not the skill (`tests/e2e/README.md`).
+
    Vault-resolution changes (`vaults.py`, `session_task.py`, `resolve.ts`) need both the Python and the task-track suite, whichever side changed.
 4. **Build.** If `plugins/planner/` changed: `bash scripts/build-plugin.sh`, then confirm `git status` shows `planner.plugin` modified.
 5. **Docs.** If a plugin option, a vault rule or an install step changed, check `docs/setup.md` and the plugin's README say the same; list any mismatch, don't fix it unasked.

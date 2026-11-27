@@ -1,6 +1,6 @@
 ---
 name: create-task
-description: Create one or many task notes in ~/vault/Tasks as backlog (parked), e.g. a batch from a plan or review, without starting any. For "add a task for X", "make tasks from this plan". Not start working on it now (task-start, or task-switch for an existing note), edit an existing task (task-note), split one task into steps (break-down-task) or sort a brain dump (capture-triage).
+description: Create one or many task notes in ~/vault/Tasks as backlog (parked), e.g. a batch from a plan or review, without starting any. For "add a task for X", "make tasks from this plan". Not start working on it now (task-start), edit an existing task (task-note), split one task into steps (break-down-task) or sort a brain dump (capture-triage).
 ---
 
 Create: $ARGUMENTS
@@ -14,4 +14,4 @@ New tasks go to the backlog: `status: parked`. This skill never starts a task. N
 3. Confirm each project/area hub exists in `Projects/` or `Areas/` (obsidian-vault rule 3). Missing → ask before creating it.
 4. For each task, copy `~/vault/Templates/Task.md` to `~/vault/Tasks/<slug>.md`; set `status: parked`; set `priority` to the one the user named (this skill writes `priority: p3` without asking when they named none); set `due` only when the user or the source gives a date, otherwise leave `due:` empty (accept only `p0`..`p5` and a real `YYYY-MM-DD` date; for any other value ask the user to correct it before writing the note); fill `up`, `started` (today: the date on the latest `Now:` line), `aliases`, Goal, Next (as `- [ ]` with a time estimate); leave `finished:` empty. Set `repo:` only when the user says the task belongs to the current repo: `git rev-parse --show-toplevel`, written with `~` for `$HOME`. Otherwise leave it empty.
 5. Append one line to each note's `## Log`: `- [[YYYY-MM-DD]] HH:MM — created`, adding the source when there is one (`created from <plan>`), date and time from the latest `Now:` line (`date` only when there is none).
-6. Verify per obsidian-vault (unresolved, backlinks on the hub). Reply: one line per created task, `<slug> — <first Next item>` (`<vault>:<slug>` with several vaults registered), then `Skipped (exists): <slugs>` if any, then `Start one with /tasks:task-switch <slug>.`
+6. Verify per obsidian-vault (unresolved, backlinks on the hub). Reply: one line per created task, `<slug> — <first Next item>` (`<vault>:<slug>` with several vaults registered), then `Skipped (exists): <slugs>` if any, then `Start one with /tasks:task-start <slug>.`

@@ -4,7 +4,7 @@ Guidance for coding agents working in this repository. `CLAUDE.md` imports this 
 
 ## Checks
 
-Four suites; run the ones covering what you touched.
+Four suites, plus an opt-in e2e; run the ones covering what you touched.
 
 | Covers | Command |
 |---|---|
@@ -13,6 +13,7 @@ Four suites; run the ones covering what you touched.
 | `plugins/task-track` (TypeScript mod) | `cd plugins/task-track && claude plugin test .` |
 | `.claude/skills/planner-dev` (repo dev tools) | `cd .claude/skills/planner-dev && claude plugin test .` |
 | any plugin's manifest/skills/hooks | `claude plugin validate plugins/<name>` |
+| `tasks` start/switch/park behaviour, end to end (spends model calls, local only) | `bash tests/e2e/run.sh` |
 
 Single test: `python3 -m unittest tests.test_vaults.<Class>.<method>`, `cd setup && uv run pytest tests/test_cli.py -k <name>`.
 

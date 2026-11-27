@@ -34,8 +34,8 @@ invalid).
   - [task-note](./skills/task-note/SKILL.md) - read or update an existing task note
   - [task-park](./skills/task-park/SKILL.md) - save the current task's state, always
     `status: parked`
-  - [task-start](./skills/task-start/SKILL.md) - create a task note and make it active
-  - [task-switch](./skills/task-switch/SKILL.md) - park, then activate another note
+  - [task-start](./skills/task-start/SKILL.md) - start a task, new or existing: create the note when missing, ask whether to park the current task (this session's: park or stop; global: park or leave it), make it active
+  - [task-switch](./skills/task-switch/SKILL.md) - the same for an existing note only, plus a no-argument picker
 
 ## Invariants
 
@@ -67,10 +67,13 @@ invalid).
   `parked` and append a `parked: session ended` Log line (atomic replace, re-read up
   to 3 times when the note changes under it); change permission outcomes for vault
   file tools.
-- Skills: write task notes; `task-start` and `task-switch` also write `Tasks/.active`
-  and `Tasks/.session/<session-id>`, and delete the other vault's `.session/<id>` on a
+- Skills: write task notes; `task-start` and `task-switch` also write
+  `Tasks/.session/<session-id>` and `Tasks/.active` (not `.active` when the user left a
+  global current task as is), and delete the other vault's `.session/<id>` on a
   cross-vault move. `task-start` and `task-finish` append to (and may create) today's
-  daily note; `task-switch` writes the target's `status:` and `repo:` frontmatter.
+  daily note. `task-start` and `task-switch` (not `task-finish`) write the target's `status:`,
+  and its `repo:` frontmatter when empty, except after the user left a global current task
+  as is (`keep`): then `repo:` stays unset.
   `task-finish` deletes every `Tasks/.session/*` file naming the slug and empties
   `Tasks/.active` when it holds it. `create-task` writes only new notes. `task-list`
   is read-only.

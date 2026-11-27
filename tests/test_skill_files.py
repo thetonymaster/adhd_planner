@@ -195,6 +195,46 @@ class TaskLifecycleTest(unittest.TestCase):
     def test_task_start_sets_active_explicitly(self):
         self.assertIn("status: active", task_skill("task-start"))
 
+    def test_task_start_starts_new_or_existing(self):
+        text = flat(task_skill("task-start"))
+        self.assertIn("**existing** task: skip steps 2–4", text)
+        self.assertIn("**new** task: steps 2–4 create it", text)
+        self.assertNotIn("offer `/tasks:task-switch <slug>` instead", text)
+
+    def test_start_and_switch_ask_before_parking(self):
+        start = flat(task_skill("task-start"))
+        self.assertIn("**Ask before replacing the current task.**", start)
+        self.assertIn("Park <current> and start <slug>?", start)
+        self.assertIn("leave it as is and only assign <slug> to this session?", start)
+        self.assertIn("unless `keep`", start)
+        switch = flat(task_skill("task-switch"))
+        self.assertNotIn("2. Run `/tasks:task-park` on the current task.", switch)
+        self.assertIn("as task-start step 5 does", switch)
+        self.assertIn("unless `keep`", switch)
+
+    def test_keep_never_binds_the_target_or_suggests_clear(self):
+        for name in ("task-start", "task-switch"):
+            text = flat(task_skill(name))
+            with self.subTest(skill=name):
+                self.assertIn("Unless `keep`: if the target's `repo:` is empty", text)
+                self.assertIn("Stay in this session: after /clear this folder shows <current> again.", text)
+        self.assertIn("so `keep` is never set", flat(task_skill("task-switch")))
+
+    def test_already_current_target_writes_nothing(self):
+        for name in ("task-start", "task-switch"):
+            with self.subTest(skill=name):
+                text = flat(task_skill(name))
+                self.assertIn("this session's task → reply `Already on <slug>.` and stop, writing nothing", text)
+                self.assertIn("but global → set `keep`, ask nothing", text)
+
+    def test_switch_resolves_target_before_asking(self):
+        text = flat(task_skill("task-switch"))
+        self.assertLess(text.index("Resolve the target before asking anything"), text.index("Ask before replacing the current task"))
+        self.assertIn("`status: done` → say it is finished and stop", text)
+
+    def test_create_task_points_to_task_start(self):
+        self.assertIn("Start one with /tasks:task-start <slug>.", task_skill("create-task"))
+
     def test_task_park_always_parks(self):
         text = flat(task_skill("task-park"))
         self.assertIn("status: parked", text)
